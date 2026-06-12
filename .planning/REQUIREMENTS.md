@@ -66,27 +66,34 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INST-01 | — | Pending |
-| INST-02 | — | Pending |
-| INST-03 | — | Pending |
-| INST-04 | — | Pending |
-| CLUS-01 | — | Pending |
-| CLUS-02 | — | Pending |
-| DOWN-01 | — | Pending |
-| DOWN-02 | — | Pending |
-| QUAL-01 | — | Pending |
-| QUAL-02 | — | Pending |
-| QUAL-03 | — | Pending |
-| PLAT-01 | — | Pending |
-| PLAT-02 | — | Pending |
-| PLAT-03 | — | Pending |
-| PLAT-04 | — | Pending |
+| INST-01 | Phase 1 | Pending |
+| INST-02 | Phase 2 | Pending |
+| INST-03 | Phase 1 | Pending |
+| INST-04 | Phase 1 | Pending |
+| CLUS-01 | Phase 3 | Pending |
+| CLUS-02 | Phase 3 | Pending |
+| DOWN-01 | Phase 1 | Pending |
+| DOWN-02 | Phase 1 | Pending |
+| QUAL-01 | Phase 3 | Pending |
+| QUAL-02 | Phase 1 | Pending |
+| QUAL-03 | Phase 1 | Pending |
+| PLAT-01 | Phase 4 | Pending |
+| PLAT-02 | Phase 4 | Pending |
+| PLAT-03 | Phase 4 | Pending |
+| PLAT-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 15 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 15 ⚠️ (will be resolved by roadmapper)
+- Mapped to phases: 15 ✓
+- Unmapped: 0
+
+| Phase | Requirements | Count |
+|-------|-------------|-------|
+| Phase 1: curl\|sh 单机安装 | INST-01, INST-03, INST-04, DOWN-01, DOWN-02, QUAL-02, QUAL-03 | 7 |
+| Phase 2: TOML 配置驱动单机 | INST-02 | 1 |
+| Phase 3: 主备集群 | CLUS-01, CLUS-02, QUAL-01 | 3 |
+| Phase 4: 发布流水线 | PLAT-01, PLAT-02, PLAT-03, PLAT-04 | 4 |
 
 ---
 *Requirements defined: 2026-06-12*
-*Last updated: 2026-06-12 after initial definition*
+*Last updated: 2026-06-12 after roadmap creation*
