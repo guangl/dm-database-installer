@@ -5,7 +5,7 @@ milestone_name: milestone
 status: ready_to_plan
 stopped_at: Phase 03 complete (3/3) — ready to discuss Phase 4
 last_updated: 2026-06-12T23:48:21.777Z
-last_activity: 2026-06-12 -- Phase 03 execution started
+last_activity: 2026-06-13 -- Phase 03 complete, transitioning to Phase 4
 progress:
   total_phases: 4
   completed_phases: 2
@@ -18,7 +18,7 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-12)
+See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** 开发者一行命令搞定本地达梦环境，DBA 用配置文件完成生产集群部署——两类用户都不需要手动操作达梦原生安装程序。
 **Current focus:** Phase 4 — 发布流水线
@@ -30,7 +30,7 @@ Plan: Not started
 Status: Ready to plan
 Last activity: 2026-06-12
 
-Progress: [██████████] 100%
+Progress: [████████████████████] 4/4 plans (100%)
 
 ## Performance Metrics
 
@@ -75,6 +75,7 @@ None yet.
 
 - **P2**: 达梦官网无公开直链，DOWN-01 自动下载需 spike 验证可行性；主路径建议先支持本地包路径
 - **P1**: dminit 四个不可修改参数（PAGE_SIZE/CHARSET/CASE_SENSITIVE/EXTENT_SIZE）确认流程是最高风险点
+- **P3 代码审查（5个Critical）**: sftp_write 缺 CREATE 标志、ISO 未解压直接调用 DMInstall.bin、`~` 路径不展开、shell 命令注入、SSH TOFU 无指纹记录 — 需在 Phase 4 前修复或在 Phase 4 gap closure 中处理
 
 ## Deferred Items
 
@@ -84,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-12T23:33:38.296Z
-Stopped at: context exhaustion at 75% (2026-06-12)
+Last session: 2026-06-13
+Stopped at: Phase 03 complete, ready to discuss/plan Phase 4 (发布流水线)
 Resume file: None
