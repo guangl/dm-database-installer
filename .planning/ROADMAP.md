@@ -43,7 +43,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. TOML 文件中指定的所有 dminit 参数（PAGE_SIZE/CHARSET/CASE_SENSITIVE/EXTENT_SIZE/端口/路径）均生效
   3. 配置文件格式错误时，安装器给出清晰的错误信息指向具体字段，不执行安装
   4. 用户可运行 `dm-installer validate --config config.toml` 仅验证配置合法性而不执行安装
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 02-01-PLAN.md — InstallArgs --config flag + config::load_and_validate/validate_install_config + install::run 条件分支 + validate.rs 重构 + semantic_invalid fixture（垂直切片）
 
 ### Phase 3: 主备集群
 **Goal**: 用户可通过一份 TOML 配置文件，在一台控制机上完成双节点主备集群的完整部署
@@ -78,6 +80,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. curl\|sh 单机安装 | 0/TBD | Not started | - |
-| 2. TOML 配置驱动单机 | 0/TBD | Not started | - |
+| 2. TOML 配置驱动单机 | 0/1 | Not started | - |
 | 3. 主备集群 | 0/TBD | Not started | - |
 | 4. 发布流水线 | 0/TBD | Not started | - |
