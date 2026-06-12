@@ -57,7 +57,11 @@ Plans:
   2. 安装器自动生成并分发 dm.ini/dmmal.ini/dmarch.ini/dmwatcher.ini 到各节点
   3. 主节点启动并确认健康后才启动备节点（可从日志中观察到有序启动顺序）
   4. 集群部署开始前，安装器完成 SSH 预检查（sudo 免密、端口可用性、磁盘空间），任一检查失败则中止并报告
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 03-01-PLAN.md — ClusterConfig schema + 四个 INI 模板生成（控制机端，纯数据切片，wave 1）
+- [ ] 03-02-PLAN.md — russh/russh-sftp 引入 + SSH 会话/CommandRunner trait + SSH 预检查（QUAL-01）+ TCP 健康轮询（CLUS-02），wave 2
+- [ ] 03-03-PLAN.md — CLI cluster deploy 子命令 + cluster::run 编排（preflight → SFTP+install → 分发 INI → 有序启动 → dmwatcher），wave 3
 
 ### Phase 4: 发布流水线
 **Goal**: 多平台预编译二进制通过 GitHub Releases 分发，用户在任意支持平台可通过 `curl | sh` 实际安装
@@ -81,5 +85,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. curl\|sh 单机安装 | 0/TBD | Not started | - |
 | 2. TOML 配置驱动单机 | 1/1 | Complete   | 2026-06-12 |
-| 3. 主备集群 | 0/TBD | Not started | - |
+| 3. 主备集群 | 0/3 | Not started | - |
 | 4. 发布流水线 | 0/TBD | Not started | - |

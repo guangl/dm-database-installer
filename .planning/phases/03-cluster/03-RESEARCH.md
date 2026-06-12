@@ -619,7 +619,7 @@ pub struct SshCredentials {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **disql CLI 参数格式**
    - What we know: disql 是达梦自带的 CLI 工具，用于执行 SQL
