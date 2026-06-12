@@ -14,7 +14,7 @@ pub fn run(config: &InstallConfig, extract_dir: &Path) -> Result<()> {
 ///
 /// `<CREATE_DB_SERVICE>` 和 `<STARTUP_DB_SERVICE>` 固定为 N——服务注册
 /// 由 `service.rs` 精确控制，禁止在 XML 中启用自动服务注册。
-pub(crate) fn generate_install_xml(config: &InstallConfig) -> Result<NamedTempFile> {
+pub fn generate_install_xml(config: &InstallConfig) -> Result<NamedTempFile> {
     let install_path = xml_escape(&config.install_path);
     let data_path = xml_escape(&config.data_path);
     let instance_name = xml_escape(&config.instance_name);

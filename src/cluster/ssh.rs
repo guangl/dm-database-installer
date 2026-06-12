@@ -206,6 +206,10 @@ pub struct MockRunner {
     pub responses: std::sync::Mutex<Vec<(String, u32, Vec<u8>)>>,
     /// 记录 sftp_write 调用：(remote_path, bytes)
     pub sftp_writes: std::sync::Mutex<Vec<(String, Vec<u8>)>>,
+    /// 记录所有 exec 调用的命令字符串
+    pub exec_calls: std::sync::Mutex<Vec<String>>,
+    /// 严格模式：未匹配命令返回 exit 127 Err（默认 false，未匹配返回 Ok）
+    pub strict: bool,
 }
 
 impl MockRunner {
@@ -213,13 +217,34 @@ impl MockRunner {
         Self {
             responses: std::sync::Mutex::new(responses),
             sftp_writes: std::sync::Mutex::new(Vec::new()),
+            exec_calls: std::sync::Mutex::new(Vec::new()),
+            strict: false,
         }
+    }
+
+    /// 创建严格模式 MockRunner（未匹配命令返回 exit 127 Err）。
+    pub fn new_strict(responses: Vec<(String, u32, Vec<u8>)>) -> Self {
+        Self {
+            strict: true,
+            ..Self::new(responses)
+        }
+    }
+
+    /// 返回所有 exec 调用过的命令字符串副本。
+    pub fn exec_log(&self) -> Vec<String> {
+        self.exec_calls.lock().unwrap().clone()
+    }
+
+    /// 返回所有 sftp_write 调用的 (remote_path, bytes) 副本。
+    pub fn sftp_log(&self) -> Vec<(String, Vec<u8>)> {
+        self.sftp_writes.lock().unwrap().clone()
     }
 }
 
 #[async_trait]
 impl CommandRunner for MockRunner {
     async fn exec(&self, command: &str) -> Result<(Vec<u8>, u32), SshError> {
+        self.exec_calls.lock().unwrap().push(command.to_string());
         let mut responses = self.responses.lock().unwrap();
         if let Some(index) = responses
             .iter()
@@ -233,11 +258,14 @@ impl CommandRunner for MockRunner {
                 });
             }
             Ok((stdout, exit_code))
-        } else {
+        } else if self.strict {
             Err(SshError::ExecFailed {
                 command: command.to_string(),
                 exit_code: 127,
             })
+        } else {
+            // 非严格模式：未匹配命令返回 Ok([], 0)
+            Ok((vec![], 0))
         }
     }
 
@@ -297,9 +325,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_runner_no_match_returns_127() {
-        let runner = MockRunner::new(vec![]);
+        let runner = MockRunner::new_strict(vec![]);
         let result = runner.exec("some-command").await;
-        assert!(result.is_err(), "未匹配命令应返回 Err");
+        assert!(result.is_err(), "严格模式未匹配命令应返回 Err");
         let err = result.unwrap_err();
         assert!(
             matches!(err, SshError::ExecFailed { exit_code: 127, .. }),
