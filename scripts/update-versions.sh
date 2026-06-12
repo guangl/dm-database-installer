@@ -5,104 +5,106 @@ set -euo pipefail
 API_BASE="https://eco.dameng.com/eco-download-server"
 CDN_BASE="https://download.dameng.com"
 OUT_FILE="${1:-$(cd "$(dirname "$0")/.." && pwd)/versions.json}"
-TMPDIR_WORK=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_WORK"' EXIT
 
-python_exec() {
-    if command -v python3 >/dev/null 2>&1; then python3 "$@"
-    else python "$@"; fi
+log()  { printf "[%s] -- %s\n"  "$(date -u +%H:%M:%S)" "$*"; }
+ok()   { printf "[%s] OK %s\n"  "$(date -u +%H:%M:%S)" "$*"; }
+fail() { printf "[%s] ERR %s\n" "$(date -u +%H:%M:%S)" "$*" >&2; exit 1; }
+
+# 从 JSON 字符串中提取第一个匹配 key 的字符串值（跨平台，不依赖 grep -P）
+json_val() {
+    grep -o "\"$1\":\"[^\"]*\"" | head -1 | sed "s/\"$1\":\"//;s/\"$//"
 }
 
-# CPU ID → uname -m 架构
-cpu_arch() {
+# 每个架构对应达梦官网的 cpuId / osId（preferred 优先级）
+# 数据来自 /cpu/os/table/page/data 接口的 CPU/OS 枚举
+cpu_for_arch() {
     case "$1" in
-        0)  echo "x86_64"      ;;  # X86
-        3)  echo "aarch64"     ;;  # 飞腾2000
-        4)  echo "aarch64"     ;;  # 鲲鹏920
-        5)  echo "mips64el"    ;;  # 龙芯4000
-        41) echo "loongarch64" ;;  # 龙芯5000
-        98) echo "sw_64"       ;;  # 申威3231
-        6)  echo "x86_64"      ;;  # 海光
-        *)  echo "unknown"     ;;
+        x86_64)      echo "0"  ;;  # X86
+        aarch64)     echo "4"  ;;  # 鲲鹏920（最主流 ARM 服务器）
+        loongarch64) echo "41" ;;  # 龙芯5000（LoongArch 新架构）
+        mips64el)    echo "5"  ;;  # 龙芯4000（MIPS 兼容）
+        sw_64)       echo "98" ;;  # 申威3231
     esac
 }
 
-echo "[--] 获取平台列表..."
-curl -sf --max-time 15 "$API_BASE/cpu/os/table/page/data" \
-    >"$TMPDIR_WORK/page.json" || {
-    echo "[ERR] 无法访问 eco.dameng.com API" >&2; exit 1
+os_for_arch() {
+    case "$1" in
+        x86_64)      echo "10" ;;  # rhel7（兼容性最广）
+        aarch64)     echo "25" ;;  # 麒麟10 SP1
+        loongarch64) echo "14" ;;  # 麒麟10
+        mips64el)    echo "14" ;;  # 麒麟10
+        sw_64)       echo "14" ;;  # 麒麟10
+    esac
 }
 
-# 从 page data 提取 db_version 和所有 cpu/os 组合（跳过 Docker cpuId=35）
-python_exec - "$TMPDIR_WORK/page.json" "$TMPDIR_WORK/combos.tsv" <<'PYEOF'
-import json, sys
+label_for_arch() {
+    case "$1" in
+        x86_64)      echo "X86 / rhel7"           ;;
+        aarch64)     echo "鲲鹏920 / 麒麟10 SP1"   ;;
+        loongarch64) echo "龙芯5000 / 麒麟10"       ;;
+        mips64el)    echo "龙芯4000 / 麒麟10"       ;;
+        sw_64)       echo "申威3231 / 麒麟10"       ;;
+    esac
+}
 
-with open(sys.argv[1]) as f:
-    data = json.load(f)
+# ── 1. 获取当前 DM8 版本号 ────────────────────────────────────────────────────────
+log "请求 eco.dameng.com 平台列表..."
+page_resp=$(curl -sf --max-time 15 "$API_BASE/cpu/os/table/page/data") \
+    || fail "无法访问 eco.dameng.com，检查网络连接"
 
-db_version = data["result"]["dm8Data"][0]["dbVersion"]
+db_version=$(printf '%s' "$page_resp" | json_val "dbVersion") \
+    || fail "响应中未找到 dbVersion 字段"
+[ -n "$db_version" ] || fail "响应中未找到 dbVersion 字段"
 
-rows = []
-for block in data["result"]["dm8Data"]:
-    for cpu in block["dataSelectInfos"]:
-        if cpu["cpuId"] == "35":  # Docker — 跳过
-            continue
-        for os in cpu.get("osInfos", []):
-            rows.append(f"{db_version}\t{cpu['cpuId']}\t{cpu['cpuName']}\t{os['id']}\t{os['name']}")
+ok "DM8 dbVersion = ${db_version}"
 
-with open(sys.argv[2], "w") as f:
-    f.write("\n".join(rows) + "\n")
-PYEOF
-
-echo "[--] 查询各平台下载链接..."
+# ── 2. 逐架构获取下载链接 ─────────────────────────────────────────────────────────
+log "逐架构请求下载链接..."
+platforms_json=""
 found=0
-json_entries=""
+failed=0
 
-while IFS=$'\t' read -r db_ver cpu_id cpu_name os_id os_name; do
-    resp_file="$TMPDIR_WORK/resp_${cpu_id}_${os_id}.json"
-    curl -sf --max-time 10 \
-        "$API_BASE/cpu/os/table/download/$db_ver/$cpu_id/$os_id" \
-        >"$resp_file" 2>/dev/null || continue
+for arch in x86_64 aarch64 loongarch64 mips64el sw_64; do
+    cpu_id=$(cpu_for_arch "$arch")
+    os_id=$(os_for_arch   "$arch")
+    label=$(label_for_arch "$arch")
 
-    rel_url=$(python_exec -c "
-import json, sys
-with open('$resp_file') as f: d = json.load(f)
-print(d['result']['url'])
-" 2>/dev/null) || continue
-    [ -z "$rel_url" ] && continue
+    log "  $arch ($label) — cpu=$cpu_id os=$os_id"
 
-    arch=$(cpu_arch "$cpu_id")
+    resp=$(curl -sf --max-time 10 \
+        "$API_BASE/cpu/os/table/download/$db_version/$cpu_id/$os_id") || {
+        printf "       [SKIP] API 无响应\n"
+        failed=$((failed + 1))
+        continue
+    }
+
+    rel_url=$(printf '%s' "$resp" | json_val "url")
+    if [ -z "$rel_url" ]; then
+        printf "       [SKIP] 响应中无 url 字段: %s\n" "$resp"
+        failed=$((failed + 1))
+        continue
+    fi
+
     full_url="${CDN_BASE}${rel_url}"
+    printf "       => %s\n" "$(basename "$rel_url")"
 
-    # 从文件名提取后缀作为 key（去掉 dm8_YYYYMMDD_ 前缀）
-    filename=$(basename "$rel_url" .zip)
-    suffix="${filename#dm8_????????_}"
-
-    printf "  %-44s (%s)\n" "$cpu_name / $os_name" "$arch"
-
-    sep="${json_entries:+,}"
-    safe_cpu=$(python_exec -c "import json; print(json.dumps('$cpu_name'))")
-    safe_os=$(python_exec  -c "import json; print(json.dumps('$os_name'))")
-    json_entries="${json_entries}${sep}
-    \"${suffix}\": {
-      \"cpu_id\": \"${cpu_id}\",
-      \"os_id\":  \"${os_id}\",
-      \"cpu\":    ${safe_cpu},
-      \"os\":     ${safe_os},
-      \"arch\":   \"${arch}\",
-      \"url\":    \"${full_url}\"
-    }"
+    sep="${platforms_json:+,}"
+    platforms_json="${platforms_json}${sep}
+    \"${arch}\": \"${full_url}\""
     found=$((found + 1))
-done <"$TMPDIR_WORK/combos.tsv"
+done
 
+[ "$found" -eq 0 ] && fail "所有平台均获取失败"
+
+# ── 3. 写入 versions.json ─────────────────────────────────────────────────────────
 updated_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-cat >"$OUT_FILE" <<JSON
+cat >"${OUT_FILE}" <<JSON
 {
   "updated_at": "${updated_at}",
-  "platforms": {${json_entries}
+  "platforms": {${platforms_json}
   }
 }
 JSON
 
-echo "[OK] 已写入 ${OUT_FILE}，共 ${found} 个平台"
+ok "已写入 ${OUT_FILE}（${found} 个平台${failed:+，${failed} 个失败}）"

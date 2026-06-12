@@ -52,22 +52,12 @@ check_existing_install() {
 
 check_deps() {
     local missing=()
-    command -v curl    >/dev/null 2>&1 || missing+=("curl")
-    command -v unzip   >/dev/null 2>&1 || \
-    command -v python3 >/dev/null 2>&1 || \
-    command -v python  >/dev/null 2>&1 || missing+=("unzip 或 python3")
-    command -v python3 >/dev/null 2>&1 || \
-    command -v python  >/dev/null 2>&1 || missing+=("python3 或 python")
+    command -v curl  >/dev/null 2>&1 || missing+=("curl")
+    command -v unzip >/dev/null 2>&1 || missing+=("unzip")
     if [ ${#missing[@]} -gt 0 ]; then
         log_err "缺少依赖: ${missing[*]}"
         exit 1
     fi
-}
-
-# ── Python 辅助 ───────────────────────────────────────────────────────────────────
-python_exec() {
-    if command -v python3 >/dev/null 2>&1; then python3 -c "$@"
-    else python -c "$@"; fi
 }
 
 # ── 架构检测 ──────────────────────────────────────────────────────────────────────
@@ -79,57 +69,22 @@ detect_arch() {
 # ── 从 versions.json 选取下载链接 ─────────────────────────────────────────────────
 select_download_url() {
     log_info "获取下载链接列表..."
-    local versions_file py
-    versions_file=$(mktemp /tmp/dm_versions_XXXXXX.json)
-    if command -v python3 >/dev/null 2>&1; then py=python3; else py=python; fi
-
-    curl -sf --max-time 15 -o "$versions_file" "$VERSIONS_URL" || {
-        rm -f "$versions_file"
+    local versions_data
+    versions_data=$(curl -sf --max-time 15 "$VERSIONS_URL") || {
         log_err "无法获取 versions.json: $VERSIONS_URL"
         exit 1
     }
 
-    DOWNLOAD_URL=$("$py" - "$versions_file" "$MACHINE" <<'PYEOF'
-import json, sys
+    # versions.json 格式: "arch": "https://..."（每行一条）
+    # 先找含当前 arch 的行，再从中提取 https:// URL
+    DOWNLOAD_URL=$(printf '%s' "$versions_data" \
+        | grep "\"${MACHINE}\"" \
+        | grep -o 'https://[^"]*')
 
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-
-machine = sys.argv[2]
-platforms = data.get('platforms', {})
-
-preferred_key = {
-    'x86_64':      ['x86_rh7', 'rh7'],
-    'aarch64':     ['hwarm920_kylin', 'hwarm920'],
-    'loongarch64': ['loongarch5000_kylin'],
-    'mips64el':    ['loongson4000_kylin'],
-}
-
-candidates = [
-    (key, info['os'].lower(), info['url'])
-    for key, info in platforms.items()
-    if info.get('arch') == machine and info.get('url')
-]
-
-if not candidates:
-    print(f'versions.json 中无 {machine} 平台', file=sys.stderr)
-    sys.exit(1)
-
-for pref in preferred_key.get(machine, []):
-    for key, os_name, url in candidates:
-        if pref in key.lower():
-            print(url)
-            sys.exit(0)
-
-print(candidates[0][2])
-PYEOF
-    )
-    local status=$?
-    rm -f "$versions_file"
-    [ $status -eq 0 ] || {
-        log_err "无法从 versions.json 匹配 ${MACHINE} 平台"
+    if [ -z "$DOWNLOAD_URL" ]; then
+        log_err "versions.json 中无 ${MACHINE} 平台（支持: x86_64 aarch64 loongarch64 mips64el sw_64）"
         exit 1
-    }
+    fi
 
     log_ok "下载链接: $DOWNLOAD_URL"
 }
@@ -151,11 +106,7 @@ download_and_extract() {
     log_ok "下载完成"
 
     log_info "解压安装包..."
-    if command -v unzip >/dev/null 2>&1; then
-        unzip -q "$zip_file" -d "$extract_dir"
-    else
-        python_exec "import zipfile,sys; zipfile.ZipFile('$zip_file').extractall('$extract_dir')"
-    fi
+    unzip -q "$zip_file" -d "$extract_dir"
 
     DM_INSTALL_BIN=$(find "$extract_dir" -name "DMInstall.bin" -type f | head -1)
     if [ -z "$DM_INSTALL_BIN" ]; then
