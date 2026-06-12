@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-12T06:33:18Z",
+  "timestamp": "2026-06-12T06:53:51Z",
   "phase": "01",
   "phase_name": "curl-sh",
   "phase_dir": ".planning/phases/01-curl-sh",
@@ -13,95 +13,101 @@
       "id": 1,
       "name": "重写 install.sh：无参数 curl|sh 风格",
       "status": "done",
-      "commit": "52d22fa (base)",
-      "notes": "install.sh 已改为从 versions.json 读取下载链接，按架构选平台"
+      "commit": "52d22fa"
     },
     {
       "id": 2,
-      "name": "写 scripts/update-versions.sh",
+      "name": "写 scripts/update-versions.sh（API 方式，纯 shell）",
       "status": "done",
-      "commit": "uncommitted",
-      "notes": "探测 download.dameng.com/eco/adapter/DM8/ 各平台链接，纯 shell 实现"
+      "commit": "df6d708",
+      "notes": "先写了探测版本，再改用 eco.dameng.com API，最后去掉 Python 改纯 shell + TSV 格式"
     },
     {
       "id": 3,
       "name": "写 .github/workflows/update-versions.yml",
       "status": "done",
-      "commit": "uncommitted",
-      "notes": "每日 09:00 北京时间触发，需 self-hosted cn-runner"
+      "commit": "58deaaa",
+      "notes": "改为 ubuntu-latest，无需 cn-runner（eco.dameng.com 境外可达）"
     },
     {
       "id": 4,
-      "name": "发现完整 CPU/OS 平台列表",
+      "name": "发现完整 CPU/OS 平台列表（eco.dameng.com API）",
       "status": "done",
-      "commit": "uncommitted",
-      "notes": "通过 AppleScript 读取 eco.dameng.com Vue 实例拿到全部 CPU/OS ID 映射"
+      "commit": "df6d708",
+      "notes": "API: GET /eco-download-server/cpu/os/table/page/data → cpuId/osId 映射"
+    },
+    {
+      "id": 5,
+      "name": "install.sh 运行时检测 CPU/OS，精确匹配安装包",
+      "status": "done",
+      "commit": "df6d708",
+      "notes": "detect_platform(): /proc/cpuinfo 区分 hygon/ft2000/kunpeng；/etc/os-release 检测 OS；awk 精确匹配 TSV"
+    },
+    {
+      "id": 6,
+      "name": "versions.txt：TSV 格式，15 个 cpu/os 组合",
+      "status": "done",
+      "commit": "df6d708"
     }
   ],
   "remaining_tasks": [
     {
-      "id": 5,
-      "name": "验证 update-versions.sh 能找到所有新平台",
-      "status": "not_started",
-      "notes": "飞腾/龙芯/申威/海光的文件后缀是推断的，需运行脚本验证"
-    },
-    {
-      "id": 6,
-      "name": "修正推断错误的平台文件后缀",
-      "status": "not_started",
-      "notes": "根据探测结果更新 PLATFORMS 列表，去掉找不到的别名"
-    },
-    {
       "id": 7,
       "name": "更新 install.sh 的 VERSIONS_URL",
       "status": "not_started",
-      "notes": "填入实际仓库 raw URL"
+      "notes": "填入实际仓库 raw URL（等仓库建好后填写）"
     },
     {
       "id": 8,
-      "name": "commit 所有新文件",
+      "name": "验证麒麟/统信 OS 的 /etc/os-release 字段格式",
       "status": "not_started",
-      "notes": "install.sh, scripts/, .github/, versions.json, .gitignore"
+      "notes": "VERSION_ID 里 SP1/SP3 格式不确定；统信 UOS 的 ID 可能是 uos/uniontech/UnionTech；在 docker 镜像上跑 detect_platform() 验证"
+    },
+    {
+      "id": 9,
+      "name": "端到端 smoke test",
+      "status": "not_started",
+      "notes": "在 x86_64/RHEL7 兼容环境完整跑一遍 install.sh（需要 Linux 环境）"
     }
   ],
   "blockers": [
     {
-      "description": "package.dameng.com 在这台 Mac 上走 Surge/ClashX TUN，curl/Swift/Python 的 TLS 握手失败，只有 Safari 能通过代理访问",
+      "description": "麒麟/统信 OS 的 /etc/os-release 格式未在真实机器验证",
       "type": "technical",
-      "workaround": "用 AppleScript 控制 Safari 读取 Vue 实例数据（已完成 CPU/OS 发现），但下载 URL API 调用仍受 CORS/网络限制"
+      "workaround": "有兜底逻辑：OS 不匹配时取同 CPU 第一条记录；最坏兜底 rhel7"
     },
     {
-      "description": "飞腾/龙芯/申威/海光的文件后缀未经验证，目前为推断值",
-      "type": "technical",
-      "workaround": "运行 update-versions.sh，看哪些能探测到"
+      "description": "VERSIONS_URL 仍是占位符",
+      "type": "human_action",
+      "workaround": "等 GitHub 仓库建好后填入"
     }
   ],
-  "human_actions_pending": [],
+  "human_actions_pending": [
+    {
+      "action": "建立 GitHub 仓库并更新 install.sh 里的 VERSIONS_URL",
+      "context": "当前值为占位符 https://raw.githubusercontent.com/guangluo/dm-installer/main/versions.txt",
+      "blocking": false
+    }
+  ],
   "decisions": [
     {
-      "decision": "install.sh 从 versions.json 读下载链接（不直接调 API）",
-      "rationale": "package.dameng.com 仅中国大陆可达，而 download.dameng.com 全球可访问，probing 方式更可靠"
+      "decision": "用 eco.dameng.com API 取下载 URL，不用文件探测",
+      "rationale": "API 直接返回真实 URL；eco.dameng.com 境外可达，不需要 cn-runner"
     },
     {
-      "decision": "update-versions.sh 用 download.dameng.com 文件探测代替 package.dameng.com API",
-      "rationale": "package.dameng.com 在境外不可访问，文件探测只需 HEAD 请求到公开 CDN"
+      "decision": "版本文件改用 TSV 格式（arch<TAB>cpu<TAB>os<TAB>url）",
+      "rationale": "shell 脚本里不用 Python/jq，awk 一行匹配"
     },
     {
-      "decision": "x86_rh7_64 作为 x86_64 首选，HWarm920_kylin10_sp1_64 作为 aarch64 首选",
-      "rationale": "rh7 兼容性最广（RHEL7+/CentOS/Rocky/Alma），鲲鹏920 是主流国产 ARM 平台"
+      "decision": "install.sh 运行时检测 CPU 型号和 OS，精确匹配安装包",
+      "rationale": "达梦针对不同 CPU 有专属优化包，飞腾2000 和鲲鹏920 不能互用"
     },
     {
-      "decision": "GitHub Actions 需 self-hosted cn-runner",
-      "rationale": "GitHub 官方 runner 在境外，无法访问 package.dameng.com（探测方式不需要此 API，但未来扩展可能需要）"
+      "decision": "update-versions.sh 日志写 stderr，TSV 写 stdout 重定向到文件",
+      "rationale": "避免日志混入数据文件"
     }
   ],
-  "uncommitted_files": [
-    "install.sh",
-    "scripts/update-versions.sh",
-    ".github/workflows/update-versions.yml",
-    "versions.json",
-    ".gitignore (新建)"
-  ],
-  "next_action": "运行 `bash scripts/update-versions.sh` 查看哪些平台能被探测到，根据结果修正 PLATFORMS 列表中推断错误的文件后缀",
-  "context_notes": "CPU/OS 完整映射已通过 AppleScript+Vue 实例获取。平台文件后缀命名规律：{CPU厂商前缀}_{OS名}_64，已知 5 个确认，其余 10+ 个为推断。update-versions.sh 每次运行最多 120 天探测，5 个平台约需 1-2 分钟。"
+  "uncommitted_files": [],
+  "next_action": "在麒麟/统信 docker 镜像里验证 detect_platform() 的 OS 检测：source install.sh && detect_platform && echo arch=$ARCH cpu=$CPU_KEY os=$OS_KEY",
+  "context_notes": "Phase 01 核心逻辑全部完成并已提交。install.sh 纯 bash，依赖只有 curl+unzip。versions.txt 15 个平台由 GitHub Actions 每日自动更新。唯一未验证的是国产 OS 的 /etc/os-release 格式，有兜底逻辑不阻塞。"
 }

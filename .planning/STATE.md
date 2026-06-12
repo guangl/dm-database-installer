@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 architecture pivot — shell script replaces Rust for curl|sh
-last_updated: "2026-06-12T05:30:00.000Z"
+status: Architecture pivot — Phase 1 is now a pure shell script (install.sh)
+stopped_at: context exhaustion at 76% (2026-06-12)
+last_updated: "2026-06-12T06:32:27.249Z"
 last_activity: 2026-06-12 -- Phase 01 replanned as pure shell script; Rust binary deferred to Phase 2
 progress:
   total_phases: 4
@@ -82,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-12T05:02:37.579Z
-Stopped at: context exhaustion at 75% (2026-06-12)
+Last session: 2026-06-12T06:32:27.245Z
+Stopped at: context exhaustion at 76% (2026-06-12)
 Resume file: None
