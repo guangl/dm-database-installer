@@ -21,31 +21,28 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### Phase 1: curl|sh 单机安装
 **Goal**: 用户可运行一行 `curl | sh` 命令完整安装达梦单机实例并注册为系统服务
+**Implementation**: 纯 shell 脚本 (`install.sh`)，无需 Rust 二进制
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
-**Requirements**: INST-01, INST-03, INST-04, DOWN-01, DOWN-02, QUAL-02, QUAL-03
+**Requirements**: INST-01, INST-03, INST-04, DOWN-01, DOWN-02, QUAL-02
 **Success Criteria** (what must be TRUE):
   1. 用户在 Linux x86_64 机器上运行一行命令后，达梦实例已启动并可接受连接
   2. 安装器在执行 dminit 前，显示 PAGE_SIZE/CHARSET/CASE_SENSITIVE/EXTENT_SIZE 的值并等待用户确认
   3. 安装完成后 `systemctl status dmserver` 显示服务已注册且开机自启
   4. 重复运行安装器时，检测到已有实例并提示而非覆盖崩溃（幂等性）
-  5. 用户可运行 `dm-installer validate --config config.toml` 仅验证配置合法性而不执行安装
-**Plans:** 3/4 plans executed
-Plans:
-- [x] 01-01-PLAN.md — Walking Skeleton: Cargo.toml + CLI 结构体 (clap derive) + tokio main + 模块占位 (INST-01 CLI 层)
-- [x] 01-02-PLAN.md — 配置验证 + SHA-256 校验 + 幂等检测 + 下载占位 (DOWN-01, DOWN-02, QUAL-02, QUAL-03)
-- [x] 01-03-PLAN.md — ISO 提取 + XML 生成 + DMInstall.bin 静默安装 + dminit + 参数确认 UI (INST-01 核心, INST-03)
-- [ ] 01-04-PLAN.md — systemd 服务注册 + root 权限检测 + e2e 验证 (INST-04, Phase 1 收尾)
+**Plans**: TBD
 
 ### Phase 2: TOML 配置驱动单机
 **Goal**: DBA 可通过 TOML 配置文件自定义端口、数据路径、dminit 参数，完成单机安装
+**Implementation**: Rust 二进制 (`dm-installer`)，clap CLI + serde TOML 解析
 **Mode:** mvp
 **Depends on**: Phase 1
-**Requirements**: INST-02
+**Requirements**: INST-02, QUAL-03
 **Success Criteria** (what must be TRUE):
   1. DBA 编写包含自定义端口、数据路径、页大小等参数的 TOML 文件后，安装器按配置完成安装
   2. TOML 文件中指定的所有 dminit 参数（PAGE_SIZE/CHARSET/CASE_SENSITIVE/EXTENT_SIZE/端口/路径）均生效
   3. 配置文件格式错误时，安装器给出清晰的错误信息指向具体字段，不执行安装
+  4. 用户可运行 `dm-installer validate --config config.toml` 仅验证配置合法性而不执行安装
 **Plans**: TBD
 
 ### Phase 3: 主备集群
@@ -80,7 +77,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. curl\|sh 单机安装 | 3/4 | In Progress|  |
+| 1. curl\|sh 单机安装 | 0/TBD | Not started | - |
 | 2. TOML 配置驱动单机 | 0/TBD | Not started | - |
 | 3. 主备集群 | 0/TBD | Not started | - |
 | 4. 发布流水线 | 0/TBD | Not started | - |

@@ -509,7 +509,7 @@ pub fn confirm_immutable_params(
 ### Pitfall 1: ISO 挂载需要 root，安装器本身也需要 root
 **What goes wrong:** 用户以普通用户运行安装器，mount 失败，用户不明白原因。
 **Why it happens:** `mount -o loop` 是特权操作；DM 安装到 `/opt` 也需要写权限；`dm_service_installer.sh` 写 `/etc/systemd/system/` 需要 root。
-**How to avoid:** 安装器启动时立即检测 `getuid() == 0`，不满足则打印明确提示并以非零退出码退出（或自动 `sudo` 重新执行，参考 rustup 模式）。
+**How to avoid:** 安装器启动时立即检测 root 身份。Phase 1 的 PROJECT.md 约束「无 C FFI 依赖」，因此不引入 `libc` crate；改用纯 std 方案：读取 `/proc/self/status` 中 `Uid:` 行的第一个字段是否为 `0`，fallback 检查 `std::env::var("USER") == "root"`。不满足则打印明确提示并以非零退出码退出（或自动 `sudo` 重新执行，参考 rustup 模式）。
 **Warning signs:** `mount: only root can use "--options" option` 错误信息。
 
 ### Pitfall 2: dminit 等号两侧不能有空格
@@ -636,22 +636,24 @@ pub async fn fetch_dm_installer(url: &str, dest: &std::path::Path) -> anyhow::Re
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 全部 3 个 open questions 已在 Phase 1 计划阶段解决。下方记录每个问题的 RESOLVED 决策，作为后续实现的权威依据。
 
 1. **达梦 ISO 包的 SHA-256 校验和来源**
    - What we know: DOWN-02 要求校验，但达梦官网未在搜索结果中找到公开的 checksum 文件
    - What's unclear: 官方是否提供 `.sha256` 文件、manifest，还是需要用户手动提供期望值
-   - Recommendation: Phase 1 实现时，让 `--package` 配合可选的 `--checksum <sha256>` 参数；若未提供 checksum，跳过校验并显示警告
+   - **RESOLVED:** Phase 1 使用可选的 `--checksum <sha256>` 参数；用户提供则严格校验，未提供则 `tracing::warn!` 跳过并继续（Plan 02 Task 2 已实现）。后续 spike 完成 DOWN-01 自动下载时再确定官方 checksum 来源（manifest 文件 / `.sha256` 同伴文件 / 官网 HTML 解析）。
 
 2. **bsdtar vs mount -o loop 策略选择**
    - What we know: bsdtar 无需 root 提取 ISO；mount 需要 root 但安装器本身已需要 root
    - What's unclear: 目标部署环境（RHEL 8/9、CentOS 7、银河麒麟）是否预装 bsdtar
-   - Recommendation: 运行时检测两种工具可用性，优先 bsdtar，fallback mount，都不可用则报错提示安装 bsdtar
+   - **RESOLVED:** 运行时检测 bsdtar 可用性（`Command::new("bsdtar").arg("--version").output()`）；优先使用 bsdtar，不可用则 fallback 到 `mount -o loop /path/to/dm.iso /mnt/dm_iso`；两者均不可用时打印明确错误并提示安装命令（`yum install bsdtar` 或 `apt install libarchive-tools`）。该策略在 Plan 03 Task 1 (ISO 提取) 落地。
 
 3. **dmdba 用户处理策略**
    - What we know: 标准 DM 安装流程创建 dmdba 用户；静默安装 XML 的 `CREATE_DB_SERVICE=N` 跳过了服务脚本
    - What's unclear: `dm_service_installer.sh` 是否要求 dmdba 用户已存在
-   - Recommendation: 在调用 `dm_service_installer.sh` 前，检测 dmdba 用户是否存在；若不存在则运行 `root_installer.sh` 或手动创建
+   - **RESOLVED:** 在调用 `dm_service_installer.sh` 前用 `id dmdba` 检测用户存在性；不存在则 `tracing::warn!` 提示但继续（DM 自带脚本通常会在内部创建用户）；不主动 `useradd`，避免在容器/CI 环境产生意外副作用。该策略在 Plan 04 Task 1 (服务注册) 落地。
 
 ---
 

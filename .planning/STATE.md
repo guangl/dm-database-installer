@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: context exhaustion at 75% (2026-06-12)
-last_updated: "2026-06-12T05:04:57.152Z"
-last_activity: 2026-06-12 -- Phase 01 execution started
+status: planning
+stopped_at: Phase 1 architecture pivot — shell script replaces Rust for curl|sh
+last_updated: "2026-06-12T05:30:00.000Z"
+last_activity: 2026-06-12 -- Phase 01 replanned as pure shell script; Rust binary deferred to Phase 2
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 4
+  total_plans: 0
   completed_plans: 0
   percent: 0
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12)
 
 **Core value:** 开发者一行命令搞定本地达梦环境，DBA 用配置文件完成生产集群部署——两类用户都不需要手动操作达梦原生安装程序。
-**Current focus:** Phase 01 — curl-sh
+**Current focus:** Phase 01 — curl-sh（重新规划为 shell 脚本）
 
 ## Current Position
 
-Phase: 01 (curl-sh) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 01
-Last activity: 2026-06-12 -- Phase 01 execution started
+Phase: 01 (curl-sh) — REPLANNING
+Plan: 0 of TBD
+Status: Architecture pivot — Phase 1 is now a pure shell script (install.sh)
+Last activity: 2026-06-12 -- Phase 01 replanned as pure shell script; Rust binary deferred to Phase 2
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -60,9 +60,10 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- 使用 `russh` 而非 `ssh2`（无 C 依赖，跨编译友好）
-- `reqwest` 必须用 `rustls-tls` feature，避免 OpenSSL 依赖
-- `cargo-dist` 管理多平台发布流水线
+- **架构决策（2026-06-12）**: curl|sh 单机安装 = 纯 shell 脚本（install.sh）；Rust 二进制从 Phase 2 开始，仅用于配置文件驱动的安装
+- 使用 `russh` 而非 `ssh2`（无 C 依赖，跨编译友好）—— 适用于 Phase 3+
+- `reqwest` 必须用 `rustls-tls` feature，避免 OpenSSL 依赖 —— 适用于 Phase 2+
+- `cargo-dist` 管理多平台发布流水线 —— 适用于 Phase 4
 
 ### Pending Todos
 
