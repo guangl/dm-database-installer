@@ -1,5 +1,5 @@
 use std::path::Path;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 pub mod validate;
@@ -66,13 +66,30 @@ impl Default for InstallConfig {
 
 /// 从 TOML 文件加载配置并执行语义验证。
 /// 三步链：读文件 → TOML 反序列化 → 语义验证。
-pub fn load_and_validate(_path: &Path) -> Result<InstallConfig> {
-    unimplemented!("Task 2")
+pub fn load_and_validate(path: &Path) -> Result<InstallConfig> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("无法读取配置文件: {}", path.display()))?;
+    let cfg = toml::from_str::<InstallConfig>(&content)
+        .with_context(|| "配置文件解析失败")?;
+    validate_install_config(&cfg)?;
+    Ok(cfg)
 }
 
 /// 验证 InstallConfig 字段语义合法性（枚举值域、范围约束）。
-pub fn validate_install_config(_cfg: &InstallConfig) -> Result<()> {
-    unimplemented!("Task 2")
+pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
+    if ![4u8, 8, 16, 32].contains(&cfg.page_size) {
+        bail!("配置验证失败: page_size 无效: {}；有效值为 4/8/16/32", cfg.page_size);
+    }
+    if ![0u8, 1, 2].contains(&cfg.charset) {
+        bail!("配置验证失败: charset 无效: {}；有效值 0=GB18030 1=UTF-8 2=EUC-KR", cfg.charset);
+    }
+    if ![16u8, 32].contains(&cfg.extent_size) {
+        bail!("配置验证失败: extent_size 无效: {}；有效值为 16/32", cfg.extent_size);
+    }
+    if cfg.port == 0 {
+        bail!("配置验证失败: port 无效: 0；有效范围为 1-65535");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

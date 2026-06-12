@@ -1,18 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::cli::ValidateArgs;
 
-use super::InstallConfig;
-
-/// 运行 validate 子命令：读取并解析 TOML 配置文件，验证字段合法性。
-/// Phase 1 占位：仅验证 TOML 语法和已定义字段，不执行安装。
+/// 运行 validate 子命令：读取并解析 TOML 配置文件，验证字段语义合法性。
+/// 共用 config::load_and_validate() 三步链，不执行安装。
 pub fn run(args: &ValidateArgs) -> Result<()> {
-    let content = std::fs::read_to_string(&args.config)
-        .with_context(|| format!("无法读取配置文件: {}", args.config.display()))?;
-
-    toml::from_str::<InstallConfig>(&content)
-        .with_context(|| "配置文件解析失败")?;
-
+    super::load_and_validate(&args.config)?;
     println!("配置文件合法: {}", args.config.display());
     Ok(())
 }
