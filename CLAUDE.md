@@ -3,18 +3,21 @@
 
 **达梦数据库安装器 (dm-database-installer)**
 
-一个 Rust CLI 工具，自动化安装达梦数据库。面向开发者，提供 `curl | sh` 一行命令快速拉起单机环境；面向 DBA/运维，通过 TOML 配置文件精细控制单机、主备、DSC 集群、DPC 集群的完整部署流程，支持 SSH 远程操作多节点。
+两层架构：
+- **Phase 1 — `install.sh`（纯 shell 脚本）**: `curl | sh` 单机静默安装，面向开发者快速拉起环境，无需编译
+- **Phase 2+ — `dm-installer`（Rust 二进制）**: TOML 配置文件驱动的精细安装，面向 DBA/运维，支持自定义参数、主备集群（SSH 远程）、DSC/DPC 集群
 
 **Core Value:** 开发者一行命令搞定本地达梦环境，DBA 用配置文件完成生产集群部署——两类用户都不需要手动操作达梦原生安装程序。
 
 ### Constraints
 
-- **Tech Stack**: Rust — 已确定，性能和跨平台部署需求
-- **Config Format**: TOML — Rust 生态首选，层级嵌套自然
+- **Phase 1 实现**: 纯 bash/sh 脚本（`install.sh`）— 无外部依赖，curl|sh 友好
+- **Phase 2+ 实现**: Rust — 性能和跨平台部署需求
+- **Config Format**: TOML — Rust 生态首选，层级嵌套自然（Phase 2+）
 - **Version Strategy**: 固定单版本 — 官网最新，无需版本矩阵
 - **Distribution (单行命令)**: `curl | sh` 风格 — 开发者最低摩擦体验
-- **Cluster Execution**: 单点 SSH 远程推送 — 用户无需在每个节点手动操作
-- **Platforms**: Linux (x86/ARM) + Windows — 两类场景都要覆盖
+- **Cluster Execution**: 单点 SSH 远程推送 — 用户无需在每个节点手动操作（Phase 3+）
+- **Platforms**: Linux (x86/ARM) 主要；Windows 通过 Rust 二进制支持（Phase 2+）
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:research/STACK.md -->
