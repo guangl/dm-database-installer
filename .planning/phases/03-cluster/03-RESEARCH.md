@@ -625,16 +625,19 @@ pub struct SshCredentials {
    - What we know: disql 是达梦自带的 CLI 工具，用于执行 SQL
    - What's unclear: 批量执行 SQL 的具体参数格式（是 `-e "SQL;"` 还是通过 stdin pipe）
    - Recommendation: 在 Wave 0 测试任务中增加一个"验证 disql 批量 SQL 执行格式"的步骤，或在 CONTEXT 中要求 disql 通过 SSH stdin pipe 发送 SQL
+   - **RESOLVED (2026-06-12):** 采用保守方案——通过 stdin pipe 发送 SQL：`echo "SP_SET_PARA_VALUE(1,'ALTER_MODE_STATUS',1);sp_set_oguid(453331);alter database primary;" | <install_path>/bin/disql SYSDBA/SYSDBA@<host>:<port>`。stdin pipe 兼容性最广，不依赖 disql `-e` 参数支持；多条 SQL 用分号分隔。Plan 03 deploy.rs configure_database_role 函数按此实现。
 
 2. **全新安装 vs 备份还原初始化**
    - What we know: 多数生产文档使用 dmrman 备份还原确保主备数据一致；但全新安装（无历史数据）可以分别 dminit
    - What's unclear: Phase 3 MVP 是否允许假设"全新空库"，不支持从已有主库搭建备库
    - Recommendation: 在 CONTEXT.md 中已明确 Phase 3 是 MVP，可假设全新安装；在文档中注明此限制
+   - **RESOLVED (2026-06-12):** Phase 3 MVP 假设"全新安装，无历史数据"——两节点分别 dminit 即可。不支持从已有主库搭建备库（需要 dmrman 备份还原，移至 Phase v2）。此假设作为已知限制记录于 03-03-SUMMARY.md 与 ROADMAP Phase 3 验收说明。
 
 3. **dmserver mount 后台启动方式**
    - What we know: 需要 SSH exec `dmserver dm.ini mount` 后让进程在后台持续运行
    - What's unclear: SSH exec 命令结束后，远端进程是否继续运行？（通常 SSH session 关闭会发 SIGHUP）
    - Recommendation: 使用 `nohup dmserver dm.ini mount &` 或 `systemd-run --unit=dm-cluster dmserver dm.ini mount`（后者更可靠但需要 systemd）；也可通过 SSH `RequestPty` 建立伪终端保持会话
+   - **RESOLVED (2026-06-12):** 采用 `nohup <install_path>/bin/dmserver <data_path>/<instance>/dm.ini mount > /tmp/dmserver_<instance>.log 2>&1 &` 模式。`nohup` 屏蔽 SIGHUP 保证 SSH session 关闭后进程存活；`&` 后台运行；stdout/stderr 重定向到日志文件便于排查。systemd-run 方案因依赖 systemd 不在 MVP 范围。Plan 03 deploy.rs start_dmserver_mount 函数按此实现。
 
 ---
 
