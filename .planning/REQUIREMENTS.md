@@ -8,7 +8,7 @@
 ### 安装 (Installation)
 
 - [ ] **INST-01**: 用户可通过 `curl | sh` 一行命令安装单机达梦数据库，无需提前下载任何文件或编写配置
-- [ ] **INST-02**: 用户可通过 TOML 配置文件安装单机达梦，支持自定义端口、数据路径、页大小、字符集、大小写敏感等所有 dminit 参数
+- [x] **INST-02**: 用户可通过 TOML 配置文件安装单机达梦，支持自定义端口、数据路径、页大小、字符集、大小写敏感等所有 dminit 参数
 - [ ] **INST-03**: 安装器在执行 dminit 前，明确展示 PAGE_SIZE/CHARSET/CASE_SENSITIVE/EXTENT_SIZE 这四个不可修改参数的当前值并要求用户确认
 - [ ] **INST-04**: 安装完成后自动将达梦实例注册为系统服务（Linux: systemd；Windows: Windows Service），并设置开机自启
 
@@ -26,7 +26,7 @@
 
 - [ ] **QUAL-01**: 集群部署前执行 SSH 预检查：验证每个节点的 sudo 免密权限、目标端口可用性、磁盘剩余空间
 - [ ] **QUAL-02**: 安装器检测目标机器上的已有达梦实例，避免重复安装时覆盖或崩溃（幂等性）
-- [ ] **QUAL-03**: 用户可运行 `dm-installer validate --config config.toml` 仅验证配置文件合法性，不执行实际安装
+- [x] **QUAL-03**: 用户可运行 `dm-installer validate --config config.toml` 仅验证配置文件合法性，不执行实际安装
 
 ### 平台 (Platform)
 
@@ -67,7 +67,7 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | INST-01 | Phase 1 | Pending |
-| INST-02 | Phase 2 | Pending |
+| INST-02 | Phase 2 | Complete |
 | INST-03 | Phase 1 | Pending |
 | INST-04 | Phase 1 | Pending |
 | CLUS-01 | Phase 3 | Pending |
@@ -76,7 +76,7 @@
 | DOWN-02 | Phase 1 | Pending |
 | QUAL-01 | Phase 3 | Pending |
 | QUAL-02 | Phase 1 | Pending |
-| QUAL-03 | Phase 2 | Pending |
+| QUAL-03 | Phase 2 | Complete |
 | PLAT-01 | Phase 4 | Pending |
 | PLAT-02 | Phase 4 | Pending |
 | PLAT-03 | Phase 4 | Pending |
