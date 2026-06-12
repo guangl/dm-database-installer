@@ -3,6 +3,7 @@ use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt};
 
 mod cli;
+mod cluster;
 mod config;
 mod download;
 mod install;

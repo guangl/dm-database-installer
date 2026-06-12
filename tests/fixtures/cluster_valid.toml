@@ -1,0 +1,27 @@
+[cluster]
+installer_package = "/tmp/dm8_setup.iso"
+oguid = 453331
+
+[[cluster.nodes]]
+role = "primary"
+host = "192.168.1.10"
+port = 5236
+install_path = "/opt/dmdbms"
+data_path = "/opt/dmdbms/data"
+instance_name = "DMSVR01"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[cluster.nodes]]
+role = "standby"
+host = "192.168.1.11"
+port = 5236
+install_path = "/opt/dmdbms"
+data_path = "/opt/dmdbms/data"
+instance_name = "DMSVR02"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"

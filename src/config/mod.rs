@@ -2,6 +2,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
+pub mod cluster;
 pub mod validate;
 
 /// 安装配置。Phase 1 以硬编码默认值构造；Phase 2 从 TOML 文件反序列化。
