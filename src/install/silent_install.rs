@@ -6,21 +6,81 @@ use crate::config::InstallConfig;
 
 /// 执行 DM 静默安装：生成 XML 响应文件 + 调用 DMInstall.bin -q。
 pub fn run(config: &InstallConfig, extract_dir: &Path) -> Result<()> {
-    todo!("Task 1 RED: 待实现 silent_install::run")
+    let xml_file = generate_install_xml(config)?;
+    run_silent_install_bin(extract_dir, xml_file.path())
 }
 
 /// 生成 DM 安装 XML 响应文件（含 XML 转义防注入）。
+///
+/// `<CREATE_DB_SERVICE>` 和 `<STARTUP_DB_SERVICE>` 固定为 N——服务注册
+/// 由 `service.rs` 精确控制，禁止在 XML 中启用自动服务注册。
 pub(crate) fn generate_install_xml(config: &InstallConfig) -> Result<NamedTempFile> {
-    todo!("Task 1 RED: 待实现 generate_install_xml")
+    let install_path = xml_escape(&config.install_path);
+    let data_path = xml_escape(&config.data_path);
+    let instance_name = xml_escape(&config.instance_name);
+
+    let xml = format!(
+        r#"<?xml version="1.0"?>
+<DATABASE>
+  <LANGUAGE>zh</LANGUAGE>
+  <TIME_ZONE>+08:00</TIME_ZONE>
+  <INSTALL_TYPE>0</INSTALL_TYPE>
+  <INSTALL_PATH>{install_path}</INSTALL_PATH>
+  <INIT_DB>Y</INIT_DB>
+  <DB_PARAMS>
+    <PATH>{data_path}</PATH>
+    <DB_NAME>DAMENG</DB_NAME>
+    <INSTANCE_NAME>{instance_name}</INSTANCE_NAME>
+    <PORT_NUM>{port}</PORT_NUM>
+    <PAGE_SIZE>{page_size}</PAGE_SIZE>
+    <CHARSET>{charset}</CHARSET>
+    <CASE_SENSITIVE>{case_sensitive}</CASE_SENSITIVE>
+    <EXTENT_SIZE>{extent_size}</EXTENT_SIZE>
+    <CREATE_DB_SERVICE>N</CREATE_DB_SERVICE>
+    <STARTUP_DB_SERVICE>N</STARTUP_DB_SERVICE>
+  </DB_PARAMS>
+</DATABASE>"#,
+        port = config.port,
+        page_size = config.page_size,
+        charset = config.charset,
+        case_sensitive = if config.case_sensitive { "Y" } else { "N" },
+        extent_size = config.extent_size,
+    );
+
+    let mut file = NamedTempFile::new().context("创建 XML 临时文件失败")?;
+    file.write_all(xml.as_bytes())?;
+    Ok(file)
 }
 
-/// 对 XML 属性值进行字符转义，防止路径中含 & < > " ' 等字符。
-fn xml_escape(s: &str) -> String {
-    todo!("Task 1 RED: 待实现 xml_escape")
-}
-
+/// 调用 DMInstall.bin -q <xml_path> 执行静默安装。
 fn run_silent_install_bin(extract_dir: &Path, xml_path: &Path) -> Result<()> {
-    todo!("Task 1 RED: 待实现 run_silent_install_bin")
+    let dminstall = extract_dir.join("DMInstall.bin");
+
+    // unix 下先设置可执行权限
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dminstall, std::fs::Permissions::from_mode(0o755))?;
+    }
+
+    let status = Command::new(&dminstall)
+        .arg("-q")
+        .arg(xml_path)
+        .status()
+        .with_context(|| format!("执行 DMInstall.bin 失败: {}", dminstall.display()))?;
+    anyhow::ensure!(status.success(), "DMInstall.bin 返回非零退出码");
+    Ok(())
+}
+
+/// 对 XML 文本内容进行基本字符转义（防 XML 注入）。
+///
+/// 顺序关键：`&` 必须最先替换，否则已转义的 `&amp;` 会被二次转义。
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]
