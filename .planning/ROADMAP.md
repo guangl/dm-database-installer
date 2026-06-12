@@ -68,7 +68,7 @@ Plans:
   3. 主节点启动并确认健康后才启动备节点（可从日志中观察到有序启动顺序）
   4. 集群部署开始前，安装器完成 SSH 预检查（sudo 免密、端口可用性、磁盘空间），任一检查失败则中止并报告
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 **Wave 1**
 
@@ -76,7 +76,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — russh/russh-sftp 引入 + SSH 会话/CommandRunner trait + SSH 预检查（QUAL-01）+ TCP 健康轮询（CLUS-02），wave 2
+- [x] 03-02-PLAN.md — russh/russh-sftp 引入 + SSH 会话/CommandRunner trait + SSH 预检查（QUAL-01）+ TCP 健康轮询（CLUS-02），wave 2
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -107,5 +107,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. curl\|sh 单机安装 | 0/TBD | Not started | - |
 | 2. TOML 配置驱动单机 | 1/1 | Complete   | 2026-06-12 |
-| 3. 主备集群 | 1/3 | In Progress|  |
+| 3. 主备集群 | 2/3 | In Progress|  |
 | 4. 发布流水线 | 0/TBD | Not started | - |
