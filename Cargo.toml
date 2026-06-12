@@ -23,6 +23,7 @@ tempfile = "3.27.0"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream"] }
 clap_complete = "4.6.5"
 russh = { version = "0.61.2", default-features = false, features = ["async-trait", "ring"] }
+async-trait = "0.1"
 russh-sftp = "2.3.0"
 futures = "0.3"
 

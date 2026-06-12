@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+pub mod ssh;
 pub mod templates;
 
 /// 集群部署入口（占位 stub，由 Plan 03 实现完整编排逻辑）。
