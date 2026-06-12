@@ -8,14 +8,41 @@ use crate::config::InstallConfig;
 /// 关键约束（Pitfall 2）：dminit 参数等号两侧不能有空格。
 /// 每个参数用 `.arg(format!("KEY={}", value))` 单独传递。
 pub fn run_dminit(config: &InstallConfig) -> Result<()> {
-    todo!("Task 2 RED: 待实现 run_dminit")
+    let parts = build_dminit_command(config);
+    let dminit_bin = &parts[0];
+
+    let status = Command::new(dminit_bin)
+        .args(&parts[1..])
+        .status()
+        .with_context(|| format!("执行 dminit 失败: {}", dminit_bin))?;
+
+    anyhow::ensure!(
+        status.success(),
+        "dminit 返回非零退出码: {:?}",
+        status.code()
+    );
+    Ok(())
 }
 
 /// 构建 dminit 命令参数列表（测试用）。
 ///
-/// 返回 Vec<String>：[0] = dminit 二进制路径，[1..] = KEY=value 参数。
+/// 返回 Vec<String>：[0] = dminit 二进制路径，[1..] = KEY=value 参数（无空格）。
 pub(crate) fn build_dminit_command(config: &InstallConfig) -> Vec<String> {
-    todo!("Task 2 RED: 待实现 build_dminit_command")
+    let dminit_bin = format!("{}/bin/dminit", config.install_path);
+    vec![
+        dminit_bin,
+        format!("PATH={}", config.data_path),
+        "DB_NAME=DAMENG".to_string(),
+        format!("INSTANCE_NAME={}", config.instance_name),
+        format!("PORT_NUM={}", config.port),
+        format!("PAGE_SIZE={}", config.page_size),
+        format!("EXTENT_SIZE={}", config.extent_size),
+        format!("CHARSET={}", config.charset),
+        format!(
+            "CASE_SENSITIVE={}",
+            if config.case_sensitive { "Y" } else { "N" }
+        ),
+    ]
 }
 
 #[cfg(test)]

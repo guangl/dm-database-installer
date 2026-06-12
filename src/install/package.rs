@@ -8,13 +8,60 @@ use tempfile::TempDir;
 /// 策略 B: mount -o loop（需 root，安装器已以 root 运行）
 /// 临时目录在返回的 TempDir drop 时自动清理。
 pub fn extract_dminstall_bin(iso_path: &Path) -> Result<TempDir> {
-    todo!("Task 2 RED: 待实现 extract_dminstall_bin")
+    let extract_dir = TempDir::new().context("创建临时目录失败")?;
+
+    // 策略 A: bsdtar（无需 root，优先使用）
+    if is_command_available("bsdtar") {
+        let status = Command::new("bsdtar")
+            .args(["x", "-f"])
+            .arg(iso_path)
+            .arg("-C")
+            .arg(extract_dir.path())
+            .status()
+            .context("执行 bsdtar 失败")?;
+        if status.success() {
+            return Ok(extract_dir);
+        }
+        tracing::warn!("bsdtar 执行失败，fallback 到 mount -o loop");
+    } else {
+        tracing::warn!("bsdtar 不可用，fallback 到 mount -o loop（Pitfall 3）");
+    }
+
+    // 策略 B: mount -o loop（安装器已以 root 运行）
+    extract_via_mount(iso_path, &extract_dir)?;
+    Ok(extract_dir)
 }
 
-fn is_command_available(cmd: &str) -> bool {
-    todo!("Task 2 RED: 待实现 is_command_available")
-}
-
+/// 通过 mount -o loop 提取 DMInstall.bin。
 fn extract_via_mount(iso_path: &Path, extract_dir: &TempDir) -> Result<()> {
-    todo!("Task 2 RED: 待实现 extract_via_mount")
+    let mount_point = TempDir::new().context("创建挂载点失败")?;
+
+    let status = Command::new("mount")
+        .args(["-o", "loop"])
+        .arg(iso_path)
+        .arg(mount_point.path())
+        .status()
+        .context("mount -o loop 失败，请确认以 root 运行")?;
+    anyhow::ensure!(status.success(), "mount 返回非零退出码");
+
+    let src = mount_point.path().join("DMInstall.bin");
+    let dst = extract_dir.path().join("DMInstall.bin");
+    std::fs::copy(&src, &dst).with_context(|| {
+        format!(
+            "复制 DMInstall.bin 失败，检查 ISO 内容: {}",
+            src.display()
+        )
+    })?;
+
+    let _ = Command::new("umount").arg(mount_point.path()).status();
+    Ok(())
+}
+
+/// 检测外部命令是否可用。
+fn is_command_available(cmd: &str) -> bool {
+    Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
