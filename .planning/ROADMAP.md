@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: curl|sh 单机安装** - 用户可用一行命令安装达梦，完整链路跑通（下载、校验、安装、注册服务）
 - [x] **Phase 2: TOML 配置驱动单机** - DBA 可通过配置文件精细控制单机安装的所有参数 (completed 2026-06-12)
-- [ ] **Phase 3: 主备集群** - 用户可通过配置文件部署双节点主备集群，安装器自动 SSH 远程操作
+- [x] **Phase 3: 主备集群** - 用户可通过配置文件部署双节点主备集群，安装器自动 SSH 远程操作 (completed 2026-06-12)
 - [ ] **Phase 4: 发布流水线** - 多平台二进制正式分发，`curl | sh` 对真实用户可用
 
 ## Phase Details
@@ -68,7 +68,7 @@ Plans:
   3. 主节点启动并确认健康后才启动备节点（可从日志中观察到有序启动顺序）
   4. 集群部署开始前，安装器完成 SSH 预检查（sudo 免密、端口可用性、磁盘空间），任一检查失败则中止并报告
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 **Wave 1**
 
@@ -80,7 +80,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-03-PLAN.md — CLI cluster deploy 子命令 + cluster::run 编排（preflight → SFTP+install → 分发 INI → 有序启动 → dmwatcher），wave 3
+- [x] 03-03-PLAN.md — CLI cluster deploy 子命令 + cluster::run 编排（preflight → SFTP+install → 分发 INI → 有序启动 → dmwatcher），wave 3
 
 ### Phase 4: 发布流水线
 
@@ -107,5 +107,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. curl\|sh 单机安装 | 0/TBD | Not started | - |
 | 2. TOML 配置驱动单机 | 1/1 | Complete   | 2026-06-12 |
-| 3. 主备集群 | 2/3 | In Progress|  |
+| 3. 主备集群 | 3/3 | Complete   | 2026-06-12 |
 | 4. 发布流水线 | 0/TBD | Not started | - |
