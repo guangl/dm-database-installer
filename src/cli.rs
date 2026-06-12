@@ -20,6 +20,8 @@ pub enum Commands {
     Install(InstallArgs),
     /// 验证 TOML 配置文件合法性（不执行安装）
     Validate(ValidateArgs),
+    /// 集群部署子命令
+    Cluster(ClusterArgs),
     /// 生成 shell 补全脚本
     Completions {
         /// 目标 shell 类型（bash/zsh/fish 等）
@@ -55,6 +57,28 @@ pub struct InstallArgs {
 #[derive(clap::Args)]
 pub struct ValidateArgs {
     /// TOML 配置文件路径
+    #[arg(long)]
+    pub config: PathBuf,
+}
+
+/// cluster 子命令参数
+#[derive(clap::Args)]
+pub struct ClusterArgs {
+    #[command(subcommand)]
+    pub command: ClusterSubcommand,
+}
+
+/// cluster 支持的子命令
+#[derive(Subcommand)]
+pub enum ClusterSubcommand {
+    /// 部署主备集群
+    Deploy(ClusterDeployArgs),
+}
+
+/// cluster deploy 子命令参数
+#[derive(clap::Args)]
+pub struct ClusterDeployArgs {
+    /// 集群 TOML 配置文件路径（必填）
     #[arg(long)]
     pub config: PathBuf,
 }
@@ -145,6 +169,35 @@ mod tests {
             panic!("expected Install command");
         };
         assert!(args.config.is_none(), "未提供 --config 时应为 None");
+    }
+
+    #[test]
+    fn test_cluster_deploy_args_config() {
+        let cli = Cli::try_parse_from([
+            "dm-installer", "cluster", "deploy", "--config", "/etc/cluster.toml",
+        ])
+        .unwrap();
+        let Commands::Cluster(args) = cli.command else {
+            panic!("expected Cluster command");
+        };
+        let ClusterSubcommand::Deploy(deploy_args) = args.command;
+        assert_eq!(
+            deploy_args.config,
+            PathBuf::from("/etc/cluster.toml"),
+            "--config 应解析为正确路径"
+        );
+    }
+
+    #[test]
+    fn test_cluster_deploy_requires_config() {
+        let result = Cli::try_parse_from(["dm-installer", "cluster", "deploy"]);
+        assert!(result.is_err(), "cluster deploy 不带 --config 应解析失败");
+    }
+
+    #[test]
+    fn test_cluster_requires_subcommand() {
+        let result = Cli::try_parse_from(["dm-installer", "cluster"]);
+        assert!(result.is_err(), "cluster 不带子命令应解析失败");
     }
 
     #[test]

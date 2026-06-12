@@ -26,6 +26,9 @@ async fn main() -> Result<()> {
     match &cli_args.command {
         cli::Commands::Install(args) => install::run(args).await,
         cli::Commands::Validate(args) => config::validate::run(args),
+        cli::Commands::Cluster(args) => match &args.command {
+            cli::ClusterSubcommand::Deploy(deploy_args) => cluster::run(deploy_args).await,
+        },
         cli::Commands::Completions { shell } => {
             use clap::CommandFactory;
             use clap_complete::generate;
