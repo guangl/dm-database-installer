@@ -45,6 +45,10 @@ pub struct InstallArgs {
     /// 跳过确认，等同于 --defaults
     #[arg(long, short = 'y')]
     pub yes: bool,
+
+    /// TOML 配置文件路径（可选；未提供时使用内置默认参数）
+    #[arg(long)]
+    pub config: Option<PathBuf>,
 }
 
 /// validate 子命令参数
@@ -117,5 +121,42 @@ mod tests {
             panic!("expected Install command");
         };
         assert!(args.yes, "-y 应解析为 yes=true");
+    }
+
+    #[test]
+    fn test_install_args_with_config() {
+        // 验证 --config 路径正确解析为 Some(PathBuf)
+        let cli = Cli::try_parse_from(["dm-installer", "install", "--config", "/etc/dm.toml"]).unwrap();
+        let Commands::Install(args) = cli.command else {
+            panic!("expected Install command");
+        };
+        assert_eq!(
+            args.config,
+            Some(PathBuf::from("/etc/dm.toml")),
+            "--config 应解析为 Some(/etc/dm.toml)"
+        );
+    }
+
+    #[test]
+    fn test_install_args_config_default_none() {
+        // 未提供 --config 时，config 字段应为 None
+        let cli = Cli::try_parse_from(["dm-installer", "install", "--defaults"]).unwrap();
+        let Commands::Install(args) = cli.command else {
+            panic!("expected Install command");
+        };
+        assert!(args.config.is_none(), "未提供 --config 时应为 None");
+    }
+
+    #[test]
+    fn test_install_args_config_and_defaults_combined() {
+        // --config 与 --defaults 正交，可同时指定（D-03）
+        let cli = Cli::try_parse_from([
+            "dm-installer", "install", "--config", "/etc/dm.toml", "--defaults"
+        ]).unwrap();
+        let Commands::Install(args) = cli.command else {
+            panic!("expected Install command");
+        };
+        assert_eq!(args.config, Some(PathBuf::from("/etc/dm.toml")), "config 应为 Some");
+        assert!(args.defaults, "defaults 应为 true");
     }
 }

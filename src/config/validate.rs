@@ -81,4 +81,18 @@ mod tests {
             "install_path 未指定时应保持默认值"
         );
     }
+
+    #[test]
+    fn test_semantic_invalid_fixture_rejected() {
+        // 语义非法 fixture（page_size=12）应被 validate 子命令拒绝
+        let args = ValidateArgs {
+            config: "tests/fixtures/semantic_invalid.toml".into(),
+        };
+        let err = run(&args).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("page_size 无效: 12"),
+            "错误链应含 'page_size 无效: 12'，实际: {msg}"
+        );
+    }
 }

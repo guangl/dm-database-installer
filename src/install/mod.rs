@@ -10,6 +10,14 @@ pub mod init;
 pub mod package;
 pub mod silent_install;
 
+/// 根据 InstallArgs 决定配置来源：有 --config 则从文件加载，否则使用默认值。
+fn resolve_config(args: &InstallArgs) -> Result<InstallConfig> {
+    match &args.config {
+        Some(path) => crate::config::load_and_validate(path),
+        None => Ok(InstallConfig::default()),
+    }
+}
+
 /// 安装子命令入口（INST-01 完整编排器）。
 ///
 /// 流程：幂等检测 → 包路径 → checksum → ISO 提取 → 参数确认 → DMInstall.bin → dminit
@@ -79,4 +87,63 @@ fn step_silent_install(config: &InstallConfig, extract_dir: &tempfile::TempDir) 
 fn step_dminit(config: &InstallConfig) -> Result<()> {
     tracing::info!("[7/7] dminit 初始化");
     init::run_dminit(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn make_args_no_config() -> InstallArgs {
+        InstallArgs {
+            package: None,
+            checksum: None,
+            defaults: false,
+            yes: false,
+            config: None,
+        }
+    }
+
+    #[test]
+    fn test_load_config_from_args_uses_default_when_none() {
+        let args = make_args_no_config();
+        let cfg = resolve_config(&args).expect("应返回 Ok(InstallConfig)");
+        let default = InstallConfig::default();
+        assert_eq!(cfg.port, default.port, "port 应与默认值相同");
+        assert_eq!(cfg.page_size, default.page_size, "page_size 应与默认值相同");
+        assert_eq!(cfg.charset, default.charset, "charset 应与默认值相同");
+        assert_eq!(cfg.extent_size, default.extent_size, "extent_size 应与默认值相同");
+        assert_eq!(cfg.install_path, default.install_path, "install_path 应与默认值相同");
+        assert_eq!(cfg.data_path, default.data_path, "data_path 应与默认值相同");
+        assert_eq!(cfg.instance_name, default.instance_name, "instance_name 应与默认值相同");
+        assert_eq!(cfg.case_sensitive, default.case_sensitive, "case_sensitive 应与默认值相同");
+    }
+
+    #[test]
+    fn test_load_config_from_args_uses_file_when_some() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, concat!(
+            "port = 5237\n",
+            "page_size = 16\n",
+            "charset = 1\n",
+            "extent_size = 32\n",
+            "install_path = \"/opt/dmdbms\"\n",
+            "data_path = \"/opt/dmdbms/data\"\n",
+            "instance_name = \"DMSERVER\"\n",
+            "case_sensitive = true\n",
+        )).unwrap();
+        let args = InstallArgs {
+            package: None,
+            checksum: None,
+            defaults: false,
+            yes: false,
+            config: Some(file.path().to_path_buf()),
+        };
+        let cfg = resolve_config(&args).expect("应返回 Ok(InstallConfig)");
+        assert_eq!(cfg.port, 5237, "port 应为 5237");
+        assert_eq!(cfg.page_size, 16, "page_size 应为 16");
+        assert_eq!(cfg.charset, 1, "charset 应为 1");
+        assert_eq!(cfg.extent_size, 32, "extent_size 应为 32");
+    }
 }
