@@ -22,6 +22,7 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+    use crate::config::InstallConfig;
 
     #[test]
     fn test_valid_toml_passes() {
@@ -34,14 +35,50 @@ mod tests {
     #[test]
     fn test_invalid_toml_fails() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "port = not_a_number").unwrap();
+        writeln!(file, r#"port = "not_a_number""#).unwrap();
         let args = ValidateArgs { config: file.path().to_path_buf() };
-        assert!(run(&args).is_err());
+        let err = run(&args).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("配置文件解析失败"),
+            "错误链应包含'配置文件解析失败'，实际: {msg}"
+        );
     }
 
     #[test]
-    fn test_nonexistent_file_fails() {
+    fn test_missing_file_fails() {
         let args = ValidateArgs { config: "/nonexistent/path/dm.toml".into() };
-        assert!(run(&args).is_err());
+        let err = run(&args).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("无法读取配置文件"),
+            "错误链应包含'无法读取配置文件'，实际: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_install_config_defaults() {
+        // 验证 InstallConfig::default() D-07 规定的默认值
+        let cfg = InstallConfig::default();
+        assert_eq!(cfg.install_path, "/opt/dmdbms");
+        assert_eq!(cfg.data_path, "/opt/dmdbms/data");
+        assert_eq!(cfg.instance_name, "DMSERVER");
+        assert_eq!(cfg.port, 5236);
+        assert_eq!(cfg.page_size, 8);
+        assert_eq!(cfg.charset, 0);
+        assert!(cfg.case_sensitive);
+        assert_eq!(cfg.extent_size, 16);
+    }
+
+    #[test]
+    fn test_install_config_partial_toml() {
+        // 仅覆盖 port，其余字段应保持 D-07 默认值
+        let toml_str = "port = 5237\n";
+        let cfg: InstallConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.port, 5237, "port 应被覆盖为 5237");
+        assert_eq!(
+            cfg.install_path, "/opt/dmdbms",
+            "install_path 未指定时应保持默认值"
+        );
     }
 }
