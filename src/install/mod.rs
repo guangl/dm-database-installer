@@ -5,6 +5,8 @@ use crate::config::InstallConfig;
 
 pub mod checksum;
 pub mod idempotent;
+pub mod init;
+pub mod package;
 pub mod silent_install;
 
 /// 安装子命令入口（Plan 02 编排：幂等检测 → 包路径 → checksum 校验）。
