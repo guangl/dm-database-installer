@@ -14,8 +14,8 @@ DM_EXTENT_SIZE=32
 DM_CHARSET=0
 DM_CASE_SENSITIVE=Y
 
-# versions.json 地址（替换为你的实际 raw URL）
-VERSIONS_URL="https://raw.githubusercontent.com/guangluo/dm-installer/main/versions.json"
+# versions.txt 地址（替换为你的实际 raw URL）
+VERSIONS_URL="https://raw.githubusercontent.com/guangluo/dm-installer/main/versions.txt"
 
 # ── 颜色输出 ─────────────────────────────────────────────────────────────────────
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
@@ -60,33 +60,98 @@ check_deps() {
     fi
 }
 
-# ── 架构检测 ──────────────────────────────────────────────────────────────────────
-detect_arch() {
-    MACHINE=$(uname -m)
-    log_info "检测到架构: $MACHINE"
+# ── 平台检测（arch / cpu_key / os_key）────────────────────────────────────────────
+detect_platform() {
+    ARCH=$(uname -m)
+
+    # CPU 型号
+    case "$ARCH" in
+        x86_64)
+            if grep -qi "hygon" /proc/cpuinfo 2>/dev/null; then
+                CPU_KEY="hygon"
+            else
+                CPU_KEY="x86"
+            fi
+            ;;
+        aarch64)
+            if grep -qi "phytium\|ft-2000\|ftarm" /proc/cpuinfo 2>/dev/null; then
+                CPU_KEY="ft2000"
+            else
+                CPU_KEY="kunpeng"
+            fi
+            ;;
+        loongarch64) CPU_KEY="ls5000"  ;;
+        mips64el)    CPU_KEY="ls4000"  ;;
+        sw_64)       CPU_KEY="sw3231"  ;;
+        *)
+            log_err "不支持的架构: $ARCH"
+            exit 1
+            ;;
+    esac
+
+    # 操作系统
+    OS_KEY=""
+    if [ -f /etc/os-release ]; then
+        os_id=$(grep "^ID=" /etc/os-release | cut -d= -f2 | tr -d '"' | tr '[:upper:]' '[:lower:]')
+        os_ver=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2 | tr -d '"')
+        case "$os_id" in
+            kylin)
+                case "$os_ver" in
+                    *SP3*|*sp3*) OS_KEY="kylin10_sp3" ;;
+                    *SP1*|*sp1*) OS_KEY="kylin10_sp1" ;;
+                    *)           OS_KEY="kylin10"     ;;
+                esac
+                ;;
+            uos|uniontech)  OS_KEY="uos20"   ;;
+            ubuntu)
+                major=$(printf '%s' "$os_ver" | cut -d. -f1)
+                OS_KEY="ubuntu${major}"
+                ;;
+            centos)
+                major=$(printf '%s' "$os_ver" | cut -d. -f1)
+                [ "$major" -ge 7 ] && OS_KEY="centos7" || OS_KEY="rhel6"
+                ;;
+            rhel|rocky|almalinux|ol)
+                major=$(printf '%s' "$os_ver" | cut -d. -f1)
+                [ "$major" -ge 7 ] && OS_KEY="rhel7" || OS_KEY="rhel6"
+                ;;
+            nfsc|nfs)   OS_KEY="nfsc"   ;;
+        esac
+    fi
+    [ -z "$OS_KEY" ] && OS_KEY="rhel7"   # 兜底：RHEL7 兼容性最广
+
+    log_info "平台检测: arch=${ARCH}  cpu=${CPU_KEY}  os=${OS_KEY}"
 }
 
-# ── 从 versions.json 选取下载链接 ─────────────────────────────────────────────────
+# ── 从 versions.txt 匹配下载链接 ─────────────────────────────────────────────────
 select_download_url() {
     log_info "获取下载链接列表..."
     local versions_data
     versions_data=$(curl -sf --max-time 15 "$VERSIONS_URL") || {
-        log_err "无法获取 versions.json: $VERSIONS_URL"
+        log_err "无法获取 versions.txt: $VERSIONS_URL"
         exit 1
     }
 
-    # versions.json 格式: "arch": "https://..."（每行一条）
-    # 先找含当前 arch 的行，再从中提取 https:// URL
+    # 精确匹配 arch + cpu + os
     DOWNLOAD_URL=$(printf '%s' "$versions_data" \
-        | grep "\"${MACHINE}\"" \
-        | grep -o 'https://[^"]*')
+        | awk -v a="$ARCH" -v c="$CPU_KEY" -v o="$OS_KEY" \
+            '$1==a && $2==c && $3==o {print $4; exit}')
+
+    # 回退：同 arch + cpu，os 不限（取第一条）
+    if [ -z "$DOWNLOAD_URL" ]; then
+        log_warn "未找到 ${CPU_KEY}/${OS_KEY} 精确包，尝试同 CPU 其他 OS..."
+        DOWNLOAD_URL=$(printf '%s' "$versions_data" \
+            | awk -v a="$ARCH" -v c="$CPU_KEY" \
+                '$1==a && $2==c {print $4; exit}')
+    fi
 
     if [ -z "$DOWNLOAD_URL" ]; then
-        log_err "versions.json 中无 ${MACHINE} 平台（支持: x86_64 aarch64 loongarch64 mips64el sw_64）"
+        log_err "versions.txt 中无匹配平台 arch=${ARCH} cpu=${CPU_KEY} os=${OS_KEY}"
+        log_err "请到 https://eco.dameng.com/download/ 手动下载"
         exit 1
     fi
 
-    log_ok "下载链接: $DOWNLOAD_URL"
+    log_ok "匹配安装包: $(basename "$DOWNLOAD_URL")"
 }
 
 # ── 下载并解压 ────────────────────────────────────────────────────────────────────
@@ -210,7 +275,7 @@ main() {
     check_root
     check_existing_install
     check_deps
-    detect_arch
+    detect_platform
     select_download_url
     download_and_extract
     write_response_xml
