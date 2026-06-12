@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+pub mod health;
 pub mod preflight;
 pub mod ssh;
 pub mod templates;
