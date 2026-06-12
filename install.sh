@@ -93,13 +93,18 @@ detect_platform() {
     if [ -f /etc/os-release ]; then
         os_id=$(grep "^ID=" /etc/os-release | cut -d= -f2 | tr -d '"' | tr '[:upper:]' '[:lower:]')
         os_ver=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2 | tr -d '"')
+        os_ver_full=$(grep "^VERSION=" /etc/os-release | cut -d= -f2 | tr -d '"')
         case "$os_id" in
             kylin)
-                case "$os_ver" in
-                    *SP3*|*sp3*) OS_KEY="kylin10_sp3" ;;
-                    *SP1*|*sp1*) OS_KEY="kylin10_sp1" ;;
-                    *)           OS_KEY="kylin10"     ;;
+                # VERSION_ID="V10" 无 SP 标识；回退到 VERSION 字段的 codename
+                # Tercel=SP1, Lance=SP3（实测 opstool/kylin:v10sp1）
+                _kylin_str="${os_ver} ${os_ver_full}"
+                case "$_kylin_str" in
+                    *SP3*|*sp3*|*Lance*) OS_KEY="kylin10_sp3" ;;
+                    *SP1*|*sp1*|*Tercel*) OS_KEY="kylin10_sp1" ;;
+                    *)                    OS_KEY="kylin10"     ;;
                 esac
+                unset _kylin_str
                 ;;
             uos|uniontech)  OS_KEY="uos20"   ;;
             ubuntu)
