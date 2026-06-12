@@ -2,8 +2,8 @@
 phase: 2
 slug: toml
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-12
 ---
 
@@ -42,9 +42,9 @@ created: 2026-06-12
 | 02-01-02 | 01 | 0 | INST-02 SC3 | — | port=0 被拒绝，错误含"port" | unit | `cargo test config::test_port_zero` | ❌ W0 | ⬜ pending |
 | 02-01-03 | 01 | 0 | INST-02 | — | `load_and_validate` 读取 tempfile fixture 成功返回 InstallConfig | unit | `cargo test config::test_load_and_validate` | ❌ W0 | ⬜ pending |
 | 02-01-04 | 01 | 0 | QUAL-03 | — | `validate::run` 语义验证覆盖（page_size=12 被拒绝） | unit | `cargo test config::validate::test_semantic_invalid` | ❌ W0 | ⬜ pending |
-| 02-02-01 | 02 | 1 | INST-02 SC4 | — | `install --config` 分支使用 config 文件值而非默认值 | unit | `cargo test install::test_config_branch` | ❌ W0 | ⬜ pending |
-| 02-02-02 | 02 | 1 | INST-02 | — | dminit 命令含 config 文件指定的 port/page_size/charset | unit | `cargo test install::init::` | ✅ 已有 | ⬜ pending |
-| 02-02-03 | 02 | 1 | INST-02 SC3 | T-XML-INJ | config 路径字段经 xml_escape 转义后传入 dminit XML | unit | `cargo test install::silent_install::` | ✅ 已有 | ⬜ pending |
+| 02-01-05 | 01 | 1 | INST-02 SC4 | — | `install --config` 分支使用 config 文件值而非默认值 | unit | `cargo test install::test_config_branch` | ❌ W0 (Task 1) | ⬜ pending |
+| 02-01-06 | 01 | 1 | INST-02 | — | dminit 命令含 config 文件指定的 port/page_size/charset | unit | `cargo test install::init::` | ✅ 已有 | ⬜ pending |
+| 02-01-07 | 01 | 1 | INST-02 SC3 | T-XML-INJ | config 路径字段经 xml_escape 转义后传入 dminit XML | unit | `cargo test install::silent_install::` | ✅ 已有 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

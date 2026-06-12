@@ -408,12 +408,12 @@ fn test_port_zero_rejected() {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **port = 0 是否需要拒绝？**
+1. RESOLVED: **port = 0 是否需要拒绝？** → **是，需要拒绝。**
    - What we know: D-04 规则是 `port ∈ [1, 65535]`，即 port=0 应被拒绝
    - What's unclear: CONTEXT.md 写"u16 类型本身已约束，无需额外检查"——这与 `[1, 65535]` 的下界矛盾（u16 允许 0）
-   - Recommendation: 在 `validate_install_config()` 增加 `if cfg.port == 0 { bail!(...) }` 检查，与 D-04 的文字描述保持一致
+   - Resolution: PLAN.md Task 2 action 中明确包含 `if cfg.port == 0 { bail!(...) }` 检查，错误消息 `配置验证失败: port 无效: 0；有效范围为 1-65535`，与 D-04 `[1, 65535]` 下界一致
 
 ---
 

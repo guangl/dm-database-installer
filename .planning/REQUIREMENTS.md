@@ -76,7 +76,7 @@
 | DOWN-02 | Phase 1 | Pending |
 | QUAL-01 | Phase 3 | Pending |
 | QUAL-02 | Phase 1 | Pending |
-| QUAL-03 | Phase 1 | Pending |
+| QUAL-03 | Phase 2 | Pending |
 | PLAT-01 | Phase 4 | Pending |
 | PLAT-02 | Phase 4 | Pending |
 | PLAT-03 | Phase 4 | Pending |
@@ -89,8 +89,8 @@
 
 | Phase | Requirements | Count |
 |-------|-------------|-------|
-| Phase 1: curl\|sh 单机安装 | INST-01, INST-03, INST-04, DOWN-01, DOWN-02, QUAL-02, QUAL-03 | 7 |
-| Phase 2: TOML 配置驱动单机 | INST-02 | 1 |
+| Phase 1: curl\|sh 单机安装 | INST-01, INST-03, INST-04, DOWN-01, DOWN-02, QUAL-02 | 6 |
+| Phase 2: TOML 配置驱动单机 | INST-02, QUAL-03 | 2 |
 | Phase 3: 主备集群 | CLUS-01, CLUS-02, QUAL-01 | 3 |
 | Phase 4: 发布流水线 | PLAT-01, PLAT-02, PLAT-03, PLAT-04 | 4 |
 
