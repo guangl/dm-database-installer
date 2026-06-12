@@ -12,13 +12,12 @@
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] TOML 配置文件驱动的单机安装（支持自定义端口、路径、实例参数等）— Validated in Phase 02: toml
+- [x] TOML 配置文件驱动的主备集群安装（主节点 + 备节点，SSH 远程部署）— Validated in Phase 03: cluster（自动化测试全绿；双节点真实部署待人工验证）
 
 ### Active
 
 - [ ] `curl | sh` 一行命令安装单机达梦（使用内置默认参数，无需配置文件）
-- [ ] TOML 配置文件驱动的单机安装（支持自定义端口、路径、实例参数等）
-- [ ] TOML 配置文件驱动的主备集群安装（主节点 + 备节点，SSH 远程部署）
 - [ ] TOML 配置文件驱动的 DSC 集群安装（多节点，SSH 远程部署）
 - [ ] TOML 配置文件驱动的 DPC 集群安装（多节点，SSH 远程部署）
 - [ ] 自动从达梦官网下载对应平台的最新安装包
@@ -55,7 +54,7 @@
 |----------|-----------|---------|
 | Rust CLI | 跨平台发布，单二进制，无运行时依赖 | — Pending |
 | TOML 配置格式 | Rust 生态首选，`serde` 生态成熟，层级嵌套直观 | — Pending |
-| SSH 远程操作集群节点 | 用户只需在一台控制机执行，符合运维习惯 | — Pending |
+| SSH 远程操作集群节点 | 用户只需在一台控制机执行，符合运维习惯 | — Validated (Phase 03) |
 | `curl \| sh` 单行命令 | 开发者最低摩擦安装体验，无需预先下载 installer | — Pending |
 
 ## Evolution
@@ -76,4 +75,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after initialization*
+*Last updated: 2026-06-13 after Phase 03 (cluster) completion*
