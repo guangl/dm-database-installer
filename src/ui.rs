@@ -69,3 +69,18 @@ pub fn confirm_immutable_params(config: &InstallConfig, skip: bool) -> Result<()
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::InstallConfig;
+
+    /// 验证 --defaults 模式下 confirm_immutable_params 不读取 stdin（Pitfall 4）。
+    /// 若函数在 skip=true 时触发 stdin 读取，在非 TTY 环境下会立即返回空字符串导致 bail。
+    #[test]
+    fn test_confirm_skip_returns_ok_without_stdin() {
+        let config = InstallConfig::default();
+        let result = confirm_immutable_params(&config, true);
+        assert!(result.is_ok(), "skip=true 时应返回 Ok，不应读取 stdin");
+    }
+}
