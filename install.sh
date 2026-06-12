@@ -14,8 +14,7 @@ DM_EXTENT_SIZE=32
 DM_CHARSET=0
 DM_CASE_SENSITIVE=Y
 
-# versions.txt 地址（替换为你的实际 raw URL）
-VERSIONS_URL="https://raw.githubusercontent.com/guangluo/dm-installer/main/versions.txt"
+VERSIONS_URL="https://raw.githubusercontent.com/guangl/dm-database-installer/main/versions.txt"
 
 # ── 颜色输出 ─────────────────────────────────────────────────────────────────────
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
