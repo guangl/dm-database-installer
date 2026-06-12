@@ -1,11 +1,14 @@
 use anyhow::Result;
+use std::path::Path;
 
 use crate::config::InstallConfig;
 
 /// 检测 install_path 下是否已有达梦实例（通过 dm.ini 存在性判断）。
 /// 返回 Ok(true) 表示实例已存在，Ok(false) 表示未安装。
+/// 使用 config.install_path 而非硬编码路径（Pitfall 6 合规）。
 pub fn check_existing_instance(config: &InstallConfig) -> Result<bool> {
-    todo!("RED 阶段占位，实现在 GREEN 阶段填入")
+    let ini_path = Path::new(&config.install_path).join("dm.ini");
+    Ok(ini_path.exists())
 }
 
 #[cfg(test)]

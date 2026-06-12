@@ -12,17 +12,23 @@ pub async fn fetch_dm_installer() -> Result<PathBuf> {
     ))
 }
 
-// Phase 2 实现参考模式（来自 RESEARCH.md）：
-//
-// use reqwest::Client;
-// use indicatif::{ProgressBar, ProgressStyle};
-// use tokio::io::AsyncWriteExt;
-//
-// pub async fn fetch_dm_installer() -> Result<PathBuf> {
-//     let url = "TODO: spike 验证达梦官网直链";
-//     let client = Client::new();
-//     let resp = client.get(url).send().await?;
-//     let total = resp.content_length().unwrap_or(0);
-//     let pb = ProgressBar::new(total);
-//     // ...stream chunks, write to tempfile, pb.inc(bytes)...
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_fetch_stub_returns_error() {
+        // Phase 1 占位应返回含引导信息的错误
+        let result = fetch_dm_installer().await;
+        assert!(result.is_err(), "占位函数应返回 Err");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("Phase 1 占位"),
+            "错误消息应含 'Phase 1 占位'，实际: {msg}"
+        );
+        assert!(
+            msg.contains("--package"),
+            "错误消息应含 '--package'，实际: {msg}"
+        );
+    }
+}

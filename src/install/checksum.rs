@@ -1,11 +1,43 @@
 use anyhow::Result;
+use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 /// 对给定文件计算 SHA-256 并与期望值比较。
 /// expected_hex 大小写不敏感（统一转换为小写后比较）。
 pub fn verify_sha256(path: &Path, expected_hex: &str) -> Result<()> {
-    todo!("RED 阶段占位，实现在 GREEN 阶段填入")
+    let actual = compute_sha256(path)?;
+    let expected_lower = expected_hex.to_lowercase();
+    if actual != expected_lower {
+        anyhow::bail!(
+            "SHA-256 校验失败\n  期望: {}\n  实际: {}",
+            expected_lower,
+            actual
+        );
+    }
+    Ok(())
 }
+
+/// 计算文件的 SHA-256 hex 字符串（内部辅助函数，保持 verify_sha256 < 40 行）。
+fn compute_sha256(path: &Path) -> Result<String> {
+    let file = File::open(path)
+        .with_context(|| format!("无法打开文件: {}", path.display()))?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let hash_bytes = hasher.finalize();
+    Ok(hash_bytes.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+use anyhow::Context;
 
 #[cfg(test)]
 mod tests {
