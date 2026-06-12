@@ -24,7 +24,7 @@ fn resolve_config(args: &InstallArgs) -> Result<InstallConfig> {
 /// Plan 04 接管：systemd 服务注册
 pub async fn run(args: &InstallArgs) -> Result<()> {
     tracing::info!("开始安装达梦数据库");
-    let config = InstallConfig::default();
+    let config = resolve_config(args)?;
 
     if check_idempotent_early_exit(&config)? {
         return Ok(());
