@@ -30,10 +30,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. 安装完成后 `systemctl status dmserver` 显示服务已注册且开机自启
   4. 重复运行安装器时，检测到已有实例并提示而非覆盖崩溃（幂等性）
   5. 用户可运行 `dm-installer validate --config config.toml` 仅验证配置合法性而不执行安装
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 Plans:
 - [x] 01-01-PLAN.md — Walking Skeleton: Cargo.toml + CLI 结构体 (clap derive) + tokio main + 模块占位 (INST-01 CLI 层)
-- [ ] 01-02-PLAN.md — 配置验证 + SHA-256 校验 + 幂等检测 + 下载占位 (DOWN-01, DOWN-02, QUAL-02, QUAL-03)
+- [x] 01-02-PLAN.md — 配置验证 + SHA-256 校验 + 幂等检测 + 下载占位 (DOWN-01, DOWN-02, QUAL-02, QUAL-03)
 - [ ] 01-03-PLAN.md — ISO 提取 + XML 生成 + DMInstall.bin 静默安装 + dminit + 参数确认 UI (INST-01 核心, INST-03)
 - [ ] 01-04-PLAN.md — systemd 服务注册 + root 权限检测 + e2e 验证 (INST-04, Phase 1 收尾)
 
@@ -80,7 +80,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. curl\|sh 单机安装 | 1/4 | In Progress|  |
+| 1. curl\|sh 单机安装 | 2/4 | In Progress|  |
 | 2. TOML 配置驱动单机 | 0/TBD | Not started | - |
 | 3. 主备集群 | 0/TBD | Not started | - |
 | 4. 发布流水线 | 0/TBD | Not started | - |
