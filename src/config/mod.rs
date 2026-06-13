@@ -1,6 +1,6 @@
-use std::path::Path;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use std::path::Path;
 
 pub mod cluster;
 pub mod validate;
@@ -8,11 +8,11 @@ pub mod validate;
 /// 安装配置。Phase 1 以硬编码默认值构造；Phase 2 从 TOML 文件反序列化。
 #[derive(Debug, Deserialize)]
 pub struct InstallConfig {
-    /// DM 安装根目录，默认 /opt/dmdbms
+    /// DM 安装根目录，默认 /home/dmdba/dmdbms
     #[serde(default = "default_install_path")]
     pub install_path: String,
 
-    /// 数据文件目录，默认 /opt/dmdbms/data
+    /// 数据文件目录，默认 /home/dmdba/dmdbms/data
     #[serde(default = "default_data_path")]
     pub data_path: String,
 
@@ -24,11 +24,11 @@ pub struct InstallConfig {
     #[serde(default = "default_port")]
     pub port: u16,
 
-    /// 页大小（KB），可选 4/8/16/32，默认 8
+    /// 页大小（KB），可选 4/8/16/32，默认 32
     #[serde(default = "default_page_size")]
     pub page_size: u8,
 
-    /// 字符集：0=GB18030, 1=UTF-8, 2=EUC-KR，默认 0
+    /// 字符集：0=GB18030, 1=UTF-8, 2=EUC-KR，默认 1
     #[serde(default = "default_charset")]
     pub charset: u8,
 
@@ -36,19 +36,35 @@ pub struct InstallConfig {
     #[serde(default = "default_case_sensitive")]
     pub case_sensitive: bool,
 
-    /// 区段大小（页数），可选 16/32，默认 16
+    /// 区段大小（页数），可选 16/32，默认 32
     #[serde(default = "default_extent_size")]
     pub extent_size: u8,
 }
 
-fn default_install_path() -> String { "/opt/dmdbms".to_string() }
-fn default_data_path() -> String { "/opt/dmdbms/data".to_string() }
-fn default_instance_name() -> String { "DMSERVER".to_string() }
-fn default_port() -> u16 { 5236 }
-fn default_page_size() -> u8 { 8 }
-fn default_charset() -> u8 { 0 }
-fn default_case_sensitive() -> bool { true }
-fn default_extent_size() -> u8 { 16 }
+fn default_install_path() -> String {
+    "/opt/dmdbms".to_string()
+}
+fn default_data_path() -> String {
+    "/opt/dmdbms/data".to_string()
+}
+fn default_instance_name() -> String {
+    "DMSERVER".to_string()
+}
+fn default_port() -> u16 {
+    5236
+}
+fn default_page_size() -> u8 {
+    8
+}
+fn default_charset() -> u8 {
+    0
+}
+fn default_case_sensitive() -> bool {
+    true
+}
+fn default_extent_size() -> u8 {
+    16
+}
 
 impl Default for InstallConfig {
     fn default() -> Self {
@@ -70,8 +86,7 @@ impl Default for InstallConfig {
 pub fn load_and_validate(path: &Path) -> Result<InstallConfig> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("无法读取配置文件: {}", path.display()))?;
-    let cfg = toml::from_str::<InstallConfig>(&content)
-        .with_context(|| "配置文件解析失败")?;
+    let cfg = toml::from_str::<InstallConfig>(&content).with_context(|| "配置文件解析失败")?;
     validate_install_config(&cfg)?;
     Ok(cfg)
 }
@@ -79,13 +94,22 @@ pub fn load_and_validate(path: &Path) -> Result<InstallConfig> {
 /// 验证 InstallConfig 字段语义合法性（枚举值域、范围约束）。
 pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
     if ![4u8, 8, 16, 32].contains(&cfg.page_size) {
-        bail!("配置验证失败: page_size 无效: {}；有效值为 4/8/16/32", cfg.page_size);
+        bail!(
+            "配置验证失败: page_size 无效: {}；有效值为 4/8/16/32",
+            cfg.page_size
+        );
     }
     if ![0u8, 1, 2].contains(&cfg.charset) {
-        bail!("配置验证失败: charset 无效: {}；有效值 0=GB18030 1=UTF-8 2=EUC-KR", cfg.charset);
+        bail!(
+            "配置验证失败: charset 无效: {}；有效值 0=GB18030 1=UTF-8 2=EUC-KR",
+            cfg.charset
+        );
     }
     if ![16u8, 32].contains(&cfg.extent_size) {
-        bail!("配置验证失败: extent_size 无效: {}；有效值为 16/32", cfg.extent_size);
+        bail!(
+            "配置验证失败: extent_size 无效: {}；有效值为 16/32",
+            cfg.extent_size
+        );
     }
     if cfg.port == 0 {
         bail!("配置验证失败: port 无效: 0；有效范围为 1-65535");
@@ -101,35 +125,63 @@ mod tests {
 
     #[test]
     fn test_validate_install_config_rejects_invalid_page_size() {
-        let cfg = InstallConfig { page_size: 12, ..Default::default() };
+        let cfg = InstallConfig {
+            page_size: 12,
+            ..Default::default()
+        };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("page_size 无效: 12"), "应含 'page_size 无效: 12'，实际: {msg}");
-        assert!(msg.contains("有效值为 4/8/16/32"), "应含 '有效值为 4/8/16/32'，实际: {msg}");
+        assert!(
+            msg.contains("page_size 无效: 12"),
+            "应含 'page_size 无效: 12'，实际: {msg}"
+        );
+        assert!(
+            msg.contains("有效值为 4/8/16/32"),
+            "应含 '有效值为 4/8/16/32'，实际: {msg}"
+        );
     }
 
     #[test]
     fn test_validate_install_config_rejects_invalid_charset() {
-        let cfg = InstallConfig { page_size: 8, charset: 9, ..Default::default() };
+        let cfg = InstallConfig {
+            page_size: 8,
+            charset: 9,
+            ..Default::default()
+        };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("charset 无效: 9"), "应含 'charset 无效: 9'，实际: {msg}");
+        assert!(
+            msg.contains("charset 无效: 9"),
+            "应含 'charset 无效: 9'，实际: {msg}"
+        );
     }
 
     #[test]
     fn test_validate_install_config_rejects_invalid_extent_size() {
-        let cfg = InstallConfig { extent_size: 8, ..Default::default() };
+        let cfg = InstallConfig {
+            extent_size: 8,
+            ..Default::default()
+        };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("extent_size 无效: 8"), "应含 'extent_size 无效: 8'，实际: {msg}");
+        assert!(
+            msg.contains("extent_size 无效: 8"),
+            "应含 'extent_size 无效: 8'，实际: {msg}"
+        );
     }
 
     #[test]
     fn test_validate_install_config_rejects_port_zero() {
-        let cfg = InstallConfig { port: 0, ..Default::default() };
+        let cfg = InstallConfig {
+            port: 0,
+            ..Default::default()
+        };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("port 无效: 0"), "应含 'port 无效: 0'，实际: {msg}");
+        assert!(
+            msg.contains("port 无效: 0"),
+            "应含 'port 无效: 0'，实际: {msg}"
+        );
         assert!(msg.contains("1-65535"), "应含 '1-65535'，实际: {msg}");
     }
 
@@ -170,14 +222,20 @@ mod tests {
         writeln!(file, "page_size = 12\n").unwrap();
         let err = load_and_validate(file.path()).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("page_size 无效: 12"), "应含 'page_size 无效: 12'，实际: {msg}");
+        assert!(
+            msg.contains("page_size 无效: 12"),
+            "应含 'page_size 无效: 12'，实际: {msg}"
+        );
     }
 
     #[test]
     fn test_load_and_validate_missing_file_fails() {
         let err = load_and_validate(std::path::Path::new("/nonexistent/path/dm.toml")).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("无法读取配置文件"), "应含 '无法读取配置文件'，实际: {msg}");
+        assert!(
+            msg.contains("无法读取配置文件"),
+            "应含 '无法读取配置文件'，实际: {msg}"
+        );
     }
 
     #[test]
@@ -186,6 +244,9 @@ mod tests {
         writeln!(file, "port = \"not_a_number\"\n").unwrap();
         let err = load_and_validate(file.path()).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("配置文件解析失败"), "应含 '配置文件解析失败'，实际: {msg}");
+        assert!(
+            msg.contains("配置文件解析失败"),
+            "应含 '配置文件解析失败'，实际: {msg}"
+        );
     }
 }
