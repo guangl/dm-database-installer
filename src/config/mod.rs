@@ -34,7 +34,8 @@ impl InstallType {
     }
 }
 
-/// 通用配置（config.toml）：安装类型、安装包来源、日志级别、SSH 默认凭证。
+/// 通用配置（config.toml）：安装类型、安装包来源、日志级别。
+/// SSH 凭证在各特有配置文件中单独配置（standalone.toml / primary-standby.toml 等）。
 #[derive(Debug, Deserialize)]
 pub struct CommonConfig {
     /// 安装类型，决定特有配置文件的文件名
@@ -45,8 +46,6 @@ pub struct CommonConfig {
     /// 日志级别，默认 info
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    /// SSH 默认凭证（集群安装时各节点可继承）
-    pub ssh: Option<ssh::SshCredentials>,
 }
 
 fn default_log_level() -> String { "info".to_string() }

@@ -2,25 +2,23 @@ use anyhow::Result;
 
 use crate::cluster::{deploy, health, preflight};
 use crate::common::ssh;
-use crate::config::cluster::{ClusterConfig, NodeConfig};
+use crate::config::cluster::{ClusterSpecificConfig, NodeConfig};
+use crate::config::CommonConfig;
 
-pub async fn run(args: &crate::cli::ClusterDeployArgs) -> Result<()> {
-    use crate::config::cluster::load_cluster_config;
+pub async fn run(common: CommonConfig, specific: ClusterSpecificConfig) -> Result<()> {
     use std::sync::Arc;
 
-    let config_path = args.config.as_ref().expect("config 已在 cluster::run 检查过");
-    let config = load_cluster_config(config_path)
-        .map_err(|e| anyhow::anyhow!("加载集群配置失败: {}: {}", config_path.display(), e))?;
     tracing::info!("[cluster][1/6] 建立 SSH 会话");
     let mut runners: Vec<(NodeConfig, Arc<dyn ssh::CommandRunner>)> = Vec::new();
-    for node in &config.cluster.nodes {
+    for node in &specific.nodes {
         let session = ssh::SshSession::connect(&node.host, 22, &node.ssh)
             .await
             .map_err(|e| anyhow::anyhow!("连接节点 {} 失败: {}", node.host, e))?;
         runners.push((node.clone(), Arc::new(session)));
     }
     run_with_runners(
-        config,
+        common,
+        specific,
         runners,
         |host, port, secs| {
             Box::pin(async move { health::wait_tcp_ready(&host, port, secs).await })
@@ -30,16 +28,17 @@ pub async fn run(args: &crate::cli::ClusterDeployArgs) -> Result<()> {
 }
 
 pub async fn run_with_runners(
-    config: ClusterConfig,
+    common: CommonConfig,
+    specific: ClusterSpecificConfig,
     runners: Vec<(NodeConfig, std::sync::Arc<dyn ssh::CommandRunner>)>,
     health_check_fn: impl Fn(String, u16, u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
         + Send
         + Sync,
 ) -> Result<()> {
     run_preflight(&runners).await?;
-    run_install_phase(&config, &runners).await?;
-    run_distribute_phase(&config, &runners).await?;
-    run_startup_phase(&config, &runners, &health_check_fn).await?;
+    run_install_phase(&common, &specific, &runners).await?;
+    run_distribute_phase(&specific, &runners).await?;
+    run_startup_phase(&specific, &runners, &health_check_fn).await?;
     run_watcher_phase(&runners).await?;
     tracing::info!("集群部署完成");
     Ok(())
@@ -59,11 +58,14 @@ async fn run_preflight(
 }
 
 async fn run_install_phase(
-    config: &ClusterConfig,
+    common: &CommonConfig,
+    specific: &ClusterSpecificConfig,
     runners: &[(NodeConfig, std::sync::Arc<dyn ssh::CommandRunner>)],
 ) -> Result<()> {
     tracing::info!("[cluster][3/6] 并发推送安装包并 dminit");
-    let pkg = &config.cluster.installer_package;
+    let pkg = common.installer_package.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("集群安装需要在 config.toml 中指定 installer_package"))?;
+    let _ = specific;
     let futs: Vec<_> = runners
         .iter()
         .map(|(node, runner)| {
@@ -81,12 +83,12 @@ async fn run_install_phase(
 }
 
 async fn run_distribute_phase(
-    config: &ClusterConfig,
+    specific: &ClusterSpecificConfig,
     runners: &[(NodeConfig, std::sync::Arc<dyn ssh::CommandRunner>)],
 ) -> Result<()> {
     tracing::info!("[cluster][4/6] 分发配置文件");
     let all_nodes: Vec<_> = runners.iter().map(|(n, _)| n.clone()).collect();
-    let oguid = config.cluster.oguid;
+    let oguid = specific.oguid;
     let futs: Vec<_> = runners
         .iter()
         .map(|(node, runner)| {
@@ -103,7 +105,7 @@ async fn run_distribute_phase(
 }
 
 async fn run_startup_phase(
-    config: &ClusterConfig,
+    specific: &ClusterSpecificConfig,
     runners: &[(NodeConfig, std::sync::Arc<dyn ssh::CommandRunner>)],
     health_check_fn: &(impl Fn(String, u16, u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>> + Send + Sync),
 ) -> Result<()> {
@@ -117,7 +119,7 @@ async fn run_startup_phase(
     tracing::info!("[node:{:?}] 等待主节点健康 (TCP:{}) ...", primary_node.role, primary_node.port);
     health_check_fn(primary_node.host.clone(), primary_node.port, 60).await?;
     tracing::info!("[node:{:?}] 主节点就绪", primary_node.role);
-    deploy::configure_database_role(primary_node, NodeRole::Primary, config.cluster.oguid, primary_runner.as_ref()).await?;
+    deploy::configure_database_role(primary_node, NodeRole::Primary, specific.oguid, primary_runner.as_ref()).await?;
     let (standby_node, standby_runner) = runners
         .iter()
         .find(|(n, _)| n.role == NodeRole::Standby)
@@ -125,7 +127,7 @@ async fn run_startup_phase(
     tracing::info!("[node:{:?}][5/6] 启动达梦备实例", standby_node.role);
     deploy::start_dmserver_mount(standby_node, standby_runner.as_ref()).await?;
     health_check_fn(standby_node.host.clone(), standby_node.port, 60).await?;
-    deploy::configure_database_role(standby_node, NodeRole::Standby, config.cluster.oguid, standby_runner.as_ref()).await
+    deploy::configure_database_role(standby_node, NodeRole::Standby, specific.oguid, standby_runner.as_ref()).await
 }
 
 async fn run_watcher_phase(
@@ -148,9 +150,8 @@ async fn run_watcher_phase(
 mod tests {
     use super::*;
     use crate::common::ssh::MockRunner;
-    use crate::config::cluster::{
-        ClusterConfig, ClusterSection, NodeConfig, NodeRole, SshCredentials,
-    };
+    use crate::config::cluster::{ClusterSpecificConfig, NodeConfig, NodeRole, SshCredentials};
+    use crate::config::{CommonConfig, InstallType};
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -178,16 +179,15 @@ mod tests {
         }
     }
 
-    fn make_config(nodes: Vec<NodeConfig>) -> ClusterConfig {
-        use crate::config::cluster::ClusterType;
-        ClusterConfig {
-            cluster: ClusterSection {
-                cluster_type: ClusterType::PrimaryStandby,
-                installer_package: PathBuf::from("/tmp/fake.iso"),
-                oguid: 453331,
-                nodes,
-                shared_storage: None,
-            },
+    fn make_specific(nodes: Vec<NodeConfig>) -> ClusterSpecificConfig {
+        ClusterSpecificConfig { oguid: 453331, nodes, shared_storage: None }
+    }
+
+    fn make_common(installer_package: Option<PathBuf>) -> CommonConfig {
+        CommonConfig {
+            install_type: InstallType::PrimaryStandby,
+            installer_package,
+            log_level: "info".to_string(),
         }
     }
 
@@ -205,11 +205,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_rejects_no_primary_fixture() {
-        use crate::cli::ClusterDeployArgs;
-        let args = ClusterDeployArgs {
-            config: Some(PathBuf::from("tests/fixtures/cluster_invalid_no_primary.toml")),
-        };
-        let result = run(&args).await;
+        let standby1 = make_node(NodeRole::Standby, "DMSVR01", "192.168.1.10");
+        let standby2 = make_node(NodeRole::Standby, "DMSVR02", "192.168.1.11");
+        let specific = make_specific(vec![standby1.clone(), standby2.clone()]);
+        let tmp_pkg = tempfile::NamedTempFile::new().unwrap();
+        let common = make_common(Some(tmp_pkg.path().to_path_buf()));
+        let runner1 = make_full_runner();
+        let runner2 = make_full_runner();
+        let runners: Vec<(NodeConfig, Arc<dyn ssh::CommandRunner>)> = vec![
+            (standby1, runner1 as Arc<dyn ssh::CommandRunner>),
+            (standby2, runner2 as Arc<dyn ssh::CommandRunner>),
+        ];
+        let result = run_with_runners(common, specific, runners, |_h, _p, _s| Box::pin(async { Ok(()) })).await;
         assert!(result.is_err(), "缺少 primary 节点应返回 Err");
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("primary"), "错误消息应含 'primary': {msg}");
@@ -220,8 +227,8 @@ mod tests {
         let tmp_pkg = tempfile::NamedTempFile::new().unwrap();
         let primary = make_node(NodeRole::Primary, "DMSVR01", "192.168.1.10");
         let standby = make_node(NodeRole::Standby, "DMSVR02", "192.168.1.11");
-        let mut config = make_config(vec![primary.clone(), standby.clone()]);
-        config.cluster.installer_package = tmp_pkg.path().to_path_buf();
+        let specific = make_specific(vec![primary.clone(), standby.clone()]);
+        let common = make_common(Some(tmp_pkg.path().to_path_buf()));
         let primary_runner = Arc::new(MockRunner::new(vec![
             ("sudo -n true".to_string(), 1, vec![]),
         ]));
@@ -230,20 +237,12 @@ mod tests {
             (primary.clone(), primary_runner.clone() as Arc<dyn ssh::CommandRunner>),
             (standby.clone(), standby_runner as Arc<dyn ssh::CommandRunner>),
         ];
-        let result = run_with_runners(
-            config,
-            runners,
-            |_h, _p, _s| Box::pin(async { Ok(()) }),
-        )
-        .await;
+        let result = run_with_runners(common, specific, runners, |_h, _p, _s| Box::pin(async { Ok(()) })).await;
         assert!(result.is_err(), "预检查失败应返回 Err");
         let log = primary_runner.exec_log();
-        let has_dminit = log.iter().any(|c| c.contains("dminit"));
-        let has_dmserver = log.iter().any(|c| c.contains("dmserver"));
-        let has_disql = log.iter().any(|c| c.contains("disql"));
-        assert!(!has_dminit, "预检查失败后不应执行 dminit: {:?}", log);
-        assert!(!has_dmserver, "预检查失败后不应启动 dmserver: {:?}", log);
-        assert!(!has_disql, "预检查失败后不应执行 disql: {:?}", log);
+        assert!(!log.iter().any(|c| c.contains("dminit")), "预检查失败后不应执行 dminit: {:?}", log);
+        assert!(!log.iter().any(|c| c.contains("dmserver")), "预检查失败后不应启动 dmserver: {:?}", log);
+        assert!(!log.iter().any(|c| c.contains("disql")), "预检查失败后不应执行 disql: {:?}", log);
     }
 
     #[tokio::test]
@@ -252,31 +251,20 @@ mod tests {
         let tmp_pkg = tempfile::NamedTempFile::new().unwrap();
         let primary = make_node(NodeRole::Primary, "DMSVR01", "192.168.1.10");
         let standby = make_node(NodeRole::Standby, "DMSVR02", "192.168.1.11");
-        let mut config = make_config(vec![primary.clone(), standby.clone()]);
-        config.cluster.installer_package = tmp_pkg.path().to_path_buf();
+        let specific = make_specific(vec![primary.clone(), standby.clone()]);
+        let common = make_common(Some(tmp_pkg.path().to_path_buf()));
         let primary_runner = make_full_runner();
         let standby_runner = make_full_runner();
         let runners: Vec<(NodeConfig, Arc<dyn ssh::CommandRunner>)> = vec![
             (primary.clone(), primary_runner.clone() as Arc<dyn ssh::CommandRunner>),
             (standby.clone(), standby_runner.clone() as Arc<dyn ssh::CommandRunner>),
         ];
-        let result = run_with_runners(
-            config,
-            runners,
-            |_h, _p, _s| Box::pin(async { Ok(()) }),
-        )
-        .await;
+        let result = run_with_runners(common, specific, runners, |_h, _p, _s| Box::pin(async { Ok(()) })).await;
         assert!(result.is_ok(), "全部通过应返回 Ok: {:?}", result.err());
         let p_log = primary_runner.exec_log();
-        assert!(
-            p_log.iter().any(|c| c.contains("alter database primary")),
-            "primary 应执行 alter database primary: {:?}", p_log
-        );
+        assert!(p_log.iter().any(|c| c.contains("alter database primary")), "primary 应执行 alter database primary: {:?}", p_log);
         let s_log = standby_runner.exec_log();
-        assert!(
-            s_log.iter().any(|c| c.contains("mount")),
-            "standby 应执行 mount 启动: {:?}", s_log
-        );
+        assert!(s_log.iter().any(|c| c.contains("mount")), "standby 应执行 mount 启动: {:?}", s_log);
         logs_assert(|lines: &[&str]| {
             let primary_ready = lines.iter().position(|l| l.contains("主节点就绪"));
             let standby_start = lines.iter().position(|l| l.contains("启动达梦备实例"));

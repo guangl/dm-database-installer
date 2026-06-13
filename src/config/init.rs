@@ -73,11 +73,6 @@ type = "standalone"
 
 # 日志级别：trace / debug / info / warn / error
 log_level = "info"
-
-# SSH 默认凭证（单机安装无需填写）
-# [ssh]
-# user = "root"
-# identity_file = "~/.ssh/id_rsa"
 "#;
 
 const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配置（standalone.toml）
@@ -123,12 +118,6 @@ type = "primary-standby"
 installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
 
 log_level = "info"
-
-# SSH 默认凭证（各节点未单独指定时使用）
-[ssh]
-user = "root"
-identity_file = "~/.ssh/id_rsa"
-# password = "your_password"
 "#;
 
 const CLUSTER_COMMON_RWS: &str = r#"# 达梦数据库读写分离集群 — 通用配置
@@ -139,10 +128,6 @@ type = "rws"
 installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
 
 log_level = "info"
-
-[ssh]
-user = "root"
-identity_file = "~/.ssh/id_rsa"
 "#;
 
 const CLUSTER_COMMON_DSC: &str = r#"# 达梦数据库 DSC 集群 — 通用配置
@@ -153,10 +138,6 @@ type = "dsc"
 installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
 
 log_level = "info"
-
-[ssh]
-user = "root"
-identity_file = "~/.ssh/id_rsa"
 "#;
 
 const PS_SPECIFIC: &str = r#"# 达梦数据库主备集群 — 特有配置（primary-standby.toml）
