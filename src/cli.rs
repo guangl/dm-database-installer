@@ -212,4 +212,31 @@ mod tests {
         assert_eq!(args.config, Some(PathBuf::from("/etc/dm.toml")), "config 应为 Some");
         assert!(args.defaults, "defaults 应为 true");
     }
+
+    #[test]
+    fn test_install_windows_placeholder_parses() {
+        // PLAT-04: install-windows 无参数应解析为 InstallWindows(args)，config 为 None
+        let cli = Cli::try_parse_from(["dm-installer", "install-windows"]).unwrap();
+        let Commands::InstallWindows(args) = cli.command else {
+            panic!("expected InstallWindows command");
+        };
+        assert!(args.config.is_none(), "--config 应为 None");
+    }
+
+    #[test]
+    fn test_install_windows_with_config() {
+        // PLAT-04: install-windows --config 应解析为 Some(PathBuf)
+        let cli = Cli::try_parse_from([
+            "dm-installer", "install-windows", "--config", "/etc/dm.toml",
+        ])
+        .unwrap();
+        let Commands::InstallWindows(args) = cli.command else {
+            panic!("expected InstallWindows command");
+        };
+        assert_eq!(
+            args.config,
+            Some(PathBuf::from("/etc/dm.toml")),
+            "--config 应解析为 Some(/etc/dm.toml)"
+        );
+    }
 }
