@@ -22,6 +22,8 @@ pub enum Commands {
     Validate(ValidateArgs),
     /// 集群部署子命令
     Cluster(ClusterArgs),
+    /// 生成默认配置文件模板
+    Init(InitArgs),
     /// 在 Windows 目标机上安装达梦（placeholder — PLAT-04 spike 待完成）
     InstallWindows(InstallWindowsArgs),
     /// 生成 shell 补全脚本
@@ -41,14 +43,6 @@ pub struct InstallArgs {
     /// 可选的 SHA-256 校验和（十六进制字符串）
     #[arg(long)]
     pub checksum: Option<String>,
-
-    /// 跳过所有交互确认（curl | sh 模式使用）
-    #[arg(long)]
-    pub defaults: bool,
-
-    /// 跳过确认，等同于 --defaults
-    #[arg(long, short = 'y')]
-    pub yes: bool,
 
     /// TOML 配置文件路径（可选；未提供时使用内置默认参数）
     #[arg(long)]
@@ -85,6 +79,52 @@ pub struct ClusterDeployArgs {
     pub config: PathBuf,
 }
 
+/// init 子命令参数
+#[derive(clap::Args)]
+pub struct InitArgs {
+    #[command(subcommand)]
+    pub kind: InitKind,
+}
+
+/// init 支持的配置类型
+#[derive(Subcommand)]
+pub enum InitKind {
+    /// 生成单机安装配置模板
+    Standalone(InitOutputArgs),
+    /// 生成集群安装配置模板（需指定集群类型）
+    Cluster(ClusterInitArgs),
+}
+
+/// cluster init 子命令参数
+#[derive(clap::Args)]
+pub struct ClusterInitArgs {
+    #[command(subcommand)]
+    pub kind: ClusterInitKind,
+}
+
+/// 集群类型
+#[derive(Subcommand)]
+pub enum ClusterInitKind {
+    /// 主备集群（Primary-Standby）
+    PrimaryStandby(InitOutputArgs),
+    /// 读写分离集群（基于主备，备节点承担只读查询）
+    Rws(InitOutputArgs),
+    /// 共享存储集群 DSC（Data Sharing Cluster，多实例共享 SAN/NFS）
+    Dsc(InitOutputArgs),
+}
+
+/// init 子命令公共输出参数
+#[derive(clap::Args)]
+pub struct InitOutputArgs {
+    /// 输出文件路径
+    #[arg(long, short = 'o')]
+    pub output: Option<PathBuf>,
+
+    /// 覆盖已存在的文件
+    #[arg(long)]
+    pub force: bool,
+}
+
 /// install-windows 子命令参数（PLAT-04 placeholder）
 #[derive(clap::Args)]
 pub struct InstallWindowsArgs {
@@ -99,31 +139,12 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn test_install_args_defaults() {
-        // 验证 --defaults flag 解析为 true，--package 为 None
-        let cli = Cli::try_parse_from(["dm-installer", "install", "--defaults"]).unwrap();
-        let Commands::Install(args) = cli.command else {
-            panic!("expected Install command");
-        };
-        assert!(args.defaults, "--defaults 应解析为 true");
-        assert!(args.package.is_none(), "--package 应为 None");
-        assert!(args.checksum.is_none(), "--checksum 应为 None");
-        assert!(!args.yes, "--yes 应为 false");
-    }
-
-    #[test]
     fn test_install_args_with_package() {
-        // 验证 --package 路径正确解析为 Some(PathBuf)
         let cli = Cli::try_parse_from(["dm-installer", "install", "--package", "/tmp/x.iso"]).unwrap();
         let Commands::Install(args) = cli.command else {
             panic!("expected Install command");
         };
-        assert_eq!(
-            args.package,
-            Some(PathBuf::from("/tmp/x.iso")),
-            "--package 应解析为正确路径"
-        );
-        assert!(!args.defaults, "--defaults 应为 false");
+        assert_eq!(args.package, Some(PathBuf::from("/tmp/x.iso")));
     }
 
     #[test]
@@ -148,16 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn test_yes_short_flag() {
-        // 验证 -y 短参数与 --yes 等效
-        let cli = Cli::try_parse_from(["dm-installer", "install", "-y"]).unwrap();
-        let Commands::Install(args) = cli.command else {
-            panic!("expected Install command");
-        };
-        assert!(args.yes, "-y 应解析为 yes=true");
-    }
-
-    #[test]
     fn test_install_args_with_config() {
         // 验证 --config 路径正确解析为 Some(PathBuf)
         let cli = Cli::try_parse_from(["dm-installer", "install", "--config", "/etc/dm.toml"]).unwrap();
@@ -173,12 +184,11 @@ mod tests {
 
     #[test]
     fn test_install_args_config_default_none() {
-        // 未提供 --config 时，config 字段应为 None
-        let cli = Cli::try_parse_from(["dm-installer", "install", "--defaults"]).unwrap();
+        let cli = Cli::try_parse_from(["dm-installer", "install"]).unwrap();
         let Commands::Install(args) = cli.command else {
             panic!("expected Install command");
         };
-        assert!(args.config.is_none(), "未提供 --config 时应为 None");
+        assert!(args.config.is_none());
     }
 
     #[test]
@@ -208,19 +218,6 @@ mod tests {
     fn test_cluster_requires_subcommand() {
         let result = Cli::try_parse_from(["dm-installer", "cluster"]);
         assert!(result.is_err(), "cluster 不带子命令应解析失败");
-    }
-
-    #[test]
-    fn test_install_args_config_and_defaults_combined() {
-        // --config 与 --defaults 正交，可同时指定（D-03）
-        let cli = Cli::try_parse_from([
-            "dm-installer", "install", "--config", "/etc/dm.toml", "--defaults"
-        ]).unwrap();
-        let Commands::Install(args) = cli.command else {
-            panic!("expected Install command");
-        };
-        assert_eq!(args.config, Some(PathBuf::from("/etc/dm.toml")), "config 应为 Some");
-        assert!(args.defaults, "defaults 应为 true");
     }
 
     #[test]

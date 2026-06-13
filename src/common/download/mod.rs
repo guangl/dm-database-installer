@@ -24,16 +24,14 @@ impl PackageHandle {
     }
 }
 
-/// 根据 versions.txt 自动检测平台、选择版本并下载安装包。
-///
-/// `non_interactive=true` 时多个候选中自动选第一项（`--defaults` / `--yes` 模式）。
-pub async fn fetch_dm_installer(non_interactive: bool) -> Result<PackageHandle> {
+/// 根据 versions.txt 自动检测平台并下载安装包。
+pub async fn fetch_dm_installer() -> Result<PackageHandle> {
     let platform = detect_platform();
     tracing::debug!("检测平台: arch={}, cpu={:?}, os={:?}", platform.arch, platform.cpu, platform.os);
 
     let all = versions::parse_versions();
     let matches = versions::filter_entries(&all, &platform.arch, platform.cpu.as_deref(), platform.os.as_deref());
-    let entry = select::select_version(&all, &matches, &platform.arch, non_interactive)?;
+    let entry = select::select_version(&all, &matches, &platform.arch)?;
 
     let file_name = entry.file_name();
     println!("下载安装包: {}", file_name);

@@ -52,7 +52,7 @@ async fn fetch_package(args: &InstallArgs) -> Result<crate::common::download::Pa
     tracing::info!("[2/7] 获取安装包路径");
     match &args.package {
         Some(p) => Ok(crate::common::download::PackageHandle::from_user_path(p.clone())),
-        None => crate::common::download::fetch_dm_installer(args.defaults || args.yes).await,
+        None => crate::common::download::fetch_dm_installer().await,
     }
 }
 
@@ -91,8 +91,6 @@ mod tests {
         InstallArgs {
             package: None,
             checksum: None,
-            defaults: false,
-            yes: false,
             config: None,
         }
     }
@@ -128,8 +126,6 @@ mod tests {
         let args = InstallArgs {
             package: None,
             checksum: None,
-            defaults: false,
-            yes: false,
             config: Some(file.path().to_path_buf()),
         };
         let cfg = resolve_config(&args).expect("应返回 Ok(InstallConfig)");
