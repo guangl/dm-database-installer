@@ -325,19 +325,46 @@ mod tests {
     async fn test_upload_installer_and_install_pushes_xml() {
         let node = make_primary_node();
         let runner = MockRunner::new(vec![]);
-        // 使用不存在的路径——upload 会因无法读取 ISO 失败，但 XML 应已推送
-        let pkg = std::path::PathBuf::from("/tmp/fake_nonexistent.iso");
-        // XML 推送发生在 ISO 读取之前，所以这里先检查 sftp_log 在失败前
-        // 实际上 tokio::fs::read 失败会返回 Err 在 sftp_write xml 之后
-        // 测试：传入一个临时文件作为"安装包"
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        let result = upload_installer_and_install(&node, tmp.path(), &runner).await;
-        // 即使 install cmd 可能因 exec 默认 Ok 通过，sftp_log 应含 xml 和 iso
-        let _ = result; // 结果可能 Ok 也可能因 dminit 等原因 Err，主要验证 sftp
-        let log = runner.sftp_log();
-        let has_xml = log.iter().any(|(p, _)| p.contains(".xml"));
-        let has_iso = log.iter().any(|(p, _)| p.contains(".iso"));
-        assert!(has_xml, "sftp_log 应含 .xml 路径: {:?}", log.iter().map(|(p,_)| p).collect::<Vec<_>>());
-        assert!(has_iso, "sftp_log 应含 .iso 路径: {:?}", log.iter().map(|(p,_)| p).collect::<Vec<_>>());
+        let _ = upload_installer_and_install(&node, tmp.path(), &runner).await;
+        let sftp_log = runner.sftp_log();
+        let exec_log = runner.exec_log();
+        // CR-01 修复后：应含 .bin 路径而非 .iso
+        let has_bin = sftp_log.iter().any(|(p, _)| p.ends_with(".bin"));
+        let has_iso = sftp_log.iter().any(|(p, _)| p.ends_with(".iso"));
+        let has_xml = sftp_log.iter().any(|(p, _)| p.contains(".xml"));
+        assert!(has_xml, "sftp_log 应含 .xml 路径: {:?}", sftp_log.iter().map(|(p,_)| p).collect::<Vec<_>>());
+        assert!(has_bin, "sftp_log 应含 .bin 路径（CR-01）: {:?}", sftp_log.iter().map(|(p,_)| p).collect::<Vec<_>>());
+        assert!(!has_iso, "sftp_log 不应含 .iso 路径（CR-01 修复后）");
+        let has_chmod = exec_log.iter().any(|cmd| cmd.contains("chmod +x"));
+        assert!(has_chmod, "exec_log 应含 chmod +x 调用（CR-01）: {:?}", exec_log);
+    }
+
+    #[test]
+    fn test_shell_quote_single_quotes_path() {
+        assert_eq!(shell_quote("/opt/dmdbms"), "'/opt/dmdbms'");
+    }
+
+    #[test]
+    fn test_shell_quote_escapes_embedded_single_quote() {
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn test_shell_quote_blocks_injection() {
+        let result = shell_quote("/tmp; rm -rf /");
+        assert!(result.starts_with('\''), "结果应以单引号开头");
+        assert!(result.ends_with('\''), "结果应以单引号结尾");
+        assert!(result.contains("; rm -rf /"), "注入字符应被包裹在单引号内");
+    }
+
+    #[tokio::test]
+    async fn test_start_dmserver_mount_quotes_paths() {
+        let node = make_primary_node();
+        let runner = MockRunner::new(vec![]);
+        start_dmserver_mount(&node, &runner).await.unwrap();
+        let log = runner.exec_log();
+        let found = log.iter().any(|cmd| cmd.contains("'/opt/dmdbms'"));
+        assert!(found, "命令应含经 shell_quote 包裹的 install_path: {:?}", log);
     }
 }
