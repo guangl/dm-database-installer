@@ -8,8 +8,9 @@ pub async fn run(args: &crate::cli::ClusterDeployArgs) -> Result<()> {
     use crate::config::cluster::load_cluster_config;
     use std::sync::Arc;
 
-    let config = load_cluster_config(&args.config)
-        .map_err(|e| anyhow::anyhow!("加载集群配置失败: {}: {}", args.config.display(), e))?;
+    let config_path = args.config.as_ref().expect("config 已在 cluster::run 检查过");
+    let config = load_cluster_config(config_path)
+        .map_err(|e| anyhow::anyhow!("加载集群配置失败: {}: {}", config_path.display(), e))?;
     tracing::info!("[cluster][1/6] 建立 SSH 会话");
     let mut runners: Vec<(NodeConfig, Arc<dyn ssh::CommandRunner>)> = Vec::new();
     for node in &config.cluster.nodes {
@@ -206,7 +207,7 @@ mod tests {
     async fn test_run_rejects_no_primary_fixture() {
         use crate::cli::ClusterDeployArgs;
         let args = ClusterDeployArgs {
-            config: PathBuf::from("tests/fixtures/cluster_invalid_no_primary.toml"),
+            config: Some(PathBuf::from("tests/fixtures/cluster_invalid_no_primary.toml")),
         };
         let result = run(&args).await;
         assert!(result.is_err(), "缺少 primary 节点应返回 Err");

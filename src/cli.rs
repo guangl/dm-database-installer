@@ -72,9 +72,9 @@ pub enum ClusterSubcommand {
 /// cluster deploy 子命令参数
 #[derive(clap::Args)]
 pub struct ClusterDeployArgs {
-    /// 集群 TOML 配置文件路径（必填）
+    /// 集群 TOML 配置文件路径
     #[arg(long)]
-    pub config: PathBuf,
+    pub config: Option<PathBuf>,
 }
 
 /// init 子命令参数
@@ -193,15 +193,17 @@ mod tests {
         let ClusterSubcommand::Deploy(deploy_args) = args.command;
         assert_eq!(
             deploy_args.config,
-            PathBuf::from("/etc/cluster.toml"),
+            Some(PathBuf::from("/etc/cluster.toml")),
             "--config 应解析为正确路径"
         );
     }
 
     #[test]
-    fn test_cluster_deploy_requires_config() {
-        let result = Cli::try_parse_from(["dm-installer", "cluster", "deploy"]);
-        assert!(result.is_err(), "cluster deploy 不带 --config 应解析失败");
+    fn test_cluster_deploy_config_is_optional() {
+        let cli = Cli::try_parse_from(["dm-installer", "cluster", "deploy"]).unwrap();
+        let Commands::Cluster(args) = cli.command else { panic!("expected Cluster") };
+        let ClusterSubcommand::Deploy(deploy_args) = args.command;
+        assert!(deploy_args.config.is_none(), "不带 --config 时 config 应为 None");
     }
 
     #[test]

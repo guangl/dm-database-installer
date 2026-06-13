@@ -13,12 +13,10 @@ pub mod silent_install;
 fn resolve_config(args: &InstallArgs) -> Result<InstallConfig> {
     match &args.config {
         Some(path) => crate::config::load_and_validate(path),
-        None => bail!(
-            "安装前需要配置文件\n\
-             请先运行:\n\
-             \n  dm-installer init standalone\n\
-             \n然后编辑生成的 dm-standalone.toml，再用 --config 指定"
-        ),
+        None => {
+            crate::guide::print_standalone();
+            bail!("缺少 --config 参数");
+        }
     }
 }
 
@@ -144,7 +142,7 @@ mod tests {
     fn test_load_config_from_args_requires_config_file() {
         let args = InstallArgs { package: None, checksum: None, config: None };
         let err = resolve_config(&args).unwrap_err();
-        assert!(format!("{err}").contains("dm-installer init standalone"));
+        assert!(format!("{err}").contains("缺少 --config 参数"));
     }
 
     #[test]

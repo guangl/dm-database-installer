@@ -6,6 +6,7 @@ mod cli;
 mod cluster;
 mod common;
 mod config;
+mod guide;
 mod standalone;
 
 /// dm-database-installer 主入口。
