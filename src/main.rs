@@ -29,6 +29,15 @@ async fn main() -> Result<()> {
         cli::Commands::Cluster(args) => match &args.command {
             cli::ClusterSubcommand::Deploy(deploy_args) => cluster::run(deploy_args).await,
         },
+        cli::Commands::InstallWindows(_args) => {
+            // PLAT-04 spike: setup.exe /q /XML <path> 集成待完成
+            // DM Windows 安装包 URL 需从 eco.dameng.com 单独验证
+            // 实现方式说明：D-07 授权采用 eprintln + exit(1)，等价于 CONTEXT.md L45 示意的 placeholder
+            // 优势：避免 panic backtrace；用户看到明确的中文错误信息
+            eprintln!("[WARN] Windows 目标机安装尚未实现（PLAT-04 spike 待完成）");
+            eprintln!("请参考: https://eco.dameng.com/ 手动获取 Windows 安装包");
+            std::process::exit(1);
+        }
         cli::Commands::Completions { shell } => {
             use clap::CommandFactory;
             use clap_complete::generate;

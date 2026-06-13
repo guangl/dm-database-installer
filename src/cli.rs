@@ -22,6 +22,8 @@ pub enum Commands {
     Validate(ValidateArgs),
     /// 集群部署子命令
     Cluster(ClusterArgs),
+    /// 在 Windows 目标机上安装达梦（placeholder — PLAT-04 spike 待完成）
+    InstallWindows(InstallWindowsArgs),
     /// 生成 shell 补全脚本
     Completions {
         /// 目标 shell 类型（bash/zsh/fish 等）
@@ -81,6 +83,14 @@ pub struct ClusterDeployArgs {
     /// 集群 TOML 配置文件路径（必填）
     #[arg(long)]
     pub config: PathBuf,
+}
+
+/// install-windows 子命令参数（PLAT-04 placeholder）
+#[derive(clap::Args)]
+pub struct InstallWindowsArgs {
+    /// TOML 配置文件路径（可选；未提供时使用内置默认参数）
+    #[arg(long)]
+    pub config: Option<PathBuf>,
 }
 
 #[cfg(test)]
