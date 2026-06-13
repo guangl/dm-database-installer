@@ -83,6 +83,7 @@ fn node_to_install_config(node: &NodeConfig) -> InstallConfig {
         charset: node.charset,
         case_sensitive: node.case_sensitive,
         extent_size: node.extent_size,
+        ssh_target: None,
     }
 }
 

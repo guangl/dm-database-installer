@@ -9,3 +9,18 @@ pub struct SshCredentials {
     #[serde(skip_serializing, default)]
     pub password: Option<String>,
 }
+
+/// 单机 SSH 远程安装目标（standalone.toml 可选 [ssh_target] 块）。
+/// password 为 None 时运行时提示输入。
+#[derive(Debug, Deserialize, Clone)]
+pub struct SshTarget {
+    pub host: String,
+    #[serde(default = "default_ssh_port")]
+    pub ssh_port: u16,
+    pub user: String,
+    pub password: Option<String>,
+}
+
+fn default_ssh_port() -> u16 {
+    22
+}
