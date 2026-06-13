@@ -9,7 +9,6 @@ use crate::common::ssh::{CommandRunner, SshSession};
 use crate::common::sysinfo::detect_platform_from_raw;
 use crate::config::ssh::{SshCredentials, SshTarget};
 use crate::config::{CommonConfig, InstallConfig};
-use crate::standalone::silent_install::generate_install_xml;
 
 use super::{generate_passwords, print_generated_credentials, verify_checksum};
 
@@ -156,42 +155,43 @@ async fn upload_and_install_remote(
     extract_dir: &Path,
     runner: &dyn CommandRunner,
 ) -> Result<()> {
-    tracing::info!("[3/5] 上传安装包并远端静默安装");
-
-    let xml_file = generate_install_xml(config).context("生成 XML response file 失败")?;
-    let xml_content = std::fs::read_to_string(xml_file.path()).context("读取 XML 临时文件失败")?;
-    let remote_xml = "/tmp/dm_standalone_install.xml".to_string();
-    runner
-        .sftp_write(&remote_xml, xml_content.as_bytes())
-        .await
-        .context("SFTP 上传 XML response file 失败")?;
-    println!("  上传配置文件完成");
+    tracing::info!("[3/5] 上传安装包并远端安装");
 
     let bin_path = extract_dir.join("DMInstall.bin");
     let bin_bytes = std::fs::read(&bin_path)
         .with_context(|| format!("读取 DMInstall.bin 失败: {}", bin_path.display()))?;
-    let remote_bin = "/tmp/dm_standalone_DMInstall.bin".to_string();
+    let remote_bin = "/tmp/dm_standalone_DMInstall.bin";
+    let remote_extract = "/tmp/dm_standalone_extract";
+
     let pb = upload_progress_bar(bin_bytes.len() as u64);
     runner
-        .sftp_write_with_progress(&remote_bin, &bin_bytes, &|n| pb.inc(n))
+        .sftp_write_with_progress(remote_bin, &bin_bytes, &|n| pb.inc(n))
         .await
         .context("SFTP 上传 DMInstall.bin 失败")?;
     pb.finish_with_message("上传完成");
 
-    runner
-        .exec(&format!("chmod +x {}", shell_quote(&remote_bin)))
-        .await
-        .map_err(|e| anyhow::anyhow!("chmod DMInstall.bin 失败: {e}"))?;
-
     let spinner = install_spinner();
-    let install_cmd = format!("{} -q {}", shell_quote(&remote_bin), shell_quote(&remote_xml));
+    let install_cmd = format!(
+        "rm -rf {extract} && unzip -q {bin} -d {extract} && mkdir -p {parent} && mv {extract}/dmdbms {install} && rm -rf {extract}",
+        extract = shell_quote(remote_extract),
+        bin     = shell_quote(remote_bin),
+        parent  = shell_quote(parent_of(&config.install_path)),
+        install = shell_quote(&config.install_path),
+    );
     runner
         .exec(&install_cmd)
         .await
-        .map_err(|e| anyhow::anyhow!("远端 DMInstall.bin 执行失败: {e}"))?;
-    spinner.finish_with_message("静默安装完成");
-    tracing::info!("远端 DMInstall.bin 静默安装成功");
+        .map_err(|e| anyhow::anyhow!("远端安装 dmdbms 失败: {e}"))?;
+    spinner.finish_with_message("安装完成");
+    tracing::info!("远端 dmdbms 安装成功: {}", config.install_path);
     Ok(())
+}
+
+fn parent_of(path: &str) -> &str {
+    std::path::Path::new(path)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or("/")
 }
 
 fn upload_progress_bar(total_bytes: u64) -> ProgressBar {
@@ -287,18 +287,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_upload_and_install_uploads_xml_and_bin() {
+    async fn test_upload_and_install_uploads_bin() {
         let runner = MockRunner::new(vec![]);
         let config = make_config();
         let tmp = tempfile::TempDir::new().unwrap();
         std::fs::write(tmp.path().join("DMInstall.bin"), b"fake_bin").unwrap();
         let _ = upload_and_install_remote(&config, tmp.path(), &runner).await;
         let sftp_log = runner.sftp_log();
-        assert!(
-            sftp_log.iter().any(|(p, _)| p.contains(".xml")),
-            "应上传 XML: {:?}",
-            sftp_log.iter().map(|(p, _)| p).collect::<Vec<_>>()
-        );
         assert!(
             sftp_log.iter().any(|(p, _)| p.contains("DMInstall.bin")),
             "应上传 DMInstall.bin: {:?}",

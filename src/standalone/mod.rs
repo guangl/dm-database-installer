@@ -151,8 +151,9 @@ fn step_extract(path: &std::path::Path) -> Result<tempfile::TempDir> {
 }
 
 fn step_silent_install(config: &InstallConfig, extract_dir: &tempfile::TempDir) -> Result<()> {
-    tracing::info!("[5/6] DMInstall.bin 静默安装");
-    silent_install::run(config, extract_dir.path())
+    tracing::info!("[5/6] 安装 dmdbms");
+    let bin_path = extract_dir.path().join("DMInstall.bin");
+    silent_install::install_from_bin(&bin_path, &config.install_path)
 }
 
 fn step_dminit(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &str) -> Result<()> {
