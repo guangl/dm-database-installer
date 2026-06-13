@@ -29,6 +29,8 @@ pub fn run_dminit(config: &InstallConfig) -> Result<()> {
 /// 返回 Vec<String>：[0] = dminit 二进制路径，[1..] = KEY=value 参数（无空格）。
 pub(crate) fn build_dminit_command(config: &InstallConfig) -> Vec<String> {
     let dminit_bin = format!("{}/bin/dminit", config.install_path);
+    let sysdba_pwd = config.sysdba_pwd.as_deref().unwrap_or("");
+    let sysauditor_pwd = config.sysauditor_pwd.as_deref().unwrap_or("");
     vec![
         dminit_bin,
         format!("PATH={}", config.data_path),
@@ -38,10 +40,9 @@ pub(crate) fn build_dminit_command(config: &InstallConfig) -> Vec<String> {
         format!("PAGE_SIZE={}", config.page_size),
         format!("EXTENT_SIZE={}", config.extent_size),
         format!("CHARSET={}", config.charset),
-        format!(
-            "CASE_SENSITIVE={}",
-            if config.case_sensitive { "Y" } else { "N" }
-        ),
+        format!("CASE_SENSITIVE={}", if config.case_sensitive { "Y" } else { "N" }),
+        format!("SYSDBA_PWD={}", sysdba_pwd),
+        format!("SYSAUDITOR_PWD={}", sysauditor_pwd),
     ]
 }
 
@@ -86,6 +87,8 @@ mod tests {
         assert!(all_args.contains("EXTENT_SIZE="), "缺少 EXTENT_SIZE 参数");
         assert!(all_args.contains("CHARSET="), "缺少 CHARSET 参数");
         assert!(all_args.contains("CASE_SENSITIVE="), "缺少 CASE_SENSITIVE 参数");
+        assert!(all_args.contains("SYSDBA_PWD="), "缺少 SYSDBA_PWD 参数");
+        assert!(all_args.contains("SYSAUDITOR_PWD="), "缺少 SYSAUDITOR_PWD 参数");
     }
 
     #[test]

@@ -7,14 +7,14 @@ pub mod init;
 pub mod ssh;
 pub mod validate;
 
-/// 安装配置。Phase 1 以硬编码默认值构造；Phase 2 从 TOML 文件反序列化。
+/// 安装配置，从 TOML 文件反序列化。
 #[derive(Debug, Deserialize)]
 pub struct InstallConfig {
-    /// DM 安装根目录，默认 /home/dmdba/dmdbms
+    /// DM 安装根目录，默认 /opt/dmdbms
     #[serde(default = "default_install_path")]
     pub install_path: String,
 
-    /// 数据文件目录，默认 /home/dmdba/dmdbms/data
+    /// 数据文件目录，默认 /opt/dmdbms/data
     #[serde(default = "default_data_path")]
     pub data_path: String,
 
@@ -26,11 +26,11 @@ pub struct InstallConfig {
     #[serde(default = "default_port")]
     pub port: u16,
 
-    /// 页大小（KB），可选 4/8/16/32，默认 32
+    /// 页大小（KB），可选 4/8/16/32，默认 8
     #[serde(default = "default_page_size")]
     pub page_size: u8,
 
-    /// 字符集：0=GB18030, 1=UTF-8, 2=EUC-KR，默认 1
+    /// 字符集：0=GB18030, 1=UTF-8, 2=EUC-KR，默认 0
     #[serde(default = "default_charset")]
     pub charset: u8,
 
@@ -38,9 +38,15 @@ pub struct InstallConfig {
     #[serde(default = "default_case_sensitive")]
     pub case_sensitive: bool,
 
-    /// 区段大小（页数），可选 16/32，默认 32
+    /// 区段大小（页数），可选 16/32，默认 16
     #[serde(default = "default_extent_size")]
     pub extent_size: u8,
+
+    /// SYSDBA 管理员密码（必填）——至少 9 位，含大写/小写/数字/特殊字符中的至少三类
+    pub sysdba_pwd: Option<String>,
+
+    /// SYSAUDITOR 审计员密码（必填）——同上
+    pub sysauditor_pwd: Option<String>,
 }
 
 fn default_install_path() -> String {
@@ -79,6 +85,8 @@ impl Default for InstallConfig {
             charset: default_charset(),
             case_sensitive: default_case_sensitive(),
             extent_size: default_extent_size(),
+            sysdba_pwd: None,
+            sysauditor_pwd: None,
         }
     }
 }
@@ -93,7 +101,7 @@ pub fn load_and_validate(path: &Path) -> Result<InstallConfig> {
     Ok(cfg)
 }
 
-/// 验证 InstallConfig 字段语义合法性（枚举值域、范围约束）。
+/// 验证 InstallConfig 字段语义合法性（枚举值域、范围约束、密码复杂度）。
 pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
     if ![4u8, 8, 16, 32].contains(&cfg.page_size) {
         bail!(
@@ -116,6 +124,38 @@ pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
     if cfg.port == 0 {
         bail!("配置验证失败: port 无效: 0；有效范围为 1-65535");
     }
+    validate_required_password(&cfg.sysdba_pwd, "sysdba_pwd")?;
+    validate_required_password(&cfg.sysauditor_pwd, "sysauditor_pwd")?;
+    Ok(())
+}
+
+fn validate_required_password(pwd: &Option<String>, field: &str) -> Result<()> {
+    match pwd {
+        None => bail!(
+            "配置验证失败: {} 未设置——达梦安装必须显式指定管理员密码，请在配置文件中填写",
+            field
+        ),
+        Some(s) => validate_password_complexity(s, field),
+    }
+}
+
+/// 达梦密码复杂度规则：至少 9 位，且包含大写/小写/数字/特殊字符中的至少三类。
+fn validate_password_complexity(pwd: &str, field: &str) -> Result<()> {
+    if pwd.len() < 9 {
+        bail!("配置验证失败: {} 密码长度不足 9 位（达梦密码策略要求）", field);
+    }
+    let categories = [
+        pwd.chars().any(|c| c.is_ascii_uppercase()),
+        pwd.chars().any(|c| c.is_ascii_lowercase()),
+        pwd.chars().any(|c| c.is_ascii_digit()),
+        pwd.chars().any(|c| !c.is_alphanumeric()),
+    ];
+    if categories.iter().filter(|&&b| b).count() < 3 {
+        bail!(
+            "配置验证失败: {} 密码复杂度不足——需包含大写字母、小写字母、数字、特殊字符中的至少三类",
+            field
+        );
+    }
     Ok(())
 }
 
@@ -125,11 +165,19 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    fn valid_config() -> InstallConfig {
+        InstallConfig {
+            sysdba_pwd: Some("DMAdmin1@2024".to_string()),
+            sysauditor_pwd: Some("AuditAdmin2#2024".to_string()),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn test_validate_install_config_rejects_invalid_page_size() {
         let cfg = InstallConfig {
             page_size: 12,
-            ..Default::default()
+            ..valid_config()
         };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
@@ -148,7 +196,7 @@ mod tests {
         let cfg = InstallConfig {
             page_size: 8,
             charset: 9,
-            ..Default::default()
+            ..valid_config()
         };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
@@ -162,7 +210,7 @@ mod tests {
     fn test_validate_install_config_rejects_invalid_extent_size() {
         let cfg = InstallConfig {
             extent_size: 8,
-            ..Default::default()
+            ..valid_config()
         };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
@@ -176,7 +224,7 @@ mod tests {
     fn test_validate_install_config_rejects_port_zero() {
         let cfg = InstallConfig {
             port: 0,
-            ..Default::default()
+            ..valid_config()
         };
         let err = validate_install_config(&cfg).unwrap_err();
         let msg = format!("{:#}", err);
@@ -197,7 +245,7 @@ mod tests {
                         charset,
                         extent_size,
                         port: 5236,
-                        ..Default::default()
+                        ..valid_config()
                     };
                     assert!(
                         validate_install_config(&cfg).is_ok(),
@@ -211,11 +259,40 @@ mod tests {
     #[test]
     fn test_load_and_validate_reads_tempfile_returns_config() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "port = 5237\npage_size = 16\n").unwrap();
-        let result = load_and_validate(file.path());
-        let cfg = result.expect("应返回 Ok(InstallConfig)");
+        writeln!(
+            file,
+            "port = 5237\npage_size = 16\nsysdba_pwd = \"DMAdmin1@2024\"\nsysauditor_pwd = \"AuditAdmin2#2024\"\n"
+        ).unwrap();
+        let cfg = load_and_validate(file.path()).expect("应返回 Ok(InstallConfig)");
         assert_eq!(cfg.port, 5237, "port 应为 5237");
         assert_eq!(cfg.page_size, 16, "page_size 应为 16");
+    }
+
+    #[test]
+    fn test_validate_rejects_missing_password() {
+        let cfg = InstallConfig::default();
+        let err = validate_install_config(&cfg).unwrap_err();
+        assert!(format!("{err:#}").contains("sysdba_pwd 未设置"));
+    }
+
+    #[test]
+    fn test_validate_rejects_short_password() {
+        let cfg = InstallConfig {
+            sysdba_pwd: Some("Ab1!".to_string()),
+            ..valid_config()
+        };
+        let err = validate_install_config(&cfg).unwrap_err();
+        assert!(format!("{err:#}").contains("长度不足 9 位"));
+    }
+
+    #[test]
+    fn test_validate_rejects_simple_password() {
+        let cfg = InstallConfig {
+            sysdba_pwd: Some("password123".to_string()),
+            ..valid_config()
+        };
+        let err = validate_install_config(&cfg).unwrap_err();
+        assert!(format!("{err:#}").contains("复杂度不足"));
     }
 
     #[test]

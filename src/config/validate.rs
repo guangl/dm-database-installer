@@ -20,7 +20,10 @@ mod tests {
     #[test]
     fn test_valid_toml_passes() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"port = 5236"#).unwrap();
+        writeln!(
+            file,
+            "port = 5236\nsysdba_pwd = \"DMAdmin1@2024\"\nsysauditor_pwd = \"AuditAdmin2#2024\"\n"
+        ).unwrap();
         let args = ValidateArgs { config: file.path().to_path_buf() };
         assert!(run(&args).is_ok());
     }

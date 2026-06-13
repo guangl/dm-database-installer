@@ -9,11 +9,16 @@ pub mod init;
 pub mod package;
 pub mod silent_install;
 
-/// 根据 InstallArgs 决定配置来源：有 --config 则从文件加载，否则使用默认值。
+/// 根据 InstallArgs 加载配置，--config 为必填项。
 fn resolve_config(args: &InstallArgs) -> Result<InstallConfig> {
     match &args.config {
         Some(path) => crate::config::load_and_validate(path),
-        None => Ok(InstallConfig::default()),
+        None => anyhow::bail!(
+            "安装前需要配置文件（包含 sysdba_pwd / sysauditor_pwd 等必填项）\n\
+             请先运行:\n\
+             \n  dm-installer init standalone\n\
+             \n然后编辑生成的 dm-standalone.toml，再用 --config 指定"
+        ),
     }
 }
 
@@ -51,7 +56,10 @@ fn check_idempotent_early_exit(config: &InstallConfig) -> Result<bool> {
 async fn fetch_package(args: &InstallArgs) -> Result<crate::common::download::PackageHandle> {
     tracing::info!("[2/7] 获取安装包路径");
     match &args.package {
-        Some(p) => Ok(crate::common::download::PackageHandle::from_user_path(p.clone())),
+        Some(p) => {
+            println!("使用本地安装包: {}", p.display());
+            Ok(crate::common::download::PackageHandle::from_user_path(p.clone()))
+        }
         None => crate::common::download::fetch_dm_installer().await,
     }
 }
@@ -87,27 +95,11 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    fn make_args_no_config() -> InstallArgs {
-        InstallArgs {
-            package: None,
-            checksum: None,
-            config: None,
-        }
-    }
-
     #[test]
-    fn test_load_config_from_args_uses_default_when_none() {
-        let args = make_args_no_config();
-        let cfg = resolve_config(&args).expect("应返回 Ok(InstallConfig)");
-        let default = InstallConfig::default();
-        assert_eq!(cfg.port, default.port, "port 应与默认值相同");
-        assert_eq!(cfg.page_size, default.page_size, "page_size 应与默认值相同");
-        assert_eq!(cfg.charset, default.charset, "charset 应与默认值相同");
-        assert_eq!(cfg.extent_size, default.extent_size, "extent_size 应与默认值相同");
-        assert_eq!(cfg.install_path, default.install_path, "install_path 应与默认值相同");
-        assert_eq!(cfg.data_path, default.data_path, "data_path 应与默认值相同");
-        assert_eq!(cfg.instance_name, default.instance_name, "instance_name 应与默认值相同");
-        assert_eq!(cfg.case_sensitive, default.case_sensitive, "case_sensitive 应与默认值相同");
+    fn test_load_config_from_args_requires_config_file() {
+        let args = InstallArgs { package: None, checksum: None, config: None };
+        let err = resolve_config(&args).unwrap_err();
+        assert!(format!("{err}").contains("dm-installer init standalone"));
     }
 
     #[test]
@@ -122,6 +114,8 @@ mod tests {
             "data_path = \"/opt/dmdbms/data\"\n",
             "instance_name = \"DMSERVER\"\n",
             "case_sensitive = true\n",
+            "sysdba_pwd = \"DMAdmin1@2024\"\n",
+            "sysauditor_pwd = \"AuditAdmin2#2024\"\n",
         )).unwrap();
         let args = InstallArgs {
             package: None,
