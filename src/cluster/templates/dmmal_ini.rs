@@ -48,6 +48,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            read_only: false,
             ssh: SshCredentials {
                 user: "root".to_string(),
                 identity_file: Some(PathBuf::from("~/.ssh/id_rsa")),
@@ -71,6 +72,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            read_only: false,
             ssh: SshCredentials {
                 user: "root".to_string(),
                 identity_file: Some(PathBuf::from("~/.ssh/id_rsa")),

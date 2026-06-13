@@ -45,31 +45,35 @@ pub fn install_from_bin(bin_path: &Path, install_path: &str) -> Result<()> {
 }
 
 /// 生成 DM 安装 XML 响应文件（供集群部署使用）。
-pub fn generate_install_xml(config: &InstallConfig) -> Result<NamedTempFile> {
+/// `language`：`"ZH"` 或 `"EN"`，由调用方通过 SSH 检测远端 $LANG 确定。
+pub fn generate_install_xml(config: &InstallConfig, language: &str) -> Result<NamedTempFile> {
     let xml = format!(
         r#"<?xml version="1.0"?>
 <DATABASE>
-  <INSTALL_PATH>{}</INSTALL_PATH>
+  <LANGUAGE>{language}</LANGUAGE>
+  <INSTALL_PATH>{install_path}</INSTALL_PATH>
   <INIT_DB>Y</INIT_DB>
   <DB_PARAMS>
-    <PATH>{}</PATH>
+    <PATH>{data_path}</PATH>
     <DB_NAME>DAMENG</DB_NAME>
-    <INSTANCE_NAME>{}</INSTANCE_NAME>
-    <PORT_NUM>{}</PORT_NUM>
-    <PAGE_SIZE>{}</PAGE_SIZE>
-    <CHARSET>{}</CHARSET>
-    <CASE_SENSITIVE>{}</CASE_SENSITIVE>
-    <EXTENT_SIZE>{}</EXTENT_SIZE>
+    <INSTANCE_NAME>{instance_name}</INSTANCE_NAME>
+    <PORT_NUM>{port}</PORT_NUM>
+    <PAGE_SIZE>{page_size}</PAGE_SIZE>
+    <CHARSET>{charset}</CHARSET>
+    <CASE_SENSITIVE>{case_sensitive}</CASE_SENSITIVE>
+    <EXTENT_SIZE>{extent_size}</EXTENT_SIZE>
     <CREATE_DB_SERVICE>N</CREATE_DB_SERVICE>
     <STARTUP_DB_SERVICE>N</STARTUP_DB_SERVICE>
   </DB_PARAMS>
 </DATABASE>"#,
-        xml_escape(&config.install_path),
-        xml_escape(&config.data_path),
-        xml_escape(&config.instance_name),
-        config.port, config.page_size, config.charset,
-        if config.case_sensitive { "Y" } else { "N" },
-        config.extent_size,
+        install_path = xml_escape(&config.install_path),
+        data_path = xml_escape(&config.data_path),
+        instance_name = xml_escape(&config.instance_name),
+        port = config.port,
+        page_size = config.page_size,
+        charset = config.charset,
+        case_sensitive = if config.case_sensitive { "Y" } else { "N" },
+        extent_size = config.extent_size,
     );
     let mut file = NamedTempFile::new().context("创建 XML 临时文件失败")?;
     file.write_all(xml.as_bytes())?;

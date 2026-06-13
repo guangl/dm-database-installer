@@ -10,17 +10,26 @@ use crate::config::InstallConfig;
 pub fn run_dminit(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &str) -> Result<()> {
     let parts = build_dminit_command(config, sysdba_pwd, sysauditor_pwd);
     let dminit_bin = &parts[0];
+    tracing::debug!(
+        "执行 dminit: {} INSTANCE_NAME={} PORT_NUM={} PATH={}",
+        dminit_bin,
+        config.instance_name,
+        config.port,
+        config.data_path
+    );
 
     let status = Command::new(dminit_bin)
         .args(&parts[1..])
         .status()
         .with_context(|| format!("执行 dminit 失败: {}", dminit_bin))?;
 
+    tracing::debug!("dminit 退出码: {:?}", status.code());
     anyhow::ensure!(
         status.success(),
         "dminit 返回非零退出码: {:?}",
         status.code()
     );
+    tracing::info!("dminit 初始化成功: 实例 {} 端口 {}", config.instance_name, config.port);
     Ok(())
 }
 

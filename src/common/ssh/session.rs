@@ -176,9 +176,9 @@ async fn collect_exec_output(
         stdout.len()
     );
     if exit_code != 0 {
-        let output_preview = String::from_utf8_lossy(&stdout);
-        tracing::warn!("[ssh] 命令失败 (exit {}): {}", exit_code, output_preview.trim());
-        return Err(SshError::ExecFailed { command: command.to_string(), exit_code });
+        let output = String::from_utf8_lossy(&stdout).trim().to_string();
+        tracing::warn!("[ssh] 命令失败 (exit {}): {}", exit_code, output);
+        return Err(SshError::ExecFailed { command: command.to_string(), exit_code, output });
     }
     Ok((stdout, exit_code))
 }

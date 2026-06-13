@@ -4,15 +4,17 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::cli::InstallArgs;
-use crate::common::download::{fetch_dm_installer_for, PackageHandle};
+use crate::common::download::fetch_dm_installer_for;
 use crate::common::ssh::{CommandRunner, SshSession};
 use crate::common::sysinfo::detect_platform_from_raw;
 use crate::config::ssh::{SshCredentials, SshTarget};
 use crate::config::{CommonConfig, InstallConfig};
 
-use super::{generate_passwords, print_generated_credentials, verify_checksum};
+use super::{cache_package, checkpoint, generate_passwords, print_generated_credentials, verify_checksum};
 
-/// 对 shell 参数进行单引号转义，防止命令注入。
+const REMOTE_BIN: &str = "/tmp/dm_standalone_DMInstall.bin";
+const REMOTE_XML: &str = "/tmp/dm_standalone_install.xml";
+
 fn shell_quote(raw: &str) -> String {
     format!("'{}'", raw.replace('\'', "'\\''"))
 }
@@ -34,27 +36,128 @@ pub async fn run(
         identity_file: None,
         password: Some(password),
     };
+    let session = connect_with_retry(
+        &target.host,
+        target.ssh_port,
+        &creds,
+        target.max_retries,
+        target.retry_interval_secs,
+    )
+    .await?;
 
-    let session = connect_with_retry(&target.host, target.ssh_port, &creds, target.max_retries, target.retry_interval_secs).await?;
-
-    if check_remote_idempotent(specific, &session).await? {
+    // [1/5] 幂等检测：dm.ini 已存在说明安装已全部完成
+    if check_remote_dminit_done(specific, &session).await? {
         return Ok(());
     }
 
-    let (sysdba_pwd, sysauditor_pwd) = generate_passwords();
+    // 加载或创建 checkpoint（跨重试持久化密码和各步骤进度）
+    let existing_cp = checkpoint::load(&specific.install_path)?;
+    let (sysdba_pwd, sysauditor_pwd) = match &existing_cp {
+        Some(c) => (c.sysdba_pwd.clone(), c.sysauditor_pwd.clone()),
+        None => generate_passwords(),
+    };
+    let mut cp = existing_cp.unwrap_or_else(|| {
+        checkpoint::Checkpoint::new(
+            &specific.install_path,
+            sysdba_pwd.clone(),
+            sysauditor_pwd.clone(),
+        )
+    });
+    cp.save()?;
 
-    let package = fetch_package_for_remote(args, &common, &session).await?;
-    verify_checksum(args, &package.path)?;
+    // [2/5] 获取本地安装包（自动下载时缓存到 CWD，支持续传）
+    let package_path = resolve_package_for_remote(args, &common, &session, &mut cp).await?;
+    verify_checksum(args, &package_path)?;
 
-    let extract_dir = crate::standalone::package::extract_dminstall_bin(&package.path)
-        .context("提取 DMInstall.bin 失败")?;
+    // [3/5] 上传 DMInstall.bin 到远端
+    if cp.uploaded {
+        println!("[续] 跳过上传，DMInstall.bin 已在远端 {}", REMOTE_BIN);
+    } else {
+        let extract_dir = crate::standalone::package::extract_dminstall_bin(&package_path)
+            .context("提取 DMInstall.bin 失败")?;
+        upload_bin(&extract_dir.path().join("DMInstall.bin"), &session).await?;
+        cp.uploaded = true;
+        cp.save()?;
+    }
 
-    upload_and_install_remote(specific, extract_dir.path(), &session).await?;
+    // [4/5] 远端静默安装 dmdbms
+    if cp.installed {
+        println!("[续] 跳过安装，dmdbms 已安装至 {}", specific.install_path);
+    } else if check_remote_dmserver_exists(specific, &session).await? {
+        anyhow::bail!(
+            "安装目录 {} 已存在达梦数据库（dmserver），\n\
+             请先卸载或在配置文件中修改 install_path",
+            specific.install_path
+        );
+    } else {
+        run_remote_install(specific, &session).await?;
+        cp.installed = true;
+        cp.save()?;
+    }
+
+    // [5/6] 远端 dminit 初始化
+    // 非续传场景下预先检测 data_path 是否已有内容（旧实例或手动数据），避免 dminit 冲突后才报错
+    if !cp.installed && check_remote_data_path_occupied(specific, &session).await? {
+        anyhow::bail!(
+            "数据目录 {} 已有文件，可能存在旧实例，\n\
+             请先清理或在配置文件中修改 data_path",
+            specific.data_path
+        );
+    }
     run_dminit_remote(specific, &sysdba_pwd, &sysauditor_pwd, &session).await?;
 
+    // [6/6] 远端注册并启动 DM 服务
+    run_service_remote(specific, &session).await?;
+
     print_generated_credentials(&sysdba_pwd, &sysauditor_pwd);
+    if let Some(cached) = &cp.package_cache {
+        let _ = std::fs::remove_file(cached);
+    }
+    checkpoint::Checkpoint::remove()?;
     tracing::info!("单机 SSH 远程安装完成");
     Ok(())
+}
+
+/// 获取安装包路径：CLI > config > checkpoint 缓存 > 自动下载（按远端平台）。
+async fn resolve_package_for_remote(
+    args: &InstallArgs,
+    common: &CommonConfig,
+    runner: &dyn CommandRunner,
+    cp: &mut checkpoint::Checkpoint,
+) -> Result<std::path::PathBuf> {
+    tracing::info!("[2/6] 获取安装包");
+
+    if let Some(p) = &args.package {
+        println!("使用本地安装包 (CLI): {}", p.display());
+        return Ok(p.clone());
+    }
+    if let Some(p) = &common.installer_package {
+        println!("使用本地安装包 (config.toml): {}", p.display());
+        return Ok(p.clone());
+    }
+    if let Some(cached) = cp
+        .package_cache
+        .as_ref()
+        .map(std::path::Path::new)
+        .filter(|p| p.exists())
+    {
+        println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
+        return Ok(cached.to_path_buf());
+    }
+
+    let platform = detect_remote_platform(runner).await;
+    let handle = fetch_dm_installer_for(&platform).await?;
+    let cached_path = cache_package(&handle.path)?;
+    cp.package_cache = Some(cached_path.to_string_lossy().into_owned());
+    cp.save()?;
+    Ok(cached_path)
+}
+
+async fn detect_remote_language(runner: &dyn CommandRunner) -> &'static str {
+    let lang = exec_remote_str(runner, "echo $LANG").await;
+    let language = if lang.trim().to_lowercase().contains("zh") { "ZH" } else { "EN" };
+    tracing::debug!("远端 $LANG={:?} -> 安装语言: {}", lang.trim(), language);
+    language
 }
 
 async fn detect_remote_platform(runner: &dyn CommandRunner) -> crate::common::sysinfo::Platform {
@@ -62,34 +165,240 @@ async fn detect_remote_platform(runner: &dyn CommandRunner) -> crate::common::sy
     let cpuinfo = exec_remote_str(runner, "cat /proc/cpuinfo 2>/dev/null || true").await;
     let os_release = exec_remote_str(runner, "cat /etc/os-release 2>/dev/null || true").await;
     let platform = detect_platform_from_raw(&uname, &cpuinfo, &os_release);
-    tracing::info!("远端平台: arch={}, cpu={:?}, os={:?}", platform.arch, platform.cpu, platform.os);
+    tracing::info!(
+        "远端平台: arch={}, cpu={:?}, os={:?}",
+        platform.arch,
+        platform.cpu,
+        platform.os
+    );
     platform
 }
 
 async fn exec_remote_str(runner: &dyn CommandRunner, cmd: &str) -> String {
-    runner.exec(cmd).await
+    runner
+        .exec(cmd)
+        .await
         .map(|(bytes, _)| String::from_utf8_lossy(&bytes).into_owned())
         .unwrap_or_default()
 }
 
-async fn fetch_package_for_remote(
-    args: &InstallArgs,
-    common: &CommonConfig,
+/// 检测远端 data_path 目录是否非空（说明有旧数据，dminit 会冲突）。
+async fn check_remote_data_path_occupied(
+    config: &InstallConfig,
     runner: &dyn CommandRunner,
-) -> Result<PackageHandle> {
-    if let Some(p) = &args.package {
-        println!("使用本地安装包 (CLI): {}", p.display());
-        return Ok(PackageHandle::from_user_path(p.clone()));
-    }
-    if let Some(p) = &common.installer_package {
-        println!("使用本地安装包 (config.toml): {}", p.display());
-        return Ok(PackageHandle::from_user_path(p.clone()));
-    }
-    let platform = detect_remote_platform(runner).await;
-    fetch_dm_installer_for(&platform).await
+) -> Result<bool> {
+    let cmd = format!(
+        "[ -d {path} ] && [ -n \"$(ls -A {path} 2>/dev/null)\" ] && echo occupied || echo clean",
+        path = shell_quote(&config.data_path)
+    );
+    let (output, _) = runner
+        .exec(&cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("远端数据目录检测失败: {e}"))?;
+    Ok(String::from_utf8_lossy(&output).trim() == "occupied")
 }
 
-/// 带重试的 SSH 连接：最多尝试 `1 + max_retries` 次，每次失败等待 `retry_interval_secs` 秒。
+/// 检测远端 install_path/bin/dmserver 是否已存在（说明有旧安装）。
+async fn check_remote_dmserver_exists(
+    config: &InstallConfig,
+    runner: &dyn CommandRunner,
+) -> Result<bool> {
+    let dmserver = format!("{}/bin/dmserver", config.install_path);
+    let cmd = format!(
+        "test -f {} && echo exists || echo absent",
+        shell_quote(&dmserver)
+    );
+    let (output, _) = runner
+        .exec(&cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("远端 dmserver 检测失败: {e}"))?;
+    Ok(String::from_utf8_lossy(&output).trim() == "exists")
+}
+
+/// 检测远端 dminit 是否已完成：data_path/dm.ini 存在则认为已完成。
+async fn check_remote_dminit_done(
+    config: &InstallConfig,
+    runner: &dyn CommandRunner,
+) -> Result<bool> {
+    tracing::info!("[1/6] 远端幂等性检测");
+    let dm_ini = format!("{}/dm.ini", config.data_path);
+    let cmd = format!(
+        "test -f {} && echo exists || echo absent",
+        shell_quote(&dm_ini)
+    );
+    let (output, _) = runner
+        .exec(&cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("远端幂等检测失败: {e}"))?;
+    let result = String::from_utf8_lossy(&output);
+    if result.trim() == "exists" {
+        println!("已检测到远端达梦实例 ({})，跳过安装", dm_ini);
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// 上传 DMInstall.bin 到远端 /tmp。
+async fn upload_bin(bin_path: &Path, runner: &dyn CommandRunner) -> Result<()> {
+    tracing::info!("[3/6] 上传 DMInstall.bin");
+    let bin_bytes = std::fs::read(bin_path)
+        .with_context(|| format!("读取 DMInstall.bin 失败: {}", bin_path.display()))?;
+    let pb = upload_progress_bar(bin_bytes.len() as u64);
+    runner
+        .sftp_write_with_progress(REMOTE_BIN, &bin_bytes, &|n| pb.inc(n))
+        .await
+        .context("SFTP 上传 DMInstall.bin 失败")?;
+    pb.finish_with_message("上传完成");
+    Ok(())
+}
+
+/// 上传安装 XML 并执行静默安装；成功后远端自动清理临时文件。
+async fn run_remote_install(config: &InstallConfig, runner: &dyn CommandRunner) -> Result<()> {
+    tracing::info!("[4/6] 远端静默安装 dmdbms");
+    let language = detect_remote_language(runner).await;
+    let xml = install_only_xml(&config.install_path, language);
+    runner
+        .sftp_write(REMOTE_XML, xml.as_bytes())
+        .await
+        .context("SFTP 上传安装 XML 失败")?;
+
+    let spinner = install_spinner();
+    // 成功时清理临时文件；失败时保留 bin，方便下次续传跳过上传步骤
+    let cmd = format!(
+        "chmod +x {bin} && {bin} -q {xml}; ret=$?; [ $ret -eq 0 ] && rm -f {xml} {bin}; exit $ret",
+        bin = shell_quote(REMOTE_BIN),
+        xml = shell_quote(REMOTE_XML),
+    );
+    runner
+        .exec(&cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("远端安装 dmdbms 失败: {e}"))?;
+    spinner.finish_with_message("安装完成");
+    tracing::info!("远端 dmdbms 安装成功: {}", config.install_path);
+    Ok(())
+}
+
+async fn run_dminit_remote(
+    config: &InstallConfig,
+    sysdba_pwd: &str,
+    sysauditor_pwd: &str,
+    runner: &dyn CommandRunner,
+) -> Result<()> {
+    tracing::info!("[5/6] 远端 dminit 初始化");
+    let dminit = format!("{}/bin/dminit", config.install_path);
+    let cmd = format!(
+        "{} PATH={} DB_NAME=DAMENG INSTANCE_NAME={} PORT_NUM={} PAGE_SIZE={} EXTENT_SIZE={} CHARSET={} CASE_SENSITIVE={} SYSDBA_PWD={} SYSAUDITOR_PWD={}",
+        shell_quote(&dminit),
+        shell_quote(&config.data_path),
+        shell_quote(&config.instance_name),
+        config.port,
+        config.page_size,
+        config.extent_size,
+        config.charset,
+        if config.case_sensitive { "Y" } else { "N" },
+        shell_quote(sysdba_pwd),
+        shell_quote(sysauditor_pwd),
+    );
+    runner
+        .exec(&cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("远端 dminit 执行失败: {e}"))?;
+    Ok(())
+}
+
+async fn run_service_remote(config: &InstallConfig, runner: &dyn CommandRunner) -> Result<()> {
+    tracing::info!("[6/6] 远端注册并启动 DM 服务（DMAP + dmserver）");
+
+    // 服务注册需要 root 权限，提前检测
+    let (uid_out, _) = runner.exec("id -u").await.unwrap_or_default();
+    let remote_uid = String::from_utf8_lossy(&uid_out).trim().to_string();
+    anyhow::ensure!(
+        remote_uid == "0",
+        "远端服务注册需要 root 权限（远端 UID: {}）。\n\
+         请在 standalone.toml 的 ssh_target 中配置 root 用户",
+        remote_uid
+    );
+
+    let script = format!("{}/script/root/dm_service_installer.sh", config.install_path);
+    let quoted_script = shell_quote(&script);
+    let dm_ini = super::service::dm_ini_path(config);
+    let db_svc = super::service::service_name(config);
+    let dmap_svc = super::service::DMAP_SERVICE_NAME;
+
+    // 注册并启动 DMAP（辅助进程，先于 dmserver）
+    remote_register_and_start(
+        runner,
+        &quoted_script,
+        dmap_svc,
+        &["-t", "dmap"],
+    ).await.map_err(|e| anyhow::anyhow!("远端 DMAP 服务注册/启动失败: {e}"))?;
+
+    // 注册并启动 dmserver
+    remote_register_and_start(
+        runner,
+        &quoted_script,
+        &db_svc,
+        &["-t", "dmserver", "-p", &dm_ini, "-m", "auto"],
+    ).await.map_err(|e| anyhow::anyhow!("远端数据库服务注册/启动失败: {e}"))?;
+    Ok(())
+}
+
+/// 通用：检测远端服务状态，按需注册，然后启动并 enable。
+async fn remote_register_and_start(
+    runner: &dyn CommandRunner,
+    quoted_script: &str,
+    svc_name: &str,
+    installer_args: &[&str],
+) -> Result<()> {
+    // 已运行则跳过
+    let (active_out, _) = runner
+        .exec(&format!(
+            "systemctl is-active {} 2>/dev/null && echo active || echo inactive",
+            shell_quote(svc_name)
+        ))
+        .await
+        .unwrap_or_default();
+    if String::from_utf8_lossy(&active_out).trim() == "active" {
+        println!("[续] 远端服务 {} 已在运行，跳过注册", svc_name);
+        return Ok(());
+    }
+
+    // 未注册则注册
+    let check_cmd = format!(
+        "test -f /etc/systemd/system/{s}.service || test -f /etc/init.d/{s} \
+         && echo registered || echo unregistered",
+        s = svc_name
+    );
+    let (check_out, _) = runner.exec(&check_cmd).await.unwrap_or_default();
+    if String::from_utf8_lossy(&check_out).trim() != "registered" {
+        let mut cmd = format!("chmod +x {script} && bash {script}", script = quoted_script);
+        for arg in installer_args {
+            cmd.push(' ');
+            cmd.push_str(&shell_quote(arg));
+        }
+        runner
+            .exec(&cmd)
+            .await
+            .map_err(|e| anyhow::anyhow!("执行服务注册脚本失败: {e}"))?;
+    } else {
+        println!("[续] 远端服务 {} 已注册，跳过注册步骤", svc_name);
+    }
+
+    // 启动并 enable（enable 失败仅告警，容器环境可能不支持）
+    let start_cmd = format!(
+        "systemctl start {s} && systemctl enable {s} 2>/dev/null \
+         || (service {s} start 2>/dev/null; true)",
+        s = shell_quote(svc_name)
+    );
+    runner
+        .exec(&start_cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("启动服务 {} 失败: {e}", svc_name))?;
+
+    println!("远端服务 {} 已启动并设置为开机自启", svc_name);
+    Ok(())
+}
+
 async fn connect_with_retry(
     host: &str,
     port: u16,
@@ -128,70 +437,14 @@ fn prompt_ssh_password(user: &str, host: &str) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("读取 SSH 密码失败: {e}"))
 }
 
-async fn check_remote_idempotent(
-    config: &InstallConfig,
-    runner: &dyn CommandRunner,
-) -> Result<bool> {
-    tracing::info!("[1/5] 远端幂等性检测");
-    let dm_ini = format!("{}/dm.ini", config.install_path);
-    tracing::debug!("检测远端文件: {}", dm_ini);
-    let cmd = format!("test -f {} && echo exists || echo absent", shell_quote(&dm_ini));
-    let (output, _) = runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("远端幂等检测失败: {e}"))?;
-    let result = String::from_utf8_lossy(&output);
-    if result.trim() == "exists" {
-        tracing::info!("远端实例已存在: {}", dm_ini);
-        println!("已检测到远端达梦实例 ({}/dm.ini)，跳过安装", config.install_path);
-        return Ok(true);
-    }
-    tracing::debug!("远端实例未安装，继续部署");
-    Ok(false)
-}
-
-async fn upload_and_install_remote(
-    config: &InstallConfig,
-    extract_dir: &Path,
-    runner: &dyn CommandRunner,
-) -> Result<()> {
-    tracing::info!("[3/5] 上传安装包并远端安装");
-
-    let bin_path = extract_dir.join("DMInstall.bin");
-    let bin_bytes = std::fs::read(&bin_path)
-        .with_context(|| format!("读取 DMInstall.bin 失败: {}", bin_path.display()))?;
-    let remote_bin = "/tmp/dm_standalone_DMInstall.bin";
-    let remote_extract = "/tmp/dm_standalone_extract";
-
-    let pb = upload_progress_bar(bin_bytes.len() as u64);
-    runner
-        .sftp_write_with_progress(remote_bin, &bin_bytes, &|n| pb.inc(n))
-        .await
-        .context("SFTP 上传 DMInstall.bin 失败")?;
-    pb.finish_with_message("上传完成");
-
-    let spinner = install_spinner();
-    let install_cmd = format!(
-        "rm -rf {extract} && unzip -q {bin} -d {extract} && mkdir -p {parent} && mv {extract}/dmdbms {install} && rm -rf {extract}",
-        extract = shell_quote(remote_extract),
-        bin     = shell_quote(remote_bin),
-        parent  = shell_quote(parent_of(&config.install_path)),
-        install = shell_quote(&config.install_path),
-    );
-    runner
-        .exec(&install_cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("远端安装 dmdbms 失败: {e}"))?;
-    spinner.finish_with_message("安装完成");
-    tracing::info!("远端 dmdbms 安装成功: {}", config.install_path);
-    Ok(())
-}
-
-fn parent_of(path: &str) -> &str {
-    std::path::Path::new(path)
-        .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or("/")
+fn install_only_xml(install_path: &str, language: &str) -> String {
+    let escaped = install_path
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    format!(
+        "<?xml version=\"1.0\"?>\n<DATABASE>\n  <LANGUAGE>{language}</LANGUAGE>\n  <INSTALL_PATH>{escaped}</INSTALL_PATH>\n  <INIT_DB>N</INIT_DB>\n</DATABASE>"
+    )
 }
 
 fn upload_progress_bar(total_bytes: u64) -> ProgressBar {
@@ -217,40 +470,6 @@ fn install_spinner() -> ProgressBar {
     pb
 }
 
-async fn run_dminit_remote(
-    config: &InstallConfig,
-    sysdba_pwd: &str,
-    sysauditor_pwd: &str,
-    runner: &dyn CommandRunner,
-) -> Result<()> {
-    tracing::info!("[4/5] 远端 dminit 初始化");
-    tracing::debug!(
-        "dminit 参数: INSTANCE_NAME={} PORT_NUM={} PATH={}",
-        config.instance_name,
-        config.port,
-        config.data_path
-    );
-    let dminit = format!("{}/bin/dminit", config.install_path);
-    let cmd = format!(
-        "{} PATH={} DB_NAME=DAMENG INSTANCE_NAME={} PORT_NUM={} PAGE_SIZE={} EXTENT_SIZE={} CHARSET={} CASE_SENSITIVE={} SYSDBA_PWD={} SYSAUDITOR_PWD={}",
-        shell_quote(&dminit),
-        shell_quote(&config.data_path),
-        shell_quote(&config.instance_name),
-        config.port,
-        config.page_size,
-        config.extent_size,
-        config.charset,
-        if config.case_sensitive { "Y" } else { "N" },
-        shell_quote(sysdba_pwd),
-        shell_quote(sysauditor_pwd),
-    );
-    runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("远端 dminit 执行失败: {e}"))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,28 +490,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remote_idempotent_detects_existing() {
+    async fn test_check_remote_data_path_occupied_returns_true_when_occupied() {
+        let runner = MockRunner::new(vec![("[ -d".to_string(), 0, b"occupied\n".to_vec())]);
+        let result = check_remote_data_path_occupied(&make_config(), &runner).await.unwrap();
+        assert!(result, "occupied 输出应返回 true");
+    }
+
+    #[tokio::test]
+    async fn test_check_remote_data_path_occupied_returns_false_when_clean() {
+        let runner = MockRunner::new(vec![("[ -d".to_string(), 0, b"clean\n".to_vec())]);
+        let result = check_remote_data_path_occupied(&make_config(), &runner).await.unwrap();
+        assert!(!result, "clean 输出应返回 false");
+    }
+
+    #[tokio::test]
+    async fn test_check_remote_dmserver_exists_detects_existing() {
         let runner = MockRunner::new(vec![("test -f".to_string(), 0, b"exists\n".to_vec())]);
-        let config = make_config();
-        let result = check_remote_idempotent(&config, &runner).await.unwrap();
+        let result = check_remote_dmserver_exists(&make_config(), &runner).await.unwrap();
+        assert!(result, "exists 输出应返回 true");
+    }
+
+    #[tokio::test]
+    async fn test_check_remote_dmserver_exists_returns_false_when_absent() {
+        let runner = MockRunner::new(vec![("test -f".to_string(), 0, b"absent\n".to_vec())]);
+        let result = check_remote_dmserver_exists(&make_config(), &runner).await.unwrap();
+        assert!(!result, "absent 输出应返回 false");
+    }
+
+    #[tokio::test]
+    async fn test_check_remote_dminit_done_detects_existing() {
+        let runner = MockRunner::new(vec![("test -f".to_string(), 0, b"exists\n".to_vec())]);
+        let result = check_remote_dminit_done(&make_config(), &runner).await.unwrap();
         assert!(result, "exists 输出应触发幂等跳过");
     }
 
     #[tokio::test]
-    async fn test_remote_idempotent_proceeds_when_absent() {
+    async fn test_check_remote_dminit_done_proceeds_when_absent() {
         let runner = MockRunner::new(vec![("test -f".to_string(), 0, b"absent\n".to_vec())]);
-        let config = make_config();
-        let result = check_remote_idempotent(&config, &runner).await.unwrap();
+        let result = check_remote_dminit_done(&make_config(), &runner).await.unwrap();
         assert!(!result, "absent 输出应允许继续安装");
     }
 
     #[tokio::test]
-    async fn test_upload_and_install_uploads_bin() {
+    async fn test_upload_bin_sends_file() {
         let runner = MockRunner::new(vec![]);
-        let config = make_config();
         let tmp = tempfile::TempDir::new().unwrap();
         std::fs::write(tmp.path().join("DMInstall.bin"), b"fake_bin").unwrap();
-        let _ = upload_and_install_remote(&config, tmp.path(), &runner).await;
+        let _ = upload_bin(&tmp.path().join("DMInstall.bin"), &runner).await;
         let sftp_log = runner.sftp_log();
         assert!(
             sftp_log.iter().any(|(p, _)| p.contains("DMInstall.bin")),
@@ -302,10 +546,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_run_dminit_remote_command_contains_passwords() {
+    async fn test_run_dminit_remote_contains_passwords() {
         let runner = MockRunner::new(vec![]);
-        let config = make_config();
-        run_dminit_remote(&config, "Sysdba1@Pass", "Audit2@Pass", &runner)
+        run_dminit_remote(&make_config(), "Sysdba1@Pass", "Audit2@Pass", &runner)
             .await
             .unwrap();
         let exec_log = runner.exec_log();
@@ -324,8 +567,7 @@ mod tests {
     #[tokio::test]
     async fn test_run_dminit_remote_quotes_paths() {
         let runner = MockRunner::new(vec![]);
-        let config = make_config();
-        run_dminit_remote(&config, "Pwd1@Test1", "Pwd2@Test2", &runner)
+        run_dminit_remote(&make_config(), "Pwd1@Test1", "Pwd2@Test2", &runner)
             .await
             .unwrap();
         let exec_log = runner.exec_log();

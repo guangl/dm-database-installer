@@ -89,11 +89,27 @@ fn detect_os_from_os_release() -> Option<String> {
 fn map_os_key_from_str(content: &str) -> Option<String> {
     let mut id = None;
     let mut version_id = None;
+    let mut pretty_name = String::new();
+    let mut version = String::new();
     for line in content.lines() {
         if let Some(v) = line.strip_prefix("ID=") {
             id = Some(v.trim_matches('"').to_lowercase());
         } else if let Some(v) = line.strip_prefix("VERSION_ID=") {
             version_id = Some(v.trim_matches('"').to_lowercase());
+        } else if let Some(v) = line.strip_prefix("PRETTY_NAME=") {
+            pretty_name = v.trim_matches('"').to_lowercase();
+        } else if let Some(v) = line.strip_prefix("VERSION=") {
+            version = v.trim_matches('"').to_lowercase();
+        }
+    }
+    // 当 VERSION_ID 不含 SP 信息时，从 PRETTY_NAME/VERSION 补充判断（如 Kylin V10 Lance = SP1）
+    if id.as_deref() == Some("kylin") {
+        let extra = format!("{} {}", pretty_name, version);
+        if extra.contains("sp3") {
+            return Some("kylin10_sp3".into());
+        }
+        if extra.contains("sp1") || extra.contains("lance") {
+            return Some("kylin10_sp1".into());
         }
     }
     map_os_key(id.as_deref()?, version_id.as_deref())
@@ -239,6 +255,26 @@ mod tests {
     #[test]
     fn test_map_os_unknown_returns_none() {
         assert_eq!(map_os_key("arch", Some("rolling")), None);
+    }
+
+    #[test]
+    fn test_map_os_key_from_str_kylin_lance_in_pretty_name() {
+        let content = "ID=kylin\nVERSION_ID=\"V10\"\nPRETTY_NAME=\"Kylin Linux Advanced Server V10 (Lance)\"\n";
+        assert_eq!(
+            map_os_key_from_str(content),
+            Some("kylin10_sp1".into()),
+            "PRETTY_NAME 含 Lance 应识别为 SP1"
+        );
+    }
+
+    #[test]
+    fn test_map_os_key_from_str_kylin_sp1_in_version() {
+        let content = "ID=kylin\nVERSION_ID=\"V10\"\nVERSION=\"V10 SP1 (Lance)\"\n";
+        assert_eq!(
+            map_os_key_from_str(content),
+            Some("kylin10_sp1".into()),
+            "VERSION 含 SP1 应识别为 SP1"
+        );
     }
 
     #[test]

@@ -50,11 +50,12 @@ impl CommandRunner for MockRunner {
         {
             let (_, exit_code, stdout) = responses.remove(idx);
             if exit_code != 0 {
-                return Err(SshError::ExecFailed { command: command.to_string(), exit_code });
+                let output = String::from_utf8_lossy(&stdout).trim().to_string();
+                return Err(SshError::ExecFailed { command: command.to_string(), exit_code, output });
             }
             Ok((stdout, exit_code))
         } else if self.strict {
-            Err(SshError::ExecFailed { command: command.to_string(), exit_code: 127 })
+            Err(SshError::ExecFailed { command: command.to_string(), exit_code: 127, output: String::new() })
         } else {
             Ok((vec![], 0))
         }
@@ -72,11 +73,12 @@ mod tests {
 
     #[test]
     fn test_ssh_error_exec_failed_display() {
-        let err = SshError::ExecFailed { command: "sudo -n true".to_string(), exit_code: 1 };
+        let err = SshError::ExecFailed { command: "sudo -n true".to_string(), exit_code: 1, output: "Permission denied".to_string() };
         let msg = err.to_string();
         assert!(msg.contains("sudo -n true"));
         assert!(msg.contains("exit 1"));
         assert!(msg.contains("SSH 命令执行失败"));
+        assert!(msg.contains("Permission denied"));
     }
 
     #[test]
@@ -85,7 +87,7 @@ mod tests {
             host: "192.168.1.10".to_string(),
             source: russh::Error::NotAuthenticated,
         };
-        let _e = SshError::ExecFailed { command: "ls".to_string(), exit_code: 2 };
+        let _e = SshError::ExecFailed { command: "ls".to_string(), exit_code: 2, output: String::new() };
         let _s = SshError::SftpUpload {
             remote_path: "/opt/dm".to_string(),
             source: russh_sftp::client::error::Error::UnexpectedBehavior("test".to_string()),

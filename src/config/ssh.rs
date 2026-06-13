@@ -13,6 +13,7 @@ pub struct SshCredentials {
 /// 单机 SSH 远程安装目标（standalone.toml 可选 [ssh_target] 块）。
 /// password 为 None 时运行时提示输入。
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct SshTarget {
     pub host: String,
     #[serde(default = "default_ssh_port")]

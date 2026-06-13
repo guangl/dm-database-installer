@@ -9,22 +9,33 @@ use crate::config::cluster::NodeConfig;
 
 /// 检查节点是否具备 sudo 免密权限。
 pub async fn check_sudo_nopass(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测 sudo 免密权限");
     match runner.exec("sudo -n true").await {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            tracing::debug!("[预检查] sudo 免密权限通过");
+            Ok(())
+        }
         Err(_) => bail!("[预检查] sudo 免密失败：目标节点需要无密码 sudo 权限"),
     }
 }
 
 /// 检查指定端口是否未被占用。
 pub async fn check_port_available(runner: &dyn CommandRunner, port: u16) -> Result<()> {
+    tracing::debug!("[预检查] 检测端口 {} 是否空闲", port);
     let cmd = format!("ss -tlnp | grep ':{port}'");
     match runner.exec(&cmd).await {
         Ok((stdout, _)) if !stdout.is_empty() => {
             bail!("[预检查] 端口 {} 已被占用", port)
         }
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            tracing::debug!("[预检查] 端口 {} 空闲", port);
+            Ok(())
+        }
         // grep 返回 exit_code 1 表示无匹配（端口空闲），也是 Ok
-        Err(crate::common::ssh::SshError::ExecFailed { exit_code: 1, .. }) => Ok(()),
+        Err(crate::common::ssh::SshError::ExecFailed { exit_code: 1, .. }) => {
+            tracing::debug!("[预检查] 端口 {} 空闲", port);
+            Ok(())
+        }
         Err(e) => Err(anyhow::anyhow!(e)),
     }
 }
@@ -34,6 +45,7 @@ pub async fn check_disk_space(runner: &dyn CommandRunner, install_path: &str) ->
     let parent = Path::new(install_path)
         .parent()
         .unwrap_or_else(|| Path::new("/"));
+    tracing::debug!("[预检查] 检测磁盘空间: {}", parent.display());
     let cmd = format!("df -B1 {}", parent.display());
     let (stdout, _) = runner
         .exec(&cmd)
@@ -41,6 +53,11 @@ pub async fn check_disk_space(runner: &dyn CommandRunner, install_path: &str) ->
         .map_err(|e| anyhow::anyhow!(e))?;
     let available = parse_df_available(&stdout)?;
     let min_bytes: u64 = 5 * 1024 * 1024 * 1024;
+    tracing::debug!(
+        "[预检查] 磁盘剩余: {} GB ({} bytes), 最低要求: 5 GB",
+        available / (1024 * 1024 * 1024),
+        available
+    );
     if available < min_bytes {
         bail!(
             "[预检查] 磁盘空间不足: 剩余 {} bytes，需要 >= 5 GB",
@@ -84,6 +101,7 @@ pub async fn check_node(node: &NodeConfig, runner: &dyn CommandRunner) -> Result
 pub async fn preflight_all_nodes(
     items: Vec<(NodeConfig, Arc<dyn CommandRunner>)>,
 ) -> Result<()> {
+    tracing::info!("开始并发预检查，共 {} 个节点", items.len());
     let futures = items.iter().map(|(node, runner)| {
         let node = node.clone();
         let runner = Arc::clone(runner);
@@ -102,6 +120,7 @@ pub async fn preflight_all_nodes(
     if !failures.is_empty() {
         bail!("预检查失败 — 中止部署:\n{}", failures.join("\n"));
     }
+    tracing::info!("所有节点预检查通过");
     Ok(())
 }
 

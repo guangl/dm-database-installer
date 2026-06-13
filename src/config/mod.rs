@@ -104,36 +104,95 @@ pub(super) fn load_standalone_specific(path: &Path) -> Result<InstallConfig> {
     }
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("无法读取单机配置文件: {}", path.display()))?;
-    let cfg = toml::from_str::<InstallConfig>(&content)
+    let file_cfg = toml::from_str::<InstallConfigFile>(&content)
         .with_context(|| format!("单机配置文件解析失败: {}", path.display()))?;
+    let cfg = InstallConfig::from(file_cfg);
     validate_install_config(&cfg)?;
     Ok(cfg)
 }
 
-/// 单机安装特有配置（standalone.toml）。密码不在此处，运行时由终端输入。
-#[derive(Debug, Deserialize)]
+/// 单机安装特有配置（运行时扁平结构，从 [install] + [instance] + [ssh_target] 三组解析而来）。
+#[derive(Debug)]
 pub struct InstallConfig {
-    #[serde(default = "default_install_path")]
     pub install_path: String,
-    #[serde(default = "default_data_path")]
     pub data_path: String,
-    #[serde(default = "default_instance_name")]
     pub instance_name: String,
-    #[serde(default = "default_port")]
     pub port: u16,
-    /// 页大小（KB），可选 4/8/16/32，默认 32
-    #[serde(default = "default_page_size")]
     pub page_size: u8,
-    /// 字符集：0=GB18030, 1=UTF-8, 2=EUC-KR，默认 1（UTF-8）
-    #[serde(default = "default_charset")]
     pub charset: u8,
-    #[serde(default = "default_case_sensitive")]
     pub case_sensitive: bool,
-    /// 区段大小（页数），可选 16/32，默认 32
-    #[serde(default = "default_extent_size")]
     pub extent_size: u8,
-    /// SSH 远程安装目标，不填则在本机安装
     pub ssh_target: Option<ssh::SshTarget>,
+}
+
+// ── 私有代理结构体：对应 standalone.toml 的三个 TOML section ────────────────
+
+#[derive(Deserialize)]
+struct InstallSection {
+    #[serde(default = "default_install_path")]
+    install_path: String,
+    #[serde(default = "default_data_path")]
+    data_path: String,
+}
+
+impl Default for InstallSection {
+    fn default() -> Self {
+        Self { install_path: default_install_path(), data_path: default_data_path() }
+    }
+}
+
+#[derive(Deserialize)]
+struct InstanceSection {
+    #[serde(default = "default_instance_name")]
+    instance_name: String,
+    #[serde(default = "default_port")]
+    port: u16,
+    #[serde(default = "default_page_size")]
+    page_size: u8,
+    #[serde(default = "default_charset")]
+    charset: u8,
+    #[serde(default = "default_case_sensitive")]
+    case_sensitive: bool,
+    #[serde(default = "default_extent_size")]
+    extent_size: u8,
+}
+
+impl Default for InstanceSection {
+    fn default() -> Self {
+        Self {
+            instance_name: default_instance_name(),
+            port: default_port(),
+            page_size: default_page_size(),
+            charset: default_charset(),
+            case_sensitive: default_case_sensitive(),
+            extent_size: default_extent_size(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct InstallConfigFile {
+    #[serde(default)]
+    install: InstallSection,
+    #[serde(default)]
+    instance: InstanceSection,
+    ssh_target: Option<ssh::SshTarget>,
+}
+
+impl From<InstallConfigFile> for InstallConfig {
+    fn from(f: InstallConfigFile) -> Self {
+        Self {
+            install_path: f.install.install_path,
+            data_path: f.install.data_path,
+            instance_name: f.instance.instance_name,
+            port: f.instance.port,
+            page_size: f.instance.page_size,
+            charset: f.instance.charset,
+            case_sensitive: f.instance.case_sensitive,
+            extent_size: f.instance.extent_size,
+            ssh_target: f.ssh_target,
+        }
+    }
 }
 
 fn default_install_path() -> String { "/home/dmdba/dmdbms".to_string() }
@@ -258,7 +317,7 @@ mod tests {
     #[test]
     fn test_load_standalone_specific_valid() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "port = 5237\npage_size = 16\n").unwrap();
+        writeln!(file, "[instance]\nport = 5237\npage_size = 16").unwrap();
         let cfg = load_standalone_specific(file.path()).expect("应返回 Ok(InstallConfig)");
         assert_eq!(cfg.port, 5237);
         assert_eq!(cfg.page_size, 16);
@@ -267,7 +326,7 @@ mod tests {
     #[test]
     fn test_load_standalone_specific_rejects_semantic_invalid() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "page_size = 12\n").unwrap();
+        writeln!(file, "[instance]\npage_size = 12").unwrap();
         let err = load_standalone_specific(file.path()).unwrap_err();
         let msg = format!("{:#}", err);
         assert!(msg.contains("page_size 无效: 12"), "应含 'page_size 无效: 12'，实际: {msg}");
@@ -283,7 +342,7 @@ mod tests {
     #[test]
     fn test_load_standalone_specific_syntax_error_fails() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "port = \"not_a_number\"\n").unwrap();
+        writeln!(file, "[instance]\nport = \"not_a_number\"").unwrap();
         let err = load_standalone_specific(file.path()).unwrap_err();
         let msg = format!("{:#}", err);
         assert!(msg.contains("单机配置文件解析失败"), "应含 '单机配置文件解析失败'，实际: {msg}");

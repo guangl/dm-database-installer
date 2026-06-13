@@ -9,6 +9,10 @@ pub struct Checkpoint {
     pub install_path: String,
     pub sysdba_pwd: String,
     pub sysauditor_pwd: String,
+    #[serde(default)]
+    pub package_cache: Option<String>,
+    #[serde(default)]
+    pub uploaded: bool,
     pub installed: bool,
 }
 
@@ -18,6 +22,8 @@ impl Checkpoint {
             install_path: install_path.to_string(),
             sysdba_pwd,
             sysauditor_pwd,
+            package_cache: None,
+            uploaded: false,
             installed: false,
         }
     }

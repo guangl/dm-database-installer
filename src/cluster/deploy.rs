@@ -38,7 +38,8 @@ pub async fn upload_installer_and_install(
 ) -> Result<()> {
     tracing::info!("[node:{:?}][1/6] 生成 XML response file", node.role);
     let install_config = node_to_install_config(node);
-    let xml_file = generate_install_xml(&install_config).context("生成 XML response file 失败")?;
+    let language = detect_node_language(runner).await;
+    let xml_file = generate_install_xml(&install_config, &language).context("生成 XML response file 失败")?;
     let xml_content = std::fs::read_to_string(xml_file.path()).context("读取 XML 临时文件失败")?;
     let remote_xml = format!("/tmp/cluster_install_{}.xml", node.instance_name);
     runner
@@ -104,6 +105,17 @@ pub async fn run_dminit_remote(node: &NodeConfig, runner: &dyn CommandRunner) ->
     Ok(())
 }
 
+async fn detect_node_language(runner: &dyn CommandRunner) -> &'static str {
+    let lang = runner
+        .exec("echo $LANG")
+        .await
+        .map(|(bytes, _)| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default();
+    let language = if lang.trim().to_lowercase().contains("zh") { "ZH" } else { "EN" };
+    tracing::debug!("节点 $LANG={:?} -> 安装语言: {}", lang.trim(), language);
+    language
+}
+
 /// 计算远端配置文件目标路径。
 fn target_path(node: &NodeConfig, filename: &str) -> String {
     format!("{}/{}/{}", node.data_path, node.instance_name, filename)
@@ -125,20 +137,31 @@ pub async fn distribute_configs(
     let dmmal_ini = generate_dmmal_ini(all_nodes);
     let dmarch_ini = generate_dmarch_ini(node, &peer.instance_name);
     let dmwatcher_ini = generate_dmwatcher_ini(node, oguid);
+    let dm_ini_path = target_path(node, "dm.ini.cluster_suffix");
+    tracing::debug!("[node:{:?}] 上传 dm.ini.cluster_suffix ({} bytes)", node.role, dm_ini_suffix.len());
     runner
-        .sftp_write(&target_path(node, "dm.ini.cluster_suffix"), dm_ini_suffix.as_bytes())
+        .sftp_write(&dm_ini_path, dm_ini_suffix.as_bytes())
         .await
         .context("SFTP 上传 dm.ini.cluster_suffix 失败")?;
+
+    let dmmal_path = target_path(node, "dmmal.ini");
+    tracing::debug!("[node:{:?}] 上传 dmmal.ini ({} bytes)", node.role, dmmal_ini.len());
     runner
-        .sftp_write(&target_path(node, "dmmal.ini"), dmmal_ini.as_bytes())
+        .sftp_write(&dmmal_path, dmmal_ini.as_bytes())
         .await
         .context("SFTP 上传 dmmal.ini 失败")?;
+
+    let dmarch_path = target_path(node, "dmarch.ini");
+    tracing::debug!("[node:{:?}] 上传 dmarch.ini ({} bytes)", node.role, dmarch_ini.len());
     runner
-        .sftp_write(&target_path(node, "dmarch.ini"), dmarch_ini.as_bytes())
+        .sftp_write(&dmarch_path, dmarch_ini.as_bytes())
         .await
         .context("SFTP 上传 dmarch.ini 失败")?;
+
+    let dmwatcher_path = target_path(node, "dmwatcher.ini");
+    tracing::debug!("[node:{:?}] 上传 dmwatcher.ini ({} bytes)", node.role, dmwatcher_ini.len());
     runner
-        .sftp_write(&target_path(node, "dmwatcher.ini"), dmwatcher_ini.as_bytes())
+        .sftp_write(&dmwatcher_path, dmwatcher_ini.as_bytes())
         .await
         .context("SFTP 上传 dmwatcher.ini 失败")?;
     let merge_cmd = format!(
@@ -178,6 +201,7 @@ pub async fn configure_database_role(
     oguid: u32,
     runner: &dyn CommandRunner,
 ) -> Result<()> {
+    tracing::info!("[node:{:?}] 配置数据库角色: {:?} (oguid={})", node.role, role, oguid);
     let role_sql = match role {
         NodeRole::Primary => "alter database primary;",
         NodeRole::Standby => "alter database standby;",

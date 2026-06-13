@@ -78,6 +78,21 @@ log_level = "info"
 const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配置（standalone.toml）
 # 注意：SYSDBA / SYSAUDITOR 密码在安装时由终端提示输入，不写入此文件
 
+[install]
+install_path = "/home/dmdba/dmdbms"
+data_path = "/home/dmdba/dmdbms/data"
+
+[instance]
+instance_name = "DMSERVER"
+port = 5236
+# 页大小（KB），可选值：4 / 8 / 16 / 32
+page_size = 32
+# 字符集：0=GB18030  1=UTF-8  2=EUC-KR
+charset = 1
+case_sensitive = true
+# 区段大小（页数），可选值：16 / 32
+extent_size = 32
+
 # ─── SSH 远程安装目标（可选）────────────────────────────────
 # 填写后将通过 SSH 在目标服务器上安装，host 为本机时自动退化为本地安装。
 # password 不填则运行时提示输入。
@@ -86,27 +101,8 @@ const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配
 # ssh_port = 22
 # user = "root"
 # password = "your_ssh_password"
-# max_retries = 3        # 连接失败最大重试次数，默认 3
-# retry_interval_secs = 5  # 每次重试前等待秒数，默认 5
-
-# ─── 安装路径 ────────────────────────────────────────────────
-install_path = "/home/dmdba/dmdbms"
-data_path = "/home/dmdba/dmdbms/data"
-
-# ─── 实例参数 ────────────────────────────────────────────────
-instance_name = "DMSERVER"
-port = 5236
-
-# 页大小（KB），可选值：4 / 8 / 16 / 32
-page_size = 32
-
-# 字符集：0=GB18030  1=UTF-8  2=EUC-KR
-charset = 1
-
-case_sensitive = true
-
-# 区段大小（页数），可选值：16 / 32
-extent_size = 32
+# max_retries = 3
+# retry_interval_secs = 5
 "#;
 
 const CLUSTER_COMMON: &str = r#"# 达梦数据库主备集群 — 通用配置

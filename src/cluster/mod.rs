@@ -1,4 +1,6 @@
 use anyhow::Result;
+use crate::config::{CommonConfig, InstallType};
+use crate::config::cluster::ClusterSpecificConfig;
 
 pub mod deploy;
 pub mod dpc;
@@ -9,19 +11,19 @@ pub mod primary_standby;
 pub mod rws;
 pub mod templates;
 
-/// 根据集群配置中的 type 字段分派到对应模式的部署入口。
-pub async fn run(args: &crate::cli::ClusterDeployArgs) -> Result<()> {
-    let Some(config_path) = &args.config else {
-        crate::guide::print_cluster();
-        anyhow::bail!("缺少 --config 参数");
-    };
-
-    use crate::config::cluster::{load_cluster_config, ClusterType};
-    let config = load_cluster_config(config_path)
-        .map_err(|e| anyhow::anyhow!("加载集群配置失败: {}: {}", config_path.display(), e))?;
-    match config.cluster.cluster_type {
-        ClusterType::PrimaryStandby => primary_standby::run(args).await,
-        ClusterType::Rws => rws::run(args).await,
-        ClusterType::Dsc => dsc::run(args).await,
+/// 根据 install_type 分派到对应集群部署入口。
+/// common 和 specific 已由调用方从配置文件加载并验证。
+pub async fn run(
+    install_type: InstallType,
+    common: CommonConfig,
+    specific: ClusterSpecificConfig,
+) -> Result<()> {
+    tracing::info!("开始集群部署: {:?}", install_type);
+    match install_type {
+        InstallType::PrimaryStandby => primary_standby::run(common, specific).await,
+        InstallType::Rws => rws::run(common, specific).await,
+        InstallType::Dsc => dsc::run(common, specific).await,
+        InstallType::Dpc => dpc::run(common, specific).await,
+        InstallType::Standalone => unreachable!("standalone 不通过 cluster::run 分派"),
     }
 }

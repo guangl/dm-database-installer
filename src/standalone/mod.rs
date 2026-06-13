@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 
 use crate::cli::InstallArgs;
@@ -9,6 +9,7 @@ pub mod checkpoint;
 pub mod init;
 pub mod package;
 pub mod remote;
+pub mod service;
 pub mod silent_install;
 
 /// 单机安装入口。common 和 specific 已由调用方从配置文件加载并验证。
@@ -23,6 +24,7 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
 
     tracing::info!("开始安装达梦数据库（单机）");
 
+    // [1/7] 加载或创建 checkpoint（跨重试持久化密码和各步骤进度）
     let existing_cp = checkpoint::load(&specific.install_path)?;
     let (sysdba_pwd, sysauditor_pwd) = match &existing_cp {
         Some(c) => (c.sysdba_pwd.clone(), c.sysauditor_pwd.clone()),
@@ -33,28 +35,39 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     });
     cp.save()?;
 
-    let package = fetch_package(args, &common).await?;
-    verify_checksum(args, &package.path)?;
+    // [2/7] 获取安装包（自动下载时缓存到 CWD，支持续传）
+    let package_path = resolve_package(args, &common, &mut cp).await?;
+    verify_checksum(args, &package_path)?;
 
-    let extract_dir = step_extract(&package.path)?;
+    // [3/7] 提取 DMInstall.bin
+    let extract_dir = step_extract(&package_path)?;
 
+    // [4/7] 静默安装 dmdbms
     let bin_installed = Path::new(&specific.install_path).join("bin/dminit").exists();
     if cp.installed || bin_installed {
-        tracing::info!("[5/6] dmdbms 已安装，跳过");
+        println!("[续] 跳过安装，dmdbms 已安装至 {}", specific.install_path);
     } else {
         step_silent_install(&specific, &extract_dir)?;
         cp.installed = true;
         cp.save()?;
     }
 
+    // [5/7] dminit 初始化（幂等：dm.ini 存在则跳过）
     let dm_ini_exists = Path::new(&specific.data_path).join("dm.ini").exists();
     if dm_ini_exists {
-        tracing::info!("[6/6] 达梦实例已初始化，跳过 dminit");
+        println!("[续] 跳过 dminit，实例已初始化");
     } else {
         step_dminit(&specific, &sysdba_pwd, &sysauditor_pwd)?;
     }
 
+    // [6/7] 注册并启动 DM 系统服务
+    step_register_service(&specific)?;
+
+    // [7/7] 打印凭证，清理临时文件
     print_generated_credentials(&sysdba_pwd, &sysauditor_pwd);
+    if let Some(cached) = &cp.package_cache {
+        let _ = std::fs::remove_file(cached);
+    }
     checkpoint::Checkpoint::remove()?;
     tracing::info!("单机安装完成");
     Ok(())
@@ -132,22 +145,55 @@ fn validate_password_complexity(pwd: &str) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_package(args: &InstallArgs, common: &CommonConfig) -> Result<crate::common::download::PackageHandle> {
-    tracing::info!("[2/6] 获取安装包路径");
-    // CLI --package > config.toml installer_package > 自动下载
+/// 解析安装包路径：优先级为 CLI --package > config installer_package > checkpoint 缓存 > 自动下载。
+/// 自动下载时将包持久化到 CWD，路径存入 checkpoint，支持中断续传。
+async fn resolve_package(
+    args: &InstallArgs,
+    common: &CommonConfig,
+    cp: &mut checkpoint::Checkpoint,
+) -> Result<std::path::PathBuf> {
+    tracing::info!("[2/7] 获取安装包路径");
+
     if let Some(p) = &args.package {
         println!("使用本地安装包 (CLI): {}", p.display());
-        return Ok(crate::common::download::PackageHandle::from_user_path(p.clone()));
+        return Ok(p.clone());
     }
     if let Some(p) = &common.installer_package {
         println!("使用本地安装包 (config.toml): {}", p.display());
-        return Ok(crate::common::download::PackageHandle::from_user_path(p.clone()));
+        return Ok(p.clone());
     }
-    crate::common::download::fetch_dm_installer().await
+
+    // 检查 checkpoint 中的已下载缓存
+    if let Some(cached) = cp.package_cache.as_ref().map(std::path::Path::new).filter(|p| p.exists()) {
+        println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
+        return Ok(cached.to_path_buf());
+    }
+
+    // 自动下载，完成后持久化到 CWD
+    let handle = crate::common::download::fetch_dm_installer().await?;
+    let cached_path = cache_package(&handle.path)?;
+    cp.package_cache = Some(cached_path.to_string_lossy().into_owned());
+    cp.save()?;
+    Ok(cached_path)
+}
+
+/// 将安装包复制到 CWD，文件名加 `.dm_cache_` 前缀，避免与用户文件冲突。
+fn cache_package(src: &std::path::Path) -> Result<std::path::PathBuf> {
+    let file_name = src
+        .file_name()
+        .map(|n| format!(".dm_cache_{}", n.to_string_lossy()))
+        .unwrap_or_else(|| ".dm_cache_installer".to_string());
+    let dest = std::env::current_dir()?.join(file_name);
+    if dest.exists() {
+        return Ok(dest);
+    }
+    std::fs::copy(src, &dest)
+        .with_context(|| format!("缓存安装包失败: {} -> {}", src.display(), dest.display()))?;
+    Ok(dest)
 }
 
 fn verify_checksum(args: &InstallArgs, path: &std::path::Path) -> Result<()> {
-    tracing::info!("[3/6] SHA-256 校验");
+    tracing::info!("[3/7] SHA-256 校验");
     if let Some(expected) = &args.checksum {
         checksum::verify_sha256(path, expected)
     } else {
@@ -157,19 +203,24 @@ fn verify_checksum(args: &InstallArgs, path: &std::path::Path) -> Result<()> {
 }
 
 fn step_extract(path: &std::path::Path) -> Result<tempfile::TempDir> {
-    tracing::info!("[4/6] 提取 DMInstall.bin");
+    tracing::info!("[4/7] 提取 DMInstall.bin");
     package::extract_dminstall_bin(path)
 }
 
 fn step_silent_install(config: &InstallConfig, extract_dir: &tempfile::TempDir) -> Result<()> {
-    tracing::info!("[5/6] 安装 dmdbms");
+    tracing::info!("[5/7] 安装 dmdbms");
     let bin_path = extract_dir.path().join("DMInstall.bin");
     silent_install::install_from_bin(&bin_path, &config.install_path)
 }
 
 fn step_dminit(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &str) -> Result<()> {
-    tracing::info!("[6/6] dminit 初始化");
+    tracing::info!("[6/7] dminit 初始化");
     init::run_dminit(config, sysdba_pwd, sysauditor_pwd)
+}
+
+fn step_register_service(config: &InstallConfig) -> Result<()> {
+    tracing::info!("[7/7] 注册并启动 DM 服务");
+    service::register_and_start(config)
 }
 
 #[cfg(test)]
