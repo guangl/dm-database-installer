@@ -42,7 +42,6 @@ tracing-test = "0.2"
 inherits = "release"
 lto = "thin"
 
-# 由 cargo dist init 生成（手动调整 targets 为三平台 + aarch64 配置）
 [workspace.metadata.dist]
 cargo-dist-version = "0.32.0"
 ci = "github"
@@ -52,10 +51,16 @@ targets = [
     "aarch64-unknown-linux-gnu",
     "x86_64-pc-windows-msvc",
 ]
-# 允许 release.yml 含手动添加的 NASM 步骤（不被 dist generate 覆盖）
 allow-dirty = ["ci"]
 
+# x86_64 用 manylinux_2_28 容器确保 glibc >= 2.28 兼容性；
+# aarch64 用 zigbuild 交叉编译，glibc 要求由 zig 内置 libc 决定（通常 <= 2.17）
+[workspace.metadata.dist.min-glibc-version]
+x86_64-unknown-linux-gnu = "2.28"
+aarch64-unknown-linux-gnu = "2.28"
+
 [workspace.metadata.dist.github-custom-runners]
+x86_64-unknown-linux-gnu = { runner = "ubuntu-22.04", container = { image = "quay.io/pypa/manylinux_2_28_x86_64", host = "x86_64-unknown-linux-gnu" } }
 aarch64-unknown-linux-gnu = "ubuntu-22.04"
 
 [workspace.metadata.dist.dependencies.apt]
