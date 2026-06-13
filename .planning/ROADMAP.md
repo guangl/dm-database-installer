@@ -84,7 +84,7 @@ Plans:
 
 ### Phase 4: 发布流水线
 
-**Goal**: 多平台预编译二进制通过 GitHub Releases 分发，用户在任意支持平台可通过 `curl | sh` 实际安装
+**Goal**: As a 项目用户（开发者/DBA），I want to 通过一行 curl|sh 命令在 Linux x86_64/aarch64 或 Windows 上下载 dm-installer 工具并使用 install/cluster/install-windows 子命令，so that 我可以零摩擦获取最新发布并按配置部署达梦数据库
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: PLAT-01, PLAT-02, PLAT-03, PLAT-04
@@ -93,10 +93,22 @@ Plans:
   1. Linux x86_64 用户可从公开 URL 运行 `curl | sh` 下载并执行安装器
   2. Linux aarch64 (ARM) 用户可从公开 URL 运行 `curl | sh` 下载并执行安装器
   3. Windows 用户可下载安装器并通过 SSH 在 Linux 目标节点上安装达梦
-  4. Windows 目标机上可安装达梦实例
+  4. Windows 目标机上可安装达梦实例（PLAT-04 placeholder：CLI 入口存在，实际 setup.exe 集成留 spike）
   5. GitHub Actions 在打 tag 时自动构建并发布所有平台的二进制到 GitHub Releases
 
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Phase 3 五个 Critical bug 修复（CR-01..CR-05：SFTP CREATE 标志 / .bin 上传执行 / tilde 展开 / shell_quote 防注入 / TOFU 指纹日志）+ Cargo.toml description/license/repository 元数据（cargo-dist init 前置条件）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — cargo-dist init 配置（targets 三平台 + aarch64 apt 依赖 + profile.dist）+ .cargo/config.toml aarch64 linker + .github/workflows/release.yml（含 NASM 步骤）+ PLAT-04 install-windows placeholder CLI
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-03-PLAN.md — README.md 安装段落 + 三平台支持矩阵 + 两个 install.sh 区分 + PLAT-04 限制说明 + CHANGELOG.md v0.1.0 + 人工 checkpoint 8 步验证
 
 ## Progress
 
@@ -108,4 +120,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. curl\|sh 单机安装 | 0/TBD | Not started | - |
 | 2. TOML 配置驱动单机 | 1/1 | Complete   | 2026-06-12 |
 | 3. 主备集群 | 3/3 | Complete   | 2026-06-12 |
-| 4. 发布流水线 | 0/TBD | Not started | - |
+| 4. 发布流水线 | 0/3 | Ready to execute | - |
+</content>
