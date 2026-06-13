@@ -131,7 +131,8 @@ fn parse_release_file(path: &str) -> Option<String> {
         if upper.contains("SP3") {
             return Some("kylin10_sp3".into());
         }
-        if upper.contains("SP1") {
+        // SP1 的代号为 Lance，release 文件中可能只有代号而无 "SP1" 字样
+        if upper.contains("SP1") || lower.contains("(lance)") {
             return Some("kylin10_sp1".into());
         }
         return Some("kylin10".into());
@@ -241,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_release_file_kylin_v10_no_sp() {
+    fn test_parse_release_file_kylin_v10_lance_is_sp1() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::io::Write::write_all(
             &mut tmp.as_file(),
@@ -249,7 +250,7 @@ mod tests {
         )
         .unwrap();
         let result = parse_release_file(tmp.path().to_str().unwrap());
-        assert_eq!(result, Some("kylin10".into()), "无 SP 标记应映射为 kylin10");
+        assert_eq!(result, Some("kylin10_sp1".into()), "Lance 是 Kylin V10 SP1 代号");
     }
 
     #[test]

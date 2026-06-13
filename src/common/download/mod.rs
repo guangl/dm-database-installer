@@ -39,10 +39,13 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
 
     if matches.is_empty() {
         if let Some(os_str) = &platform.os {
-            let prefix_matches = versions::filter_entries_os_prefix(&all, &platform.arch, platform.cpu.as_deref(), os_str);
-            if !prefix_matches.is_empty() {
-                tracing::warn!("OS '{}' 无精确匹配，自动选用最近版本 '{}'", os_str, prefix_matches[0].os);
-                matches = prefix_matches;
+            for prefix in os_fallback_prefixes(os_str) {
+                let prefix_matches = versions::filter_entries_os_prefix(&all, &platform.arch, platform.cpu.as_deref(), prefix);
+                if !prefix_matches.is_empty() {
+                    tracing::warn!("OS '{}' 无精确匹配，自动选用最近版本 '{}'", os_str, prefix_matches[0].os);
+                    matches = prefix_matches;
+                    break;
+                }
             }
         }
     }
@@ -63,4 +66,16 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
     println!("已解压: {}", installer.display());
 
     Ok(PackageHandle::from_download(installer, download_dir))
+}
+
+/// 构建 OS 前缀回退链：先精确前缀，再去掉 _sp* 后缀降级。
+/// 例：kylin10_sp1 → ["kylin10_sp1", "kylin10"]；kylin10 → ["kylin10"]
+fn os_fallback_prefixes(os: &str) -> Vec<&str> {
+    let mut prefixes = vec![os];
+    if let Some(base) = os.split("_sp").next() {
+        if base != os {
+            prefixes.push(base);
+        }
+    }
+    prefixes
 }

@@ -50,6 +50,22 @@ pub fn filter_entries<'a>(
         .collect()
 }
 
+/// OS 前缀回退过滤：用于 "kylin10" 无精确匹配时自动降级到 "kylin10_sp1"/"kylin10_sp3"。
+/// 仅 os 维度改为前缀匹配，arch/cpu 仍精确匹配。
+pub fn filter_entries_os_prefix<'a>(
+    entries: &'a [VersionEntry],
+    arch: &str,
+    cpu: Option<&str>,
+    os_prefix: &str,
+) -> Vec<&'a VersionEntry> {
+    entries
+        .iter()
+        .filter(|e| e.arch == arch)
+        .filter(|e| cpu.map_or(true, |c| e.cpu == c))
+        .filter(|e| e.os.starts_with(os_prefix))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +111,43 @@ mod tests {
         let entries = parse_versions();
         let matched = filter_entries(&entries, "riscv64", None, None);
         assert!(matched.is_empty(), "riscv64 不在支持列表中");
+    }
+
+    #[test]
+    fn test_filter_os_prefix_kylin10_matches_sp1() {
+        let entries = parse_versions();
+        // "kylin10" 无精确 aarch64 匹配，但前缀可以命中 kylin10_sp1
+        let matched = filter_entries_os_prefix(&entries, "aarch64", None, "kylin10");
+        assert!(!matched.is_empty(), "kylin10 前缀应命中 kylin10_sp1");
+        assert!(
+            matched.iter().all(|e| e.os.starts_with("kylin10")),
+            "所有结果应以 kylin10 开头"
+        );
+    }
+
+    #[test]
+    fn test_filter_os_prefix_with_cpu_narrows_to_one() {
+        let entries = parse_versions();
+        let matched = filter_entries_os_prefix(&entries, "aarch64", Some("kunpeng"), "kylin10");
+        assert_eq!(matched.len(), 1, "kunpeng + kylin10 前缀应精确命中 1 条");
+        assert_eq!(matched[0].cpu, "kunpeng");
+    }
+
+    #[test]
+    fn test_filter_os_prefix_sp1_no_match_on_x86() {
+        let entries = parse_versions();
+        // x86_64 无 kylin10_sp1 条目，前缀 "kylin10_sp1" 不应命中 kylin10_sp3
+        let matched = filter_entries_os_prefix(&entries, "x86_64", Some("x86"), "kylin10_sp1");
+        assert!(matched.is_empty(), "kylin10_sp1 前缀不应命中 kylin10_sp3");
+    }
+
+    #[test]
+    fn test_filter_os_prefix_kylin10_base_matches_x86_sp3() {
+        let entries = parse_versions();
+        // 降级到 "kylin10" 前缀后，x86_64 可命中 kylin10_sp3
+        let matched = filter_entries_os_prefix(&entries, "x86_64", Some("x86"), "kylin10");
+        assert!(!matched.is_empty(), "kylin10 前缀应命中 x86_64 上的 kylin10_sp3");
+        assert!(matched.iter().all(|e| e.os.starts_with("kylin10")));
     }
 
     #[test]
