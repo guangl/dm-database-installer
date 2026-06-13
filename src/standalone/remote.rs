@@ -2,12 +2,14 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 use crate::cli::InstallArgs;
+use crate::common::download::{fetch_dm_installer_for, PackageHandle};
 use crate::common::ssh::{CommandRunner, SshSession};
+use crate::common::sysinfo::detect_platform_from_raw;
 use crate::config::ssh::{SshCredentials, SshTarget};
 use crate::config::{CommonConfig, InstallConfig};
 use crate::standalone::silent_install::generate_install_xml;
 
-use super::{fetch_package, prompt_passwords, verify_checksum};
+use super::{prompt_passwords, verify_checksum};
 
 /// 对 shell 参数进行单引号转义，防止命令注入。
 fn shell_quote(raw: &str) -> String {
@@ -40,7 +42,7 @@ pub async fn run(
 
     let (sysdba_pwd, sysauditor_pwd) = prompt_passwords()?;
 
-    let package = fetch_package(args, &common).await?;
+    let package = fetch_package_for_remote(args, &common, &session).await?;
     verify_checksum(args, &package.path)?;
 
     let extract_dir = crate::standalone::package::extract_dminstall_bin(&package.path)
@@ -51,6 +53,38 @@ pub async fn run(
 
     tracing::info!("单机 SSH 远程安装完成");
     Ok(())
+}
+
+async fn detect_remote_platform(runner: &dyn CommandRunner) -> crate::common::sysinfo::Platform {
+    let uname = exec_remote_str(runner, "uname -m").await;
+    let cpuinfo = exec_remote_str(runner, "cat /proc/cpuinfo 2>/dev/null || true").await;
+    let os_release = exec_remote_str(runner, "cat /etc/os-release 2>/dev/null || true").await;
+    let platform = detect_platform_from_raw(&uname, &cpuinfo, &os_release);
+    tracing::info!("远端平台: arch={}, cpu={:?}, os={:?}", platform.arch, platform.cpu, platform.os);
+    platform
+}
+
+async fn exec_remote_str(runner: &dyn CommandRunner, cmd: &str) -> String {
+    runner.exec(cmd).await
+        .map(|(bytes, _)| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default()
+}
+
+async fn fetch_package_for_remote(
+    args: &InstallArgs,
+    common: &CommonConfig,
+    runner: &dyn CommandRunner,
+) -> Result<PackageHandle> {
+    if let Some(p) = &args.package {
+        println!("使用本地安装包 (CLI): {}", p.display());
+        return Ok(PackageHandle::from_user_path(p.clone()));
+    }
+    if let Some(p) = &common.installer_package {
+        println!("使用本地安装包 (config.toml): {}", p.display());
+        return Ok(PackageHandle::from_user_path(p.clone()));
+    }
+    let platform = detect_remote_platform(runner).await;
+    fetch_dm_installer_for(&platform).await
 }
 
 /// 带重试的 SSH 连接：最多尝试 `1 + max_retries` 次，每次失败等待 `retry_interval_secs` 秒。
@@ -98,6 +132,7 @@ async fn check_remote_idempotent(
 ) -> Result<bool> {
     tracing::info!("[1/5] 远端幂等性检测");
     let dm_ini = format!("{}/dm.ini", config.install_path);
+    tracing::debug!("检测远端文件: {}", dm_ini);
     let cmd = format!("test -f {} && echo exists || echo absent", shell_quote(&dm_ini));
     let (output, _) = runner
         .exec(&cmd)
@@ -105,9 +140,11 @@ async fn check_remote_idempotent(
         .map_err(|e| anyhow::anyhow!("远端幂等检测失败: {e}"))?;
     let result = String::from_utf8_lossy(&output);
     if result.trim() == "exists" {
+        tracing::info!("远端实例已存在: {}", dm_ini);
         println!("已检测到远端达梦实例 ({}/dm.ini)，跳过安装", config.install_path);
         return Ok(true);
     }
+    tracing::debug!("远端实例未安装，继续部署");
     Ok(false)
 }
 
@@ -122,6 +159,7 @@ async fn upload_and_install_remote(
     let xml_content =
         std::fs::read_to_string(xml_file.path()).context("读取 XML 临时文件失败")?;
     let remote_xml = "/tmp/dm_standalone_install.xml".to_string();
+    tracing::debug!("上传 XML response file ({} bytes) -> {}", xml_content.len(), remote_xml);
     runner
         .sftp_write(&remote_xml, xml_content.as_bytes())
         .await
@@ -131,6 +169,7 @@ async fn upload_and_install_remote(
     let bin_bytes =
         std::fs::read(&bin_path).with_context(|| format!("读取 DMInstall.bin 失败: {}", bin_path.display()))?;
     let remote_bin = "/tmp/dm_standalone_DMInstall.bin".to_string();
+    tracing::debug!("上传 DMInstall.bin ({} bytes) -> {}", bin_bytes.len(), remote_bin);
     runner.sftp_write(&remote_bin, &bin_bytes).await.context("SFTP 上传 DMInstall.bin 失败")?;
 
     runner
@@ -143,10 +182,12 @@ async fn upload_and_install_remote(
         shell_quote(&remote_bin),
         shell_quote(&remote_xml)
     );
+    tracing::debug!("执行远端静默安装: {}", install_cmd);
     runner
         .exec(&install_cmd)
         .await
         .map_err(|e| anyhow::anyhow!("远端 DMInstall.bin 执行失败: {e}"))?;
+    tracing::info!("远端 DMInstall.bin 静默安装成功");
 
     Ok(())
 }
@@ -158,6 +199,12 @@ async fn run_dminit_remote(
     runner: &dyn CommandRunner,
 ) -> Result<()> {
     tracing::info!("[4/5] 远端 dminit 初始化");
+    tracing::debug!(
+        "dminit 参数: INSTANCE_NAME={} PORT_NUM={} PATH={}",
+        config.instance_name,
+        config.port,
+        config.data_path
+    );
     let dminit = format!("{}/bin/dminit", config.install_path);
     let cmd = format!(
         "{} PATH={} DB_NAME=DAMENG INSTANCE_NAME={} PORT_NUM={} PAGE_SIZE={} EXTENT_SIZE={} CHARSET={} CASE_SENSITIVE={} SYSDBA_PWD={} SYSAUDITOR_PWD={}",

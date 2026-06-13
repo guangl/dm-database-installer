@@ -17,6 +17,15 @@ pub fn detect_platform() -> Platform {
     Platform { arch, cpu, os }
 }
 
+/// 从远端 SSH 输出构建平台信息。
+/// uname_m: `uname -m` 输出；cpuinfo: `/proc/cpuinfo` 内容；os_release: `/etc/os-release` 内容。
+pub fn detect_platform_from_raw(uname_m: &str, cpuinfo: &str, os_release: &str) -> Platform {
+    let arch = map_arch(uname_m.trim());
+    let cpu = detect_cpu_from_str(&arch, cpuinfo);
+    let os = map_os_key_from_str(os_release);
+    Platform { arch, cpu, os }
+}
+
 fn map_arch(rust_arch: &str) -> String {
     match rust_arch {
         "x86_64"     => "x86_64".into(),
@@ -29,6 +38,10 @@ fn map_arch(rust_arch: &str) -> String {
 
 fn detect_cpu(arch: &str) -> Option<String> {
     let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    detect_cpu_from_str(arch, &cpuinfo)
+}
+
+fn detect_cpu_from_str(arch: &str, cpuinfo: &str) -> Option<String> {
     match arch {
         "x86_64" => {
             if cpuinfo.contains("HygonGenuine") {
@@ -39,9 +52,17 @@ fn detect_cpu(arch: &str) -> Option<String> {
         }
         "aarch64" => {
             let lower = cpuinfo.to_lowercase();
-            if lower.contains("kunpeng") || lower.contains("hisilicon") || cpuinfo.contains("0x48") {
+            // 用 "CPU implementer" 行精确匹配，避免 0x48/0x70 误中其它十六进制串
+            let is_kunpeng = lower.contains("kunpeng")
+                || lower.contains("hisilicon")
+                || cpuinfo.contains("CPU implementer\t: 0x48")
+                || cpuinfo.contains("CPU implementer : 0x48");
+            let is_ft2000 = lower.contains("phytium")
+                || cpuinfo.contains("CPU implementer\t: 0x70")
+                || cpuinfo.contains("CPU implementer : 0x70");
+            if is_kunpeng {
                 Some("kunpeng".into())
-            } else if lower.contains("phytium") || cpuinfo.contains("0x70") {
+            } else if is_ft2000 {
                 Some("ft2000".into())
             } else {
                 None
@@ -52,10 +73,22 @@ fn detect_cpu(arch: &str) -> Option<String> {
 }
 
 fn detect_os() -> Option<String> {
+    // 优先 /etc/os-release（标准路径）
+    if let Some(os) = detect_os_from_os_release() {
+        return Some(os);
+    }
+    // 各发行版自有 release 文件兜底
+    detect_os_from_release_file()
+}
+
+fn detect_os_from_os_release() -> Option<String> {
     let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    map_os_key_from_str(&content)
+}
+
+fn map_os_key_from_str(content: &str) -> Option<String> {
     let mut id = None;
     let mut version_id = None;
-
     for line in content.lines() {
         if let Some(v) = line.strip_prefix("ID=") {
             id = Some(v.trim_matches('"').to_lowercase());
@@ -63,8 +96,58 @@ fn detect_os() -> Option<String> {
             version_id = Some(v.trim_matches('"').to_lowercase());
         }
     }
-
     map_os_key(id.as_deref()?, version_id.as_deref())
+}
+
+/// 模拟 `cat /etc/*-release`：枚举所有 `/etc/*-release` 文件并逐一解析。
+fn detect_os_from_release_file() -> Option<String> {
+    let mut paths: Vec<_> = std::fs::read_dir("/etc")
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with("-release") || n == "release")
+                .unwrap_or(false)
+        })
+        .collect();
+    paths.sort(); // 排序保证行为确定
+    for path in &paths {
+        if let Some(os) = parse_release_file(path.to_str().unwrap_or("")) {
+            tracing::debug!("OS 检测来源: {} -> {}", path.display(), os);
+            return Some(os);
+        }
+    }
+    None
+}
+
+/// 从 "Kylin Linux Advanced Server release V10 (Lance)" 之类的单行文本推断 OS key。
+fn parse_release_file(path: &str) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let lower = content.to_lowercase();
+    let upper = content.to_uppercase();
+    if lower.contains("kylin") {
+        if upper.contains("SP3") {
+            return Some("kylin10_sp3".into());
+        }
+        if upper.contains("SP1") {
+            return Some("kylin10_sp1".into());
+        }
+        return Some("kylin10".into());
+    }
+    if lower.contains("centos") && upper.contains("RELEASE 7") {
+        return Some("centos7".into());
+    }
+    if (lower.contains("red hat") || lower.contains("redhat")) {
+        if upper.contains("RELEASE 7") {
+            return Some("rhel7".into());
+        }
+        if upper.contains("RELEASE 6") {
+            return Some("rhel6".into());
+        }
+    }
+    None
 }
 
 fn map_os_key(id: &str, version_id: Option<&str>) -> Option<String> {
@@ -155,5 +238,46 @@ mod tests {
     #[test]
     fn test_map_os_unknown_returns_none() {
         assert_eq!(map_os_key("arch", Some("rolling")), None);
+    }
+
+    #[test]
+    fn test_parse_release_file_kylin_v10_no_sp() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(
+            &mut tmp.as_file(),
+            b"Kylin Linux Advanced Server release V10 (Lance)\n",
+        )
+        .unwrap();
+        let result = parse_release_file(tmp.path().to_str().unwrap());
+        assert_eq!(result, Some("kylin10".into()), "无 SP 标记应映射为 kylin10");
+    }
+
+    #[test]
+    fn test_parse_release_file_kylin_sp1() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(
+            &mut tmp.as_file(),
+            b"Kylin Linux Advanced Server release V10 SP1\n",
+        )
+        .unwrap();
+        let result = parse_release_file(tmp.path().to_str().unwrap());
+        assert_eq!(result, Some("kylin10_sp1".into()));
+    }
+
+    #[test]
+    fn test_parse_release_file_centos7() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(
+            &mut tmp.as_file(),
+            b"CentOS Linux release 7.9.2009 (Core)\n",
+        )
+        .unwrap();
+        let result = parse_release_file(tmp.path().to_str().unwrap());
+        assert_eq!(result, Some("centos7".into()));
+    }
+
+    #[test]
+    fn test_parse_release_file_nonexistent_returns_none() {
+        assert_eq!(parse_release_file("/nonexistent/path/release"), None);
     }
 }

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-use crate::common::sysinfo::detect_platform;
+use crate::common::sysinfo::{detect_platform, Platform};
 
 /// 持有安装包路径，并可选地保持下载临时目录的生命周期。
 pub struct PackageHandle {
@@ -24,13 +24,29 @@ impl PackageHandle {
     }
 }
 
-/// 根据 versions.txt 自动检测平台并下载安装包。
+/// 根据 versions.txt 自动检测本地平台并下载安装包。
 pub async fn fetch_dm_installer() -> Result<PackageHandle> {
     let platform = detect_platform();
-    tracing::debug!("检测平台: arch={}, cpu={:?}, os={:?}", platform.arch, platform.cpu, platform.os);
+    fetch_dm_installer_for(&platform).await
+}
+
+/// 根据指定平台从 versions.txt 选择并下载安装包。
+pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle> {
+    tracing::debug!("目标平台: arch={}, cpu={:?}, os={:?}", platform.arch, platform.cpu, platform.os);
 
     let all = versions::parse_versions();
-    let matches = versions::filter_entries(&all, &platform.arch, platform.cpu.as_deref(), platform.os.as_deref());
+    let mut matches = versions::filter_entries(&all, &platform.arch, platform.cpu.as_deref(), platform.os.as_deref());
+
+    if matches.is_empty() {
+        if let Some(os_str) = &platform.os {
+            let prefix_matches = versions::filter_entries_os_prefix(&all, &platform.arch, platform.cpu.as_deref(), os_str);
+            if !prefix_matches.is_empty() {
+                tracing::warn!("OS '{}' 无精确匹配，自动选用最近版本 '{}'", os_str, prefix_matches[0].os);
+                matches = prefix_matches;
+            }
+        }
+    }
+
     let entry = select::select_version(&all, &matches, &platform.arch)?;
 
     let file_name = entry.file_name();
