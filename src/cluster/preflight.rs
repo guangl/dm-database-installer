@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 
-use crate::cluster::ssh::CommandRunner;
+use crate::common::ssh::CommandRunner;
 use crate::config::cluster::NodeConfig;
 
 /// 检查节点是否具备 sudo 免密权限。
@@ -24,7 +24,7 @@ pub async fn check_port_available(runner: &dyn CommandRunner, port: u16) -> Resu
         }
         Ok(_) => Ok(()),
         // grep 返回 exit_code 1 表示无匹配（端口空闲），也是 Ok
-        Err(crate::cluster::ssh::SshError::ExecFailed { exit_code: 1, .. }) => Ok(()),
+        Err(crate::common::ssh::SshError::ExecFailed { exit_code: 1, .. }) => Ok(()),
         Err(e) => Err(anyhow::anyhow!(e)),
     }
 }
@@ -108,7 +108,7 @@ pub async fn preflight_all_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cluster::ssh::MockRunner;
+    use crate::common::ssh::MockRunner;
     use crate::config::cluster::{NodeConfig, NodeRole, SshCredentials};
 
     fn make_node() -> NodeConfig {
@@ -126,6 +126,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            read_only: false,
             ssh: SshCredentials {
                 user: "root".to_string(),
                 identity_file: None,

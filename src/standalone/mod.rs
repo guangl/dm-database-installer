@@ -30,10 +30,10 @@ pub async fn run(args: &InstallArgs) -> Result<()> {
         return Ok(());
     }
 
-    let iso_path = fetch_package(args).await?;
-    verify_checksum(args, &iso_path)?;
+    let package = fetch_package(args).await?;
+    verify_checksum(args, &package.path)?;
 
-    let extract_dir = step_extract(&iso_path)?;
+    let extract_dir = step_extract(&package.path)?;
     step_confirm_params(args, &config)?;
     step_silent_install(&config, &extract_dir)?;
     step_dminit(&config)?;
@@ -51,27 +51,27 @@ fn check_idempotent_early_exit(config: &InstallConfig) -> Result<bool> {
     Ok(false)
 }
 
-async fn fetch_package(args: &InstallArgs) -> Result<std::path::PathBuf> {
+async fn fetch_package(args: &InstallArgs) -> Result<crate::common::download::PackageHandle> {
     tracing::info!("[2/7] 获取安装包路径");
     match &args.package {
-        Some(p) => Ok(p.clone()),
-        None => crate::download::fetch_dm_installer().await,
+        Some(p) => Ok(crate::common::download::PackageHandle::from_user_path(p.clone())),
+        None => crate::common::download::fetch_dm_installer(args.defaults || args.yes).await,
     }
 }
 
-fn verify_checksum(args: &InstallArgs, iso_path: &std::path::Path) -> Result<()> {
+fn verify_checksum(args: &InstallArgs, path: &std::path::Path) -> Result<()> {
     tracing::info!("[3/7] SHA-256 校验");
     if let Some(expected) = &args.checksum {
-        checksum::verify_sha256(iso_path, expected)
+        checksum::verify_sha256(path, expected)
     } else {
         tracing::warn!("未提供 --checksum，跳过 SHA-256 校验");
         Ok(())
     }
 }
 
-fn step_extract(iso_path: &std::path::Path) -> Result<tempfile::TempDir> {
+fn step_extract(path: &std::path::Path) -> Result<tempfile::TempDir> {
     tracing::info!("[4/7] 提取 DMInstall.bin");
-    package::extract_dminstall_bin(iso_path)
+    package::extract_dminstall_bin(path)
 }
 
 fn step_confirm_params(args: &InstallArgs, config: &InstallConfig) -> Result<()> {

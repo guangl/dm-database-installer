@@ -3,6 +3,21 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+pub use crate::config::ssh::SshCredentials;
+
+/// 集群类型。
+#[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusterType {
+    /// 主备集群（默认）
+    #[default]
+    PrimaryStandby,
+    /// 读写分离（基于主备，备节点承担只读查询）
+    Rws,
+    /// 共享存储集群（多实例共享 SAN/NFS）
+    Dsc,
+}
+
 /// 节点角色：主节点或备节点。
 #[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -11,58 +26,35 @@ pub enum NodeRole {
     Standby,
 }
 
-/// SSH 认证凭据（密钥或密码，至少一种）。
-#[derive(Debug, Deserialize, Clone)]
-pub struct SshCredentials {
-    /// SSH 用户名
-    pub user: String,
-    /// 私钥文件路径（优先使用）
-    pub identity_file: Option<PathBuf>,
-    /// 可选密码（备用认证）；不序列化，防止日志泄漏（T-03-01）
-    #[serde(skip_serializing, default)]
-    pub password: Option<String>,
-}
-
-/// 单节点配置（含 SSH 凭据 + 达梦安装参数）。
+/// 单节点配置（主备 / 读写分离 / DSC 共用）。
 #[derive(Debug, Deserialize, Clone)]
 pub struct NodeConfig {
-    /// 节点角色
     pub role: NodeRole,
-    /// 节点 IP 或主机名
     pub host: String,
-    /// 达梦监听端口，默认 5236
     #[serde(default = "default_port_node")]
     pub port: u16,
-    /// 实例名（主备必须不同，如 DMSVR01/DMSVR02）
     pub instance_name: String,
-    /// 安装根目录，默认 /opt/dmdbms
     #[serde(default = "default_install_path_node")]
     pub install_path: String,
-    /// 数据文件目录，默认 /opt/dmdbms/data
     #[serde(default = "default_data_path_node")]
     pub data_path: String,
-    /// MAL 链路端口，默认 5237
     #[serde(default = "default_mal_port_node")]
     pub mal_port: u16,
-    /// 守护进程监听端口，默认 5238
     #[serde(default = "default_dw_port_node")]
     pub dw_port: u16,
-    /// 实例监听守护进程的端口，默认 5239
     #[serde(default = "default_inst_dw_port_node")]
     pub inst_dw_port: u16,
-    /// 页大小（KB），可选 4/8/16/32，默认 8
     #[serde(default = "default_page_size_node")]
     pub page_size: u8,
-    /// 字符集：0=GB18030, 1=UTF-8, 2=EUC-KR，默认 0
     #[serde(default = "default_charset_node")]
     pub charset: u8,
-    /// 大小写敏感，默认 true
     #[serde(default = "default_case_sensitive_node")]
     pub case_sensitive: bool,
-    /// 区段大小（页数），可选 16/32，默认 16
     #[serde(default = "default_extent_size_node")]
     pub extent_size: u8,
-    /// SSH 连接凭据
+    /// 读写分离模式下备节点标记为只读
+    #[serde(default)]
+    pub read_only: bool,
     pub ssh: SshCredentials,
 }
 
@@ -77,28 +69,34 @@ fn default_charset_node() -> u8 { 0 }
 fn default_case_sensitive_node() -> bool { true }
 fn default_extent_size_node() -> u8 { 16 }
 
+
 /// 集群顶层配置（对应 TOML `[cluster]` 节）。
 #[derive(Debug, Deserialize)]
 pub struct ClusterSection {
-    /// 控制机本地安装包路径（ISO 或 .bin）
+    /// 集群类型，默认 primary-standby
+    #[serde(rename = "type", default)]
+    pub cluster_type: ClusterType,
+    /// 控制机本地安装包路径
     pub installer_package: PathBuf,
-    /// 守护系统全局唯一标识，主备必须相同，默认 453331
+    /// 守护系统全局唯一标识，主备/RWS/DSC 必须相同，默认 453331
     #[serde(default = "default_oguid")]
     pub oguid: u32,
-    /// 集群节点列表（对应 `[[cluster.nodes]]`）
+    /// 主备 / 读写分离 / DSC 节点列表（`[[cluster.nodes]]`）
+    #[serde(default)]
     pub nodes: Vec<NodeConfig>,
+    /// DSC 专用：共享存储路径（SAN 裸设备或 NFS 挂载点）
+    pub shared_storage: Option<String>,
 }
 
 fn default_oguid() -> u32 { 453331 }
 
-/// 集群配置根结构，对应整个 cluster.toml 文件。
+/// 集群配置根结构，对应整个集群 TOML 文件。
 #[derive(Debug, Deserialize)]
 pub struct ClusterConfig {
     pub cluster: ClusterSection,
 }
 
 /// 从 TOML 文件加载集群配置并执行语义验证。
-/// 三步链：读文件 → TOML 反序列化 → 语义验证。
 pub fn load_cluster_config(path: &Path) -> Result<ClusterConfig> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("无法读取集群配置文件: {}", path.display()))?;
@@ -108,15 +106,49 @@ pub fn load_cluster_config(path: &Path) -> Result<ClusterConfig> {
     Ok(cfg)
 }
 
-/// 验证集群配置的语义合法性。
+/// 验证集群配置的语义合法性，按集群类型分派。
 pub fn validate_cluster_config(cfg: &ClusterConfig) -> Result<()> {
+    match cfg.cluster.cluster_type {
+        ClusterType::PrimaryStandby => validate_primary_standby(cfg),
+        ClusterType::Rws => validate_rws(cfg),
+        ClusterType::Dsc => validate_dsc(cfg),
+    }
+}
+
+fn validate_primary_standby(cfg: &ClusterConfig) -> Result<()> {
+    check_nodes_not_empty(cfg)?;
+    check_role_uniqueness(cfg)?;
+    check_oguid_range(cfg)?;
+    check_node_fields(cfg)?;
+    check_instance_name_uniqueness(cfg)
+}
+
+fn validate_rws(cfg: &ClusterConfig) -> Result<()> {
     check_nodes_not_empty(cfg)?;
     check_role_uniqueness(cfg)?;
     check_oguid_range(cfg)?;
     check_node_fields(cfg)?;
     check_instance_name_uniqueness(cfg)?;
+    let has_readonly_standby = cfg.cluster.nodes.iter()
+        .any(|n| n.role == NodeRole::Standby && n.read_only);
+    if !has_readonly_standby {
+        bail!("配置验证失败: 读写分离模式要求至少一个备节点设置 read_only = true");
+    }
     Ok(())
 }
+
+fn validate_dsc(cfg: &ClusterConfig) -> Result<()> {
+    check_nodes_not_empty(cfg)?;
+    check_role_uniqueness(cfg)?;
+    check_oguid_range(cfg)?;
+    check_node_fields(cfg)?;
+    check_instance_name_uniqueness(cfg)?;
+    if cfg.cluster.shared_storage.is_none() {
+        bail!("配置验证失败: DSC 集群必须设置 shared_storage（共享存储路径）");
+    }
+    Ok(())
+}
+
 
 fn check_nodes_not_empty(cfg: &ClusterConfig) -> Result<()> {
     if cfg.cluster.nodes.is_empty() {
@@ -126,8 +158,7 @@ fn check_nodes_not_empty(cfg: &ClusterConfig) -> Result<()> {
 }
 
 fn check_role_uniqueness(cfg: &ClusterConfig) -> Result<()> {
-    let primary_count = cfg.cluster.nodes
-        .iter()
+    let primary_count = cfg.cluster.nodes.iter()
         .filter(|n| n.role == NodeRole::Primary)
         .count();
     if primary_count != 1 {
@@ -160,8 +191,7 @@ fn validate_single_node(node: &NodeConfig) -> Result<()> {
     if node.mal_port == node.port {
         bail!(
             "配置验证失败: node[{}] mal_port 不能等于 port: {}",
-            node.host,
-            node.port
+            node.host, node.port
         );
     }
     if node.ssh.identity_file.is_none() && node.ssh.password.is_none() {
@@ -173,22 +203,19 @@ fn validate_single_node(node: &NodeConfig) -> Result<()> {
     if ![4u8, 8, 16, 32].contains(&node.page_size) {
         bail!(
             "配置验证失败: node[{}] page_size 无效: {}；有效值为 4/8/16/32",
-            node.host,
-            node.page_size
+            node.host, node.page_size
         );
     }
     if ![0u8, 1, 2].contains(&node.charset) {
         bail!(
             "配置验证失败: node[{}] charset 无效: {}；有效值 0=GB18030 1=UTF-8 2=EUC-KR",
-            node.host,
-            node.charset
+            node.host, node.charset
         );
     }
     if ![16u8, 32].contains(&node.extent_size) {
         bail!(
             "配置验证失败: node[{}] extent_size 无效: {}；有效值为 16/32",
-            node.host,
-            node.extent_size
+            node.host, node.extent_size
         );
     }
     Ok(())
@@ -198,10 +225,7 @@ fn check_instance_name_uniqueness(cfg: &ClusterConfig) -> Result<()> {
     let mut seen = HashSet::new();
     for node in &cfg.cluster.nodes {
         if !seen.insert(&node.instance_name) {
-            bail!(
-                "配置验证失败: instance_name 重复: {}",
-                node.instance_name
-            );
+            bail!("配置验证失败: instance_name 重复: {}", node.instance_name);
         }
     }
     Ok(())
@@ -254,10 +278,7 @@ identity_file = "~/.ssh/id_rsa"
         assert_eq!(cfg.cluster.nodes.len(), 2, "应有 2 个节点");
         assert_eq!(cfg.cluster.nodes[0].role, NodeRole::Primary);
         assert_eq!(cfg.cluster.nodes[1].role, NodeRole::Standby);
-        assert_eq!(
-            cfg.cluster.installer_package,
-            PathBuf::from("/tmp/dm8_setup.iso")
-        );
+        assert_eq!(cfg.cluster.installer_package, PathBuf::from("/tmp/dm8_setup.iso"));
         assert_eq!(cfg.cluster.oguid, 453331);
     }
 
@@ -497,4 +518,138 @@ identity_file = "~/.ssh/id_rsa"
         let msg = format!("{:#}", err);
         assert!(msg.contains("instance_name 重复"), "应含实例名重复错误，实际: {msg}");
     }
+
+    #[test]
+    fn test_cluster_type_defaults_to_primary_standby() {
+        let file = write_toml(&make_valid_toml());
+        let cfg = load_cluster_config(file.path()).unwrap();
+        assert_eq!(cfg.cluster.cluster_type, ClusterType::PrimaryStandby);
+    }
+
+    #[test]
+    fn test_rws_requires_readonly_standby() {
+        let toml = r#"
+[cluster]
+type = "rws"
+installer_package = "/tmp/dm8_setup.iso"
+oguid = 453331
+
+[[cluster.nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[cluster.nodes]]
+role = "standby"
+host = "192.168.1.11"
+instance_name = "DMSVR02"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+        let file = write_toml(toml);
+        let err = load_cluster_config(file.path()).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("read_only = true"), "应提示设置 read_only，实际: {msg}");
+    }
+
+    #[test]
+    fn test_rws_accepts_readonly_standby() {
+        let toml = r#"
+[cluster]
+type = "rws"
+installer_package = "/tmp/dm8_setup.iso"
+oguid = 453331
+
+[[cluster.nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[cluster.nodes]]
+role = "standby"
+read_only = true
+host = "192.168.1.11"
+instance_name = "DMSVR02"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+        let file = write_toml(toml);
+        assert!(load_cluster_config(file.path()).is_ok(), "读写分离配置应合法");
+    }
+
+    #[test]
+    fn test_dsc_requires_shared_storage() {
+        let toml = r#"
+[cluster]
+type = "dsc"
+installer_package = "/tmp/dm8_setup.iso"
+oguid = 453331
+
+[[cluster.nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[cluster.nodes]]
+role = "standby"
+host = "192.168.1.11"
+instance_name = "DMSVR02"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+        let file = write_toml(toml);
+        let err = load_cluster_config(file.path()).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("shared_storage"), "应提示设置 shared_storage，实际: {msg}");
+    }
+
+    #[test]
+    fn test_dsc_accepts_shared_storage() {
+        let toml = r#"
+[cluster]
+type = "dsc"
+installer_package = "/tmp/dm8_setup.iso"
+oguid = 453331
+shared_storage = "/dev/sdc"
+
+[[cluster.nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[cluster.nodes]]
+role = "standby"
+host = "192.168.1.11"
+instance_name = "DMSVR02"
+
+[cluster.nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+        let file = write_toml(toml);
+        assert!(load_cluster_config(file.path()).is_ok(), "DSC 配置应合法");
+    }
+
 }

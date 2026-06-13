@@ -8,7 +8,7 @@ use russh_sftp::client::SftpSession;
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
-use crate::config::cluster::SshCredentials;
+use crate::config::ssh::SshCredentials;
 
 /// SSH 操作错误类型，覆盖连接失败、命令执行失败、SFTP 上传失败。
 #[derive(Debug, Error)]

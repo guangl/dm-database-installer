@@ -4,9 +4,9 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 mod cli;
 mod cluster;
+mod common;
 mod config;
-mod download;
-mod install;
+mod standalone;
 mod ui;
 
 /// dm-database-installer 主入口。
@@ -24,11 +24,12 @@ async fn main() -> Result<()> {
     fmt().with_env_filter(filter).init();
 
     match &cli_args.command {
-        cli::Commands::Install(args) => install::run(args).await,
+        cli::Commands::Install(args) => standalone::run(args).await,
         cli::Commands::Validate(args) => config::validate::run(args),
         cli::Commands::Cluster(args) => match &args.command {
             cli::ClusterSubcommand::Deploy(deploy_args) => cluster::run(deploy_args).await,
         },
+        cli::Commands::Init(args) => config::init::run(&args.kind),
         cli::Commands::InstallWindows(_args) => {
             // PLAT-04 spike: setup.exe /q /XML <path> 集成待完成
             // DM Windows 安装包 URL 需从 eco.dameng.com 单独验证

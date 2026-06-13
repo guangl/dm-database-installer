@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
-use crate::cluster::ssh::CommandRunner;
+use crate::common::ssh::CommandRunner;
 use crate::cluster::templates::{
     generate_dm_ini_cluster_suffix, generate_dmarch_ini, generate_dmmal_ini, generate_dmwatcher_ini,
 };
 use crate::config::cluster::{NodeConfig, NodeRole};
 use crate::config::InstallConfig;
-use crate::install::silent_install::generate_install_xml;
+use crate::standalone::silent_install::generate_install_xml;
 
 /// 对 shell 参数进行单引号转义，防止命令注入（CR-04）。
 /// 所有用户可控路径和实例名在拼入 shell 命令前必须经过此函数。
@@ -224,7 +224,7 @@ pub async fn start_dmwatcher(node: &NodeConfig, runner: &dyn CommandRunner) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cluster::ssh::MockRunner;
+    use crate::common::ssh::MockRunner;
     use crate::config::cluster::{NodeConfig, NodeRole, SshCredentials};
 
     fn make_primary_node() -> NodeConfig {
@@ -242,6 +242,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            read_only: false,
             ssh: SshCredentials {
                 user: "root".to_string(),
                 identity_file: None,
@@ -265,6 +266,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            read_only: false,
             ssh: SshCredentials {
                 user: "root".to_string(),
                 identity_file: None,
