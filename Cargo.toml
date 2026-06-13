@@ -43,10 +43,11 @@ lto = "thin"
 [workspace.metadata.dist]
 cargo-dist-version = "0.32.0"
 ci = "github"
-installers = ["shell"]
+installers = ["shell", "powershell"]
 targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
 ]
 # 允许 release.yml 含手动添加的 NASM 步骤（不被 dist generate 覆盖）
 allow-dirty = ["ci"]
