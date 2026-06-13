@@ -283,6 +283,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_expand_tilde_replaces_home() {
+        std::env::set_var("HOME", "/home/testuser");
+        let input = std::path::PathBuf::from("~/.ssh/id_rsa");
+        let expanded = expand_tilde(&input);
+        assert_eq!(
+            expanded,
+            std::path::PathBuf::from("/home/testuser/.ssh/id_rsa"),
+            "~/前缀应被替换为 $HOME 路径"
+        );
+    }
+
+    #[test]
+    fn test_expand_tilde_no_tilde_unchanged() {
+        let input = std::path::PathBuf::from("/absolute/path/key");
+        let expanded = expand_tilde(&input);
+        assert_eq!(expanded, input, "绝对路径应原样返回");
+    }
+
+    #[test]
+    fn test_expand_tilde_missing_home_returns_input() {
+        std::env::remove_var("HOME");
+        let input = std::path::PathBuf::from("~/foo");
+        let expanded = expand_tilde(&input);
+        assert_eq!(expanded, input, "HOME 未设置时应原路径返回不 panic");
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_tofu_logs_fingerprint() {
+        const TEST_PUBKEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti test@example";
+        let public_key = russh::keys::PublicKey::from_openssh(TEST_PUBKEY)
+            .expect("解析 OpenSSH 公钥");
+        let mut handler = TofuHandler {
+            accepted_keys: std::sync::Mutex::new(Vec::new()),
+        };
+        handler.check_server_key(&public_key).await.unwrap();
+        assert!(logs_contain("[ssh][TOFU]"), "日志应含 [ssh][TOFU] 字串");
+    }
+
+    #[test]
     fn test_ssh_error_exec_failed_display() {
         let err = SshError::ExecFailed {
             command: "sudo -n true".to_string(),
