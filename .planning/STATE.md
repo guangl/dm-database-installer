@@ -87,6 +87,7 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260613-ttw | 删除 Windows 安装支持 | 2026-06-13 | 1f0cc29 | [260613-ttw-remove-windows-install-support](./quick/260613-ttw-remove-windows-install-support/) |
 
 ## Session Continuity
 
