@@ -96,11 +96,11 @@ Plans:
   4. Windows 目标机上可安装达梦实例（PLAT-04 placeholder：CLI 入口存在，实际 setup.exe 集成留 spike）
   5. GitHub Actions 在打 tag 时自动构建并发布所有平台的二进制到 GitHub Releases
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Phase 3 五个 Critical bug 修复（CR-01..CR-05：SFTP CREATE 标志 / .bin 上传执行 / tilde 展开 / shell_quote 防注入 / TOFU 指纹日志）+ Cargo.toml description/license/repository 元数据（cargo-dist init 前置条件）
+- [x] 04-01-PLAN.md — Phase 3 五个 Critical bug 修复（CR-01..CR-05：SFTP CREATE 标志 / .bin 上传执行 / tilde 展开 / shell_quote 防注入 / TOFU 指纹日志）+ Cargo.toml description/license/repository 元数据（cargo-dist init 前置条件）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -120,5 +120,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. curl\|sh 单机安装 | 0/TBD | Not started | - |
 | 2. TOML 配置驱动单机 | 1/1 | Complete   | 2026-06-12 |
 | 3. 主备集群 | 3/3 | Complete   | 2026-06-12 |
-| 4. 发布流水线 | 0/3 | Ready to execute | - |
+| 4. 发布流水线 | 1/3 | In Progress|  |
 </content>
