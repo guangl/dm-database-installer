@@ -153,15 +153,28 @@ async fn collect_exec_output(
 }
 
 /// Rust PathBuf 不会自动展开 `~`，需要手动处理。
+/// Windows 用 USERPROFILE，Unix 用 HOME；两种路径分隔符均支持。
 fn expand_tilde(path: &PathBuf) -> PathBuf {
-    if let Some(s) = path.to_str() {
-        if let Some(rest) = s.strip_prefix("~/") {
-            if let Some(home) = std::env::var_os("HOME") {
-                return PathBuf::from(home).join(rest);
-            }
-        }
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    expand_tilde_with_home(path, home.as_deref())
+}
+
+fn expand_tilde_with_home(path: &PathBuf, home: Option<&std::ffi::OsStr>) -> PathBuf {
+    let s = match path.to_str() {
+        Some(s) => s,
+        None => return path.clone(),
+    };
+    let rest = if let Some(r) = s.strip_prefix("~/") {
+        r
+    } else if let Some(r) = s.strip_prefix("~\\") {
+        r
+    } else {
+        return path.clone();
+    };
+    match home {
+        Some(h) => PathBuf::from(h).join(rest),
+        None => path.clone(),
     }
-    path.clone()
 }
 
 #[cfg(test)]
@@ -169,24 +182,36 @@ mod tests {
     use russh::client::Handler;
     use super::*;
 
+    fn home(s: &str) -> Option<&std::ffi::OsStr> {
+        Some(std::ffi::OsStr::new(s))
+    }
+
     #[test]
     fn test_expand_tilde_replaces_home() {
-        unsafe { std::env::set_var("HOME", "/home/testuser") };
-        let expanded = expand_tilde(&PathBuf::from("~/.ssh/id_rsa"));
+        let expanded = expand_tilde_with_home(&PathBuf::from("~/.ssh/id_rsa"), home("/home/testuser"));
         assert_eq!(expanded, PathBuf::from("/home/testuser/.ssh/id_rsa"));
     }
 
     #[test]
     fn test_expand_tilde_no_tilde_unchanged() {
         let path = PathBuf::from("/absolute/path/key");
-        assert_eq!(expand_tilde(&path), path);
+        assert_eq!(expand_tilde_with_home(&path, home("/home/x")), path);
     }
 
     #[test]
     fn test_expand_tilde_missing_home_returns_input() {
-        unsafe { std::env::remove_var("HOME") };
         let path = PathBuf::from("~/foo");
-        assert_eq!(expand_tilde(&path), path);
+        assert_eq!(expand_tilde_with_home(&path, None), path);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_expand_tilde_backslash_windows() {
+        let expanded = expand_tilde_with_home(
+            &PathBuf::from("~\\.ssh\\id_rsa"),
+            home("C:\\Users\\testuser"),
+        );
+        assert_eq!(expanded, PathBuf::from("C:\\Users\\testuser\\.ssh\\id_rsa"));
     }
 
     #[tokio::test]
