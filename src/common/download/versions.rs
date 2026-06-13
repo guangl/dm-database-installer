@@ -142,12 +142,11 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_os_prefix_kylin10_base_matches_x86_sp3() {
+    fn test_filter_os_prefix_kylin10_base_does_not_exact_match_sp3() {
         let entries = parse_versions();
-        // 降级到 "kylin10" 前缀后，x86_64 可命中 kylin10_sp3
-        let matched = filter_entries_os_prefix(&entries, "x86_64", Some("x86"), "kylin10");
-        assert!(!matched.is_empty(), "kylin10 前缀应命中 x86_64 上的 kylin10_sp3");
-        assert!(matched.iter().all(|e| e.os.starts_with("kylin10")));
+        // "kylin10_sp1" → 基础版本降级时用 exact match，"kylin10" 不应命中 "kylin10_sp3"
+        let matched = filter_entries(&entries, "x86_64", Some("x86"), Some("kylin10"));
+        assert!(matched.is_empty(), "exact kylin10 不应命中 x86_64 上的 kylin10_sp3");
     }
 
     #[test]

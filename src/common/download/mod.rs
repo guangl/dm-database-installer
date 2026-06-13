@@ -39,12 +39,24 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
 
     if matches.is_empty() {
         if let Some(os_str) = &platform.os {
-            for prefix in os_fallback_prefixes(os_str) {
-                let prefix_matches = versions::filter_entries_os_prefix(&all, &platform.arch, platform.cpu.as_deref(), prefix);
-                if !prefix_matches.is_empty() {
-                    tracing::warn!("OS '{}' 无精确匹配，自动选用最近版本 '{}'", os_str, prefix_matches[0].os);
-                    matches = prefix_matches;
-                    break;
+            // 第一步：前缀匹配 os_str 本身（处理 "kylin10" → "kylin10_sp1" 的向上匹配）
+            let prefix_matches = versions::filter_entries_os_prefix(
+                &all, &platform.arch, platform.cpu.as_deref(), os_str,
+            );
+            if !prefix_matches.is_empty() {
+                tracing::warn!("OS '{}' 无精确匹配，自动选用 '{}'", os_str, prefix_matches[0].os);
+                matches = prefix_matches;
+            } else if let Some(base) = os_str.split("_sp").next() {
+                // 第二步：去掉 _sp 后缀后精确匹配基础版本（"kylin10_sp1" → "kylin10"）
+                // 用 exact match 而非 prefix，防止误命中更高 SP 版本（如 kylin10_sp3）
+                if base != os_str {
+                    let base_matches = versions::filter_entries(
+                        &all, &platform.arch, platform.cpu.as_deref(), Some(base),
+                    );
+                    if !base_matches.is_empty() {
+                        tracing::warn!("OS '{}' 无精确匹配，回退到基础版本 '{}'", os_str, base);
+                        matches = base_matches;
+                    }
                 }
             }
         }
@@ -68,14 +80,3 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
     Ok(PackageHandle::from_download(installer, download_dir))
 }
 
-/// 构建 OS 前缀回退链：先精确前缀，再去掉 _sp* 后缀降级。
-/// 例：kylin10_sp1 → ["kylin10_sp1", "kylin10"]；kylin10 → ["kylin10"]
-fn os_fallback_prefixes(os: &str) -> Vec<&str> {
-    let mut prefixes = vec![os];
-    if let Some(base) = os.split("_sp").next() {
-        if base != os {
-            prefixes.push(base);
-        }
-    }
-    prefixes
-}
