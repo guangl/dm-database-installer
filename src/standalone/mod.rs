@@ -26,7 +26,7 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         return Ok(());
     }
 
-    let (sysdba_pwd, sysauditor_pwd) = prompt_passwords()?;
+    let (sysdba_pwd, sysauditor_pwd) = generate_passwords();
 
     let package = fetch_package(args, &common).await?;
     verify_checksum(args, &package.path)?;
@@ -35,6 +35,7 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     step_silent_install(&specific, &extract_dir)?;
     step_dminit(&specific, &sysdba_pwd, &sysauditor_pwd)?;
 
+    print_generated_credentials(&sysdba_pwd, &sysauditor_pwd);
     tracing::info!("单机安装完成");
     Ok(())
 }
@@ -62,34 +63,49 @@ fn check_idempotent_early_exit(config: &InstallConfig) -> Result<bool> {
     Ok(false)
 }
 
-/// 从终端提示输入并确认 SYSDBA / SYSAUDITOR 密码。密码不写入任何文件。
-fn prompt_passwords() -> Result<(String, String)> {
-    println!("[密码设置] 请输入达梦管理员密码（不回显）");
-    println!("           要求：至少 9 位，含大写/小写/数字/特殊字符中的至少三类");
-    let sysdba_pwd = prompt_and_confirm("SYSDBA 管理员")?;
-    let sysauditor_pwd = prompt_and_confirm("SYSAUDITOR 审计员")?;
-    Ok((sysdba_pwd, sysauditor_pwd))
+fn generate_passwords() -> (String, String) {
+    (generate_password(), generate_password())
 }
 
-fn prompt_and_confirm(role: &str) -> Result<String> {
-    loop {
-        let pwd = rpassword::prompt_password(format!("  {} 密码: ", role))
-            .map_err(|e| anyhow::anyhow!("读取密码失败: {e}"))?;
-        if let Err(e) = validate_password_complexity(&pwd) {
-            eprintln!("  [错误] {e}");
-            continue;
-        }
-        let confirm = rpassword::prompt_password(format!("  {} 密码（确认）: ", role))
-            .map_err(|e| anyhow::anyhow!("读取密码失败: {e}"))?;
-        if pwd == confirm {
-            return Ok(pwd);
-        }
-        eprintln!("  [错误] 两次输入不一致，请重新输入");
+/// 生成满足达梦密码策略的随机密码（16 位，含大写/小写/数字/特殊字符）。
+pub(crate) fn generate_password() -> String {
+    use rand::Rng;
+    const UPPER: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const LOWER: &[u8] = b"abcdefghjkmnpqrstuvwxyz";
+    const DIGITS: &[u8] = b"23456789";
+    const SPECIAL: &[u8] = b"@#$%&*!";
+    const ALL: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$%&*!";
+
+    let mut rng = rand::thread_rng();
+    let mut pwd: Vec<u8> = vec![
+        UPPER[rng.gen_range(0..UPPER.len())],
+        LOWER[rng.gen_range(0..LOWER.len())],
+        DIGITS[rng.gen_range(0..DIGITS.len())],
+        SPECIAL[rng.gen_range(0..SPECIAL.len())],
+    ];
+    for _ in 0..12 {
+        pwd.push(ALL[rng.gen_range(0..ALL.len())]);
     }
+    use rand::seq::SliceRandom;
+    pwd.shuffle(&mut rng);
+    String::from_utf8(pwd).expect("charset is ASCII")
 }
 
-/// 达梦密码复杂度：至少 9 位，含大写/小写/数字/特殊字符中的至少三类。
-pub(crate) fn validate_password_complexity(pwd: &str) -> Result<()> {
+fn print_generated_credentials(sysdba_pwd: &str, sysauditor_pwd: &str) {
+    println!();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║              达梦数据库初始凭证                  ║");
+    println!("╠══════════════════════════════════════════════════╣");
+    println!("║  SYSDBA    密码: {:<33}║", sysdba_pwd);
+    println!("║  SYSAUDITOR密码: {:<33}║", sysauditor_pwd);
+    println!("╠══════════════════════════════════════════════════╣");
+    println!("║  首次登录后请立即修改密码                        ║");
+    println!("╚══════════════════════════════════════════════════╝");
+    println!();
+}
+
+#[cfg(test)]
+fn validate_password_complexity(pwd: &str) -> Result<()> {
     if pwd.len() < 9 {
         anyhow::bail!("密码长度不足 9 位（达梦密码策略要求）");
     }
@@ -161,5 +177,25 @@ mod tests {
     #[test]
     fn test_password_complexity_accepts_valid() {
         assert!(validate_password_complexity("DMAdmin1@2024").is_ok());
+    }
+
+    #[test]
+    fn test_generate_password_length() {
+        let pwd = generate_password();
+        assert_eq!(pwd.len(), 16, "生成的密码应为 16 位");
+    }
+
+    #[test]
+    fn test_generate_password_meets_complexity() {
+        for _ in 0..20 {
+            let pwd = generate_password();
+            assert!(validate_password_complexity(&pwd).is_ok(), "生成的密码应满足复杂度: {}", pwd);
+        }
+    }
+
+    #[test]
+    fn test_generate_password_is_ascii() {
+        let pwd = generate_password();
+        assert!(pwd.is_ascii(), "生成的密码应为纯 ASCII: {}", pwd);
     }
 }

@@ -9,7 +9,7 @@ use crate::config::ssh::{SshCredentials, SshTarget};
 use crate::config::{CommonConfig, InstallConfig};
 use crate::standalone::silent_install::generate_install_xml;
 
-use super::{prompt_passwords, verify_checksum};
+use super::{generate_passwords, print_generated_credentials, verify_checksum};
 
 /// 对 shell 参数进行单引号转义，防止命令注入。
 fn shell_quote(raw: &str) -> String {
@@ -40,7 +40,7 @@ pub async fn run(
         return Ok(());
     }
 
-    let (sysdba_pwd, sysauditor_pwd) = prompt_passwords()?;
+    let (sysdba_pwd, sysauditor_pwd) = generate_passwords();
 
     let package = fetch_package_for_remote(args, &common, &session).await?;
     verify_checksum(args, &package.path)?;
@@ -51,6 +51,7 @@ pub async fn run(
     upload_and_install_remote(specific, extract_dir.path(), &session).await?;
     run_dminit_remote(specific, &sysdba_pwd, &sysauditor_pwd, &session).await?;
 
+    print_generated_credentials(&sysdba_pwd, &sysauditor_pwd);
     tracing::info!("单机 SSH 远程安装完成");
     Ok(())
 }
