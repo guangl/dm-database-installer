@@ -33,3 +33,27 @@ futures = "0.3"
 [dev-dependencies]
 tempfile = "3.27.0"
 tracing-test = "0.2"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# 由 cargo dist init 生成（手动调整 targets 为三平台 + aarch64 配置）
+[workspace.metadata.dist]
+cargo-dist-version = "0.32.0"
+ci = "github"
+installers = ["shell", "powershell"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+# 允许 release.yml 含手动添加的 NASM 步骤（不被 dist generate 覆盖）
+allow-dirty = ["ci"]
+
+[workspace.metadata.dist.github-custom-runners]
+aarch64-unknown-linux-gnu = "ubuntu-22.04"
+
+[workspace.metadata.dist.dependencies.apt]
+gcc-aarch64-linux-gnu = { version = "*", targets = ["aarch64-unknown-linux-gnu"] }
