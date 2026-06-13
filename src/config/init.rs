@@ -56,24 +56,15 @@ fn write_template(path: &Path, force: bool, content: &str) -> Result<()> {
 
 const STANDALONE_TEMPLATE: &str = r#"# 达梦数据库单机安装配置
 # 使用方式: dm-installer install --config dm-standalone.toml
-
-# ─── 必填：管理员密码 ────────────────────────────────────────
-# 要求：至少 9 位，包含大写字母、小写字母、数字、特殊字符中的至少三类
-# 安装完成后密码不可通过本工具修改，请妥善保管
-
-# SYSDBA 管理员密码
-sysdba_pwd = "请修改此密码_Change_Me_1!"
-
-# SYSAUDITOR 审计员密码
-sysauditor_pwd = "请修改此密码_Change_Me_2@"
+# 注意：SYSDBA / SYSAUDITOR 密码在安装时由终端提示输入，不写入此文件
 
 # ─── 安装路径 ────────────────────────────────────────────────
 
 # DM 安装根目录
-install_path = "/opt/dmdbms"
+install_path = "/home/dmdba/dmdbms"
 
 # 数据文件目录
-data_path = "/opt/dmdbms/data"
+data_path = "/home/dmdba/dmdbms/data"
 
 # ─── 实例参数 ────────────────────────────────────────────────
 
@@ -84,16 +75,16 @@ instance_name = "DMSERVER"
 port = 5236
 
 # 页大小（KB），可选值：4 / 8 / 16 / 32
-page_size = 8
+page_size = 32
 
 # 字符集：0=GB18030  1=UTF-8  2=EUC-KR
-charset = 0
+charset = 1
 
 # 大小写敏感
 case_sensitive = true
 
 # 区段大小（页数），可选值：16 / 32
-extent_size = 16
+extent_size = 32
 "#;
 
 const CLUSTER_PS_TEMPLATE: &str = r#"# 达梦数据库主备集群安装配置

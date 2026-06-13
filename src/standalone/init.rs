@@ -7,8 +7,8 @@ use crate::config::InstallConfig;
 ///
 /// 关键约束（Pitfall 2）：dminit 参数等号两侧不能有空格。
 /// 每个参数用 `.arg(format!("KEY={}", value))` 单独传递。
-pub fn run_dminit(config: &InstallConfig) -> Result<()> {
-    let parts = build_dminit_command(config);
+pub fn run_dminit(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &str) -> Result<()> {
+    let parts = build_dminit_command(config, sysdba_pwd, sysauditor_pwd);
     let dminit_bin = &parts[0];
 
     let status = Command::new(dminit_bin)
@@ -27,10 +27,12 @@ pub fn run_dminit(config: &InstallConfig) -> Result<()> {
 /// 构建 dminit 命令参数列表（测试用）。
 ///
 /// 返回 Vec<String>：[0] = dminit 二进制路径，[1..] = KEY=value 参数（无空格）。
-pub(crate) fn build_dminit_command(config: &InstallConfig) -> Vec<String> {
+pub(crate) fn build_dminit_command(
+    config: &InstallConfig,
+    sysdba_pwd: &str,
+    sysauditor_pwd: &str,
+) -> Vec<String> {
     let dminit_bin = format!("{}/bin/dminit", config.install_path);
-    let sysdba_pwd = config.sysdba_pwd.as_deref().unwrap_or("");
-    let sysauditor_pwd = config.sysauditor_pwd.as_deref().unwrap_or("");
     vec![
         dminit_bin,
         format!("PATH={}", config.data_path),
@@ -50,35 +52,23 @@ pub(crate) fn build_dminit_command(config: &InstallConfig) -> Vec<String> {
 mod tests {
     use super::*;
 
+    fn cmd(config: &InstallConfig) -> Vec<String> {
+        build_dminit_command(config, "DMAdmin1@2024", "AuditAdmin2#2024")
+    }
+
     #[test]
     fn test_build_dminit_command_no_spaces_in_kv() {
-        let config = InstallConfig::default();
-        let args = build_dminit_command(&config);
-        // 跳过第一个元素（binary path），检查所有 KEY=value 参数
+        let args = cmd(&InstallConfig::default());
         for arg in &args[1..] {
-            assert!(
-                !arg.contains(" = "),
-                "KV 参数不能含 ' = '（等号两侧有空格）: {}",
-                arg
-            );
-            assert!(
-                !arg.contains("= "),
-                "KV 参数不能含 '= '（等号后有空格）: {}",
-                arg
-            );
-            assert!(
-                !arg.contains(" ="),
-                "KV 参数不能含 ' ='（等号前有空格）: {}",
-                arg
-            );
+            assert!(!arg.contains(" = "), "KV 参数不能含 ' = ': {}", arg);
+            assert!(!arg.contains("= "), "KV 参数不能含 '= ': {}", arg);
+            assert!(!arg.contains(" ="), "KV 参数不能含 ' =': {}", arg);
         }
     }
 
     #[test]
     fn test_build_dminit_command_includes_all_required_keys() {
-        let config = InstallConfig::default();
-        let args = build_dminit_command(&config);
-        let all_args = args[1..].join(" ");
+        let all_args = cmd(&InstallConfig::default())[1..].join(" ");
         assert!(all_args.contains("PATH="), "缺少 PATH 参数");
         assert!(all_args.contains("DB_NAME="), "缺少 DB_NAME 参数");
         assert!(all_args.contains("INSTANCE_NAME="), "缺少 INSTANCE_NAME 参数");
@@ -87,19 +77,14 @@ mod tests {
         assert!(all_args.contains("EXTENT_SIZE="), "缺少 EXTENT_SIZE 参数");
         assert!(all_args.contains("CHARSET="), "缺少 CHARSET 参数");
         assert!(all_args.contains("CASE_SENSITIVE="), "缺少 CASE_SENSITIVE 参数");
-        assert!(all_args.contains("SYSDBA_PWD="), "缺少 SYSDBA_PWD 参数");
-        assert!(all_args.contains("SYSAUDITOR_PWD="), "缺少 SYSAUDITOR_PWD 参数");
+        assert!(all_args.contains("SYSDBA_PWD=DMAdmin1@2024"), "缺少或错误的 SYSDBA_PWD");
+        assert!(all_args.contains("SYSAUDITOR_PWD=AuditAdmin2#2024"), "缺少或错误的 SYSAUDITOR_PWD");
     }
 
     #[test]
     fn test_build_dminit_command_first_is_binary_path() {
-        let config = InstallConfig::default();
-        let args = build_dminit_command(&config);
+        let args = cmd(&InstallConfig::default());
         assert!(!args.is_empty(), "命令参数列表不能为空");
-        assert!(
-            args[0].ends_with("/bin/dminit"),
-            "第一个元素应以 /bin/dminit 结尾，实际: {}",
-            args[0]
-        );
+        assert!(args[0].ends_with("/bin/dminit"), "第一个元素应以 /bin/dminit 结尾，实际: {}", args[0]);
     }
 }

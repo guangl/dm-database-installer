@@ -29,6 +29,7 @@ async-trait = "0.1"
 russh-sftp = "2.3.0"
 futures = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+rpassword = "7"
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -20,10 +20,7 @@ mod tests {
     #[test]
     fn test_valid_toml_passes() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(
-            file,
-            "port = 5236\nsysdba_pwd = \"DMAdmin1@2024\"\nsysauditor_pwd = \"AuditAdmin2#2024\"\n"
-        ).unwrap();
+        writeln!(file, "port = 5236\n").unwrap();
         let args = ValidateArgs { config: file.path().to_path_buf() };
         assert!(run(&args).is_ok());
     }
@@ -54,16 +51,15 @@ mod tests {
 
     #[test]
     fn test_install_config_defaults() {
-        // 验证 InstallConfig::default() D-07 规定的默认值
         let cfg = InstallConfig::default();
-        assert_eq!(cfg.install_path, "/opt/dmdbms");
-        assert_eq!(cfg.data_path, "/opt/dmdbms/data");
+        assert_eq!(cfg.install_path, "/home/dmdba/dmdbms");
+        assert_eq!(cfg.data_path, "/home/dmdba/dmdbms/data");
         assert_eq!(cfg.instance_name, "DMSERVER");
         assert_eq!(cfg.port, 5236);
-        assert_eq!(cfg.page_size, 8);
-        assert_eq!(cfg.charset, 0);
+        assert_eq!(cfg.page_size, 32);
+        assert_eq!(cfg.charset, 1);
         assert!(cfg.case_sensitive);
-        assert_eq!(cfg.extent_size, 16);
+        assert_eq!(cfg.extent_size, 32);
     }
 
     #[test]
@@ -73,7 +69,7 @@ mod tests {
         let cfg: InstallConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.port, 5237, "port 应被覆盖为 5237");
         assert_eq!(
-            cfg.install_path, "/opt/dmdbms",
+            cfg.install_path, "/home/dmdba/dmdbms",
             "install_path 未指定时应保持默认值"
         );
     }
