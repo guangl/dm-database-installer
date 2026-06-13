@@ -78,6 +78,17 @@ log_level = "info"
 const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配置（standalone.toml）
 # 注意：SYSDBA / SYSAUDITOR 密码在安装时由终端提示输入，不写入此文件
 
+# ─── SSH 远程安装目标（可选）────────────────────────────────
+# 填写后将通过 SSH 在目标服务器上安装，host 为本机时自动退化为本地安装。
+# password 不填则运行时提示输入。
+# [ssh_target]
+# host = "192.168.1.100"
+# ssh_port = 22
+# user = "root"
+# password = "your_ssh_password"
+# max_retries = 3        # 连接失败最大重试次数，默认 3
+# retry_interval_secs = 5  # 每次重试前等待秒数，默认 5
+
 # ─── 安装路径 ────────────────────────────────────────────────
 install_path = "/home/dmdba/dmdbms"
 data_path = "/home/dmdba/dmdbms/data"
@@ -96,17 +107,6 @@ case_sensitive = true
 
 # 区段大小（页数），可选值：16 / 32
 extent_size = 32
-
-# ─── SSH 远程安装目标（可选）────────────────────────────────
-# 填写后将通过 SSH 在目标服务器上安装，host 为本机时自动退化为本地安装。
-# password 不填则运行时提示输入。
-# [ssh_target]
-# host = "192.168.1.100"
-# ssh_port = 22
-# user = "root"
-# password = "your_ssh_password"
-# max_retries = 3        # 连接失败最大重试次数，默认 3
-# retry_interval_secs = 5  # 每次重试前等待秒数，默认 5
 "#;
 
 const CLUSTER_COMMON: &str = r#"# 达梦数据库主备集群 — 通用配置
