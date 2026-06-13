@@ -110,6 +110,8 @@ extent_size = 32
 # ssh_port = 22
 # user = "root"
 # password = "your_ssh_password"
+# max_retries = 3        # 连接失败最大重试次数，默认 3
+# retry_interval_secs = 5  # 每次重试前等待秒数，默认 5
 "#;
 
 const CLUSTER_COMMON: &str = r#"# 达梦数据库主备集群 — 通用配置

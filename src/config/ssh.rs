@@ -19,8 +19,14 @@ pub struct SshTarget {
     pub ssh_port: u16,
     pub user: String,
     pub password: Option<String>,
+    /// 连接失败时的最大重试次数，默认 3
+    #[serde(default = "default_ssh_max_retries")]
+    pub max_retries: u32,
+    /// 每次重试前的等待秒数，默认 5
+    #[serde(default = "default_ssh_retry_interval_secs")]
+    pub retry_interval_secs: u64,
 }
 
-fn default_ssh_port() -> u16 {
-    22
-}
+fn default_ssh_port() -> u16 { 22 }
+fn default_ssh_max_retries() -> u32 { 3 }
+fn default_ssh_retry_interval_secs() -> u64 { 5 }

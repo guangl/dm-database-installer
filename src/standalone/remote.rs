@@ -32,9 +32,7 @@ pub async fn run(
         password: Some(password),
     };
 
-    let session = SshSession::connect(&target.host, target.ssh_port, &creds)
-        .await
-        .with_context(|| format!("SSH 连接 {}:{} 失败", target.host, target.ssh_port))?;
+    let session = connect_with_retry(&target.host, target.ssh_port, &creds, target.max_retries, target.retry_interval_secs).await?;
 
     if check_remote_idempotent(specific, &session).await? {
         return Ok(());
@@ -53,6 +51,40 @@ pub async fn run(
 
     tracing::info!("单机 SSH 远程安装完成");
     Ok(())
+}
+
+/// 带重试的 SSH 连接：最多尝试 `1 + max_retries` 次，每次失败等待 `retry_interval_secs` 秒。
+async fn connect_with_retry(
+    host: &str,
+    port: u16,
+    creds: &SshCredentials,
+    max_retries: u32,
+    retry_interval_secs: u64,
+) -> Result<SshSession> {
+    let mut last_err = None;
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            println!(
+                "[SSH] 连接失败，{} 秒后重试（第 {}/{} 次）...",
+                retry_interval_secs, attempt, max_retries
+            );
+            tokio::time::sleep(tokio::time::Duration::from_secs(retry_interval_secs)).await;
+        }
+        match SshSession::connect(host, port, creds).await {
+            Ok(session) => return Ok(session),
+            Err(e) => {
+                tracing::warn!("[SSH] 连接 {}:{} 失败: {}", host, port, e);
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(anyhow::anyhow!(
+        "SSH 连接 {}:{} 失败，已重试 {} 次: {}",
+        host,
+        port,
+        max_retries,
+        last_err.unwrap()
+    ))
 }
 
 fn prompt_ssh_password(user: &str, host: &str) -> Result<String> {
