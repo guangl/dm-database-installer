@@ -96,7 +96,7 @@ mod tests {
     async fn test_mock_runner_matching() {
         let runner = MockRunner::new(vec![("sudo -n true".to_string(), 0, vec![])]);
         let (stdout, exit_code) = runner.exec("sudo -n true").await.unwrap();
-        assert_eq!(stdout, vec![]);
+        assert_eq!(stdout, Vec::<u8>::new());
         assert_eq!(exit_code, 0);
     }
 

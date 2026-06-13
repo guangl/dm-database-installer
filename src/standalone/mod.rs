@@ -1,10 +1,11 @@
 use anyhow::Result;
+use std::path::Path;
 
 use crate::cli::InstallArgs;
 use crate::config::{CommonConfig, InstallConfig};
 
 pub mod checksum;
-pub mod idempotent;
+pub mod checkpoint;
 pub mod init;
 pub mod package;
 pub mod remote;
@@ -22,20 +23,39 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
 
     tracing::info!("开始安装达梦数据库（单机）");
 
-    if check_idempotent_early_exit(&specific)? {
-        return Ok(());
-    }
-
-    let (sysdba_pwd, sysauditor_pwd) = generate_passwords();
+    let existing_cp = checkpoint::load(&specific.install_path)?;
+    let (sysdba_pwd, sysauditor_pwd) = match &existing_cp {
+        Some(c) => (c.sysdba_pwd.clone(), c.sysauditor_pwd.clone()),
+        None => generate_passwords(),
+    };
+    let mut cp = existing_cp.unwrap_or_else(|| {
+        checkpoint::Checkpoint::new(&specific.install_path, sysdba_pwd.clone(), sysauditor_pwd.clone())
+    });
+    cp.save()?;
 
     let package = fetch_package(args, &common).await?;
     verify_checksum(args, &package.path)?;
 
     let extract_dir = step_extract(&package.path)?;
-    step_silent_install(&specific, &extract_dir)?;
-    step_dminit(&specific, &sysdba_pwd, &sysauditor_pwd)?;
+
+    let bin_installed = Path::new(&specific.install_path).join("bin/dminit").exists();
+    if cp.installed || bin_installed {
+        tracing::info!("[5/6] dmdbms 已安装，跳过");
+    } else {
+        step_silent_install(&specific, &extract_dir)?;
+        cp.installed = true;
+        cp.save()?;
+    }
+
+    let dm_ini_exists = Path::new(&specific.data_path).join("dm.ini").exists();
+    if dm_ini_exists {
+        tracing::info!("[6/6] 达梦实例已初始化，跳过 dminit");
+    } else {
+        step_dminit(&specific, &sysdba_pwd, &sysauditor_pwd)?;
+    }
 
     print_generated_credentials(&sysdba_pwd, &sysauditor_pwd);
+    checkpoint::Checkpoint::remove()?;
     tracing::info!("单机安装完成");
     Ok(())
 }
@@ -52,15 +72,6 @@ fn is_local_host(host: &str) -> bool {
             sys_hostname.trim() == host
         })
         .unwrap_or(false)
-}
-
-fn check_idempotent_early_exit(config: &InstallConfig) -> Result<bool> {
-    tracing::info!("[1/6] 幂等性检测");
-    if idempotent::check_existing_instance(config)? {
-        println!("已检测到达梦实例 ({}/dm.ini)，跳过安装", config.install_path);
-        return Ok(true);
-    }
-    Ok(false)
 }
 
 fn generate_passwords() -> (String, String) {

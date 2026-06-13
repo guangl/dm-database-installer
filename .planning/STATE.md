@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: context exhaustion at 78% (2026-06-12)
-last_updated: "2026-06-13T12:03:50.560Z"
+stopped_at: context exhaustion at 75% (2026-06-13)
+last_updated: "2026-06-13T13:48:04.885Z"
 last_activity: 2026-06-13 -- Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 6
   percent: 50
 ---
 
@@ -88,9 +88,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260613-ttw | 删除 Windows 安装支持 | 2026-06-13 | 1f0cc29 | [260613-ttw-remove-windows-install-support](./quick/260613-ttw-remove-windows-install-support/) |
+| 20260614-standalone-checkpoint-resume | standalone 安装中断续传 | 2026-06-14 | — | [20260614-standalone-checkpoint-resume](./quick/20260614-standalone-checkpoint-resume/) |
 
 ## Session Continuity
 
-Last session: 2026-06-12T23:54:08.016Z
-Stopped at: context exhaustion at 78% (2026-06-12)
+Last session: 2026-06-13T13:48:04.882Z
+Stopped at: context exhaustion at 75% (2026-06-13)
 Resume file: None

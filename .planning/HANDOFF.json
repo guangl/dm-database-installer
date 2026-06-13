@@ -1,12 +1,12 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-12T06:53:51Z",
+  "timestamp": "2026-06-12T07:30:00Z",
   "phase": "01",
   "phase_name": "curl-sh",
   "phase_dir": ".planning/phases/01-curl-sh",
   "plan": null,
   "task": null,
-  "total_tasks": null,
+  "total_tasks": 9,
   "status": "paused",
   "completed_tasks": [
     {
@@ -20,94 +20,79 @@
       "name": "写 scripts/update-versions.sh（API 方式，纯 shell）",
       "status": "done",
       "commit": "df6d708",
-      "notes": "先写了探测版本，再改用 eco.dameng.com API，最后去掉 Python 改纯 shell + TSV 格式"
+      "notes": "eco.dameng.com API，纯 shell + TSV 格式"
     },
     {
       "id": 3,
       "name": "写 .github/workflows/update-versions.yml",
       "status": "done",
       "commit": "58deaaa",
-      "notes": "改为 ubuntu-latest，无需 cn-runner（eco.dameng.com 境外可达）"
+      "notes": "ubuntu-latest，eco.dameng.com 境外可达"
     },
     {
       "id": 4,
       "name": "发现完整 CPU/OS 平台列表（eco.dameng.com API）",
       "status": "done",
-      "commit": "df6d708",
-      "notes": "API: GET /eco-download-server/cpu/os/table/page/data → cpuId/osId 映射"
+      "commit": "df6d708"
     },
     {
       "id": 5,
       "name": "install.sh 运行时检测 CPU/OS，精确匹配安装包",
       "status": "done",
-      "commit": "df6d708",
-      "notes": "detect_platform(): /proc/cpuinfo 区分 hygon/ft2000/kunpeng；/etc/os-release 检测 OS；awk 精确匹配 TSV"
+      "commit": "df6d708"
     },
     {
       "id": 6,
       "name": "versions.txt：TSV 格式，15 个 cpu/os 组合",
       "status": "done",
       "commit": "df6d708"
+    },
+    {
+      "id": 7,
+      "name": "更新 install.sh 的 VERSIONS_URL",
+      "status": "done",
+      "commit": "fe72897",
+      "notes": "已更新为 guangl/dm-database-installer"
+    },
+    {
+      "id": 8,
+      "name": "验证麒麟 OS 的 /etc/os-release 字段格式",
+      "status": "done",
+      "commit": "68a51fb",
+      "notes": "实测 opstool/kylin:v10sp1：VERSION_ID='V10' 无 SP 标识，SP 信息在 VERSION codename（Tercel=SP1，Lance=SP3）。已修复检测逻辑，PASS。"
     }
   ],
   "remaining_tasks": [
     {
-      "id": 7,
-      "name": "更新 install.sh 的 VERSIONS_URL",
-      "status": "not_started",
-      "notes": "填入实际仓库 raw URL（等仓库建好后填写）"
-    },
-    {
-      "id": 8,
-      "name": "验证麒麟/统信 OS 的 /etc/os-release 字段格式",
-      "status": "not_started",
-      "notes": "VERSION_ID 里 SP1/SP3 格式不确定；统信 UOS 的 ID 可能是 uos/uniontech/UnionTech；在 docker 镜像上跑 detect_platform() 验证"
-    },
-    {
       "id": 9,
       "name": "端到端 smoke test",
-      "status": "not_started",
-      "notes": "在 x86_64/RHEL7 兼容环境完整跑一遍 install.sh（需要 Linux 环境）"
+      "status": "waiting_environment",
+      "notes": "在 x86_64/RHEL7 兼容 Linux 环境完整跑一遍 install.sh（需要能实际下载达梦安装包的 Linux 机器）"
     }
   ],
-  "blockers": [
-    {
-      "description": "麒麟/统信 OS 的 /etc/os-release 格式未在真实机器验证",
-      "type": "technical",
-      "workaround": "有兜底逻辑：OS 不匹配时取同 CPU 第一条记录；最坏兜底 rhel7"
-    },
-    {
-      "description": "VERSIONS_URL 仍是占位符",
-      "type": "human_action",
-      "workaround": "等 GitHub 仓库建好后填入"
-    }
-  ],
+  "blockers": [],
   "human_actions_pending": [
     {
-      "action": "建立 GitHub 仓库并更新 install.sh 里的 VERSIONS_URL",
-      "context": "当前值为占位符 https://raw.githubusercontent.com/guangluo/dm-installer/main/versions.txt",
+      "action": "准备 x86_64 Linux 环境后运行端到端 smoke test",
+      "context": "curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash",
       "blocking": false
     }
   ],
   "decisions": [
     {
       "decision": "用 eco.dameng.com API 取下载 URL，不用文件探测",
-      "rationale": "API 直接返回真实 URL；eco.dameng.com 境外可达，不需要 cn-runner"
+      "rationale": "API 直接返回真实 URL；境外可达，不需要 cn-runner"
     },
     {
-      "decision": "版本文件改用 TSV 格式（arch<TAB>cpu<TAB>os<TAB>url）",
-      "rationale": "shell 脚本里不用 Python/jq，awk 一行匹配"
+      "decision": "版本文件用 TSV 格式（arch<TAB>cpu<TAB>os<TAB>url）",
+      "rationale": "shell 里不用 Python/jq，awk 一行匹配"
     },
     {
-      "decision": "install.sh 运行时检测 CPU 型号和 OS，精确匹配安装包",
-      "rationale": "达梦针对不同 CPU 有专属优化包，飞腾2000 和鲲鹏920 不能互用"
-    },
-    {
-      "decision": "update-versions.sh 日志写 stderr，TSV 写 stdout 重定向到文件",
-      "rationale": "避免日志混入数据文件"
+      "decision": "Kylin SP 检测：同时检查 VERSION_ID 和 VERSION codename",
+      "rationale": "实测 VERSION_ID='V10' 无 SP 标识，codename Tercel/Lance 才是区分依据"
     }
   ],
   "uncommitted_files": [],
-  "next_action": "在麒麟/统信 docker 镜像里验证 detect_platform() 的 OS 检测：source install.sh && detect_platform && echo arch=$ARCH cpu=$CPU_KEY os=$OS_KEY",
-  "context_notes": "Phase 01 核心逻辑全部完成并已提交。install.sh 纯 bash，依赖只有 curl+unzip。versions.txt 15 个平台由 GitHub Actions 每日自动更新。唯一未验证的是国产 OS 的 /etc/os-release 格式，有兜底逻辑不阻塞。"
+  "next_action": "在 x86_64 Linux 机器上跑完整 smoke test：curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash",
+  "context_notes": "Phase 01 全部代码逻辑完成并推送。8/9 任务完成。唯一剩余是需要真实 Linux 环境的端到端验证，有 GitHub Actions 每日自动更新 versions.txt。"
 }
