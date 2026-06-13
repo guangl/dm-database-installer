@@ -24,8 +24,6 @@ pub enum Commands {
     Cluster(ClusterArgs),
     /// 生成默认配置文件模板
     Init(InitArgs),
-    /// 在 Windows 目标机上安装达梦（placeholder — PLAT-04 spike 待完成）
-    InstallWindows(InstallWindowsArgs),
     /// 生成 shell 补全脚本
     Completions {
         /// 目标 shell 类型（bash/zsh/fish 等）
@@ -125,14 +123,6 @@ pub struct InitOutputArgs {
     pub force: bool,
 }
 
-/// install-windows 子命令参数（PLAT-04 placeholder）
-#[derive(clap::Args)]
-pub struct InstallWindowsArgs {
-    /// TOML 配置文件路径（可选；未提供时使用内置默认参数）
-    #[arg(long)]
-    pub config: Option<PathBuf>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,30 +210,4 @@ mod tests {
         assert!(result.is_err(), "cluster 不带子命令应解析失败");
     }
 
-    #[test]
-    fn test_install_windows_placeholder_parses() {
-        // PLAT-04: install-windows 无参数应解析为 InstallWindows(args)，config 为 None
-        let cli = Cli::try_parse_from(["dm-installer", "install-windows"]).unwrap();
-        let Commands::InstallWindows(args) = cli.command else {
-            panic!("expected InstallWindows command");
-        };
-        assert!(args.config.is_none(), "--config 应为 None");
-    }
-
-    #[test]
-    fn test_install_windows_with_config() {
-        // PLAT-04: install-windows --config 应解析为 Some(PathBuf)
-        let cli = Cli::try_parse_from([
-            "dm-installer", "install-windows", "--config", "/etc/dm.toml",
-        ])
-        .unwrap();
-        let Commands::InstallWindows(args) = cli.command else {
-            panic!("expected InstallWindows command");
-        };
-        assert_eq!(
-            args.config,
-            Some(PathBuf::from("/etc/dm.toml")),
-            "--config 应解析为 Some(/etc/dm.toml)"
-        );
-    }
 }
