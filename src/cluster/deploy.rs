@@ -9,12 +9,19 @@ use crate::config::cluster::{NodeConfig, NodeRole};
 use crate::config::InstallConfig;
 use crate::install::silent_install::generate_install_xml;
 
+/// 对 shell 参数进行单引号转义，防止命令注入（CR-04）。
+/// 所有用户可控路径和实例名在拼入 shell 命令前必须经过此函数。
+fn shell_quote(raw: &str) -> String {
+    format!("'{}'", raw.replace('\'', "'\\''"))
+}
+
 /// 构建 dminit 命令行参数列表（等号两侧无空格，防止 Pitfall 2）。
+/// 路径和实例名经 shell_quote 转义（CR-04 防注入）。
 pub fn build_dminit_args(node: &NodeConfig) -> Vec<String> {
     vec![
-        format!("{}/bin/dminit", node.install_path),
-        format!("PATH={}", node.data_path),
-        format!("INSTANCE_NAME={}", node.instance_name),
+        format!("{}/bin/dminit", shell_quote(&node.install_path)),
+        format!("PATH={}", shell_quote(&node.data_path)),
+        format!("INSTANCE_NAME={}", shell_quote(&node.instance_name)),
         format!("PORT_NUM={}", node.port),
         format!("PAGE_SIZE={}", node.page_size),
         format!("CHARSET={}", node.charset),
@@ -42,12 +49,16 @@ pub async fn upload_installer_and_install(
     let bytes = tokio::fs::read(package_path)
         .await
         .with_context(|| format!("无法读取安装包 {}", package_path.display()))?;
-    let remote_iso = format!("/tmp/dm_installer_{}.iso", node.instance_name);
+    let remote_bin_path = format!("/tmp/dm_installer_{}.bin", node.instance_name);
     runner
-        .sftp_write(&remote_iso, &bytes)
+        .sftp_write(&remote_bin_path, &bytes)
         .await
         .context("SFTP 上传安装包失败")?;
-    let install_cmd = format!("cd /tmp && DMInstall.bin -q {}", remote_xml);
+    runner
+        .exec(&format!("chmod +x {}", shell_quote(&remote_bin_path)))
+        .await
+        .map_err(|e| anyhow::anyhow!("chmod 安装包失败: {}", e))?;
+    let install_cmd = format!("{} -q {}", shell_quote(&remote_bin_path), shell_quote(&remote_xml));
     let (stdout, exit_code) = runner
         .exec(&install_cmd)
         .await
@@ -130,9 +141,9 @@ pub async fn distribute_configs(
         .await
         .context("SFTP 上传 dmwatcher.ini 失败")?;
     let merge_cmd = format!(
-        "cat {0} >> {1}",
-        target_path(node, "dm.ini.cluster_suffix"),
-        target_path(node, "dm.ini")
+        "cat {} >> {}",
+        shell_quote(&target_path(node, "dm.ini.cluster_suffix")),
+        shell_quote(&target_path(node, "dm.ini"))
     );
     runner
         .exec(&merge_cmd)
@@ -142,11 +153,15 @@ pub async fn distribute_configs(
 }
 
 /// 以 mount 模式启动 dmserver（后台 nohup，Pitfall 4）。
+/// 路径和实例名经 shell_quote 转义（CR-04 防注入）。
 pub async fn start_dmserver_mount(node: &NodeConfig, runner: &dyn CommandRunner) -> Result<()> {
     tracing::info!("[node:{:?}][5/6] mount 模式启动 dmserver", node.role);
+    let install_path = shell_quote(&node.install_path);
+    let data_path = shell_quote(&node.data_path);
+    let instance_name = shell_quote(&node.instance_name);
+    let log_path = shell_quote(&format!("/tmp/dmserver_{}.log", node.instance_name));
     let cmd = format!(
-        "nohup {0}/bin/dmserver {1}/{2}/dm.ini mount > /tmp/dmserver_{2}.log 2>&1 &",
-        node.install_path, node.data_path, node.instance_name
+        "nohup {install_path}/bin/dmserver {data_path}/{instance_name}/dm.ini mount > {log_path} 2>&1 &"
     );
     runner
         .exec(&cmd)
@@ -171,7 +186,9 @@ pub async fn configure_database_role(
     );
     let cmd = format!(
         "echo \"{}\" | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
-        sql_block, node.install_path, node.port
+        sql_block,
+        shell_quote(&node.install_path),
+        node.port
     );
     let (stdout, exit_code) = runner
         .exec(&cmd)
@@ -187,11 +204,15 @@ pub async fn configure_database_role(
 }
 
 /// 启动 dmwatcher 守护进程（后台 nohup）。
+/// 路径和实例名经 shell_quote 转义（CR-04 防注入）。
 pub async fn start_dmwatcher(node: &NodeConfig, runner: &dyn CommandRunner) -> Result<()> {
     tracing::info!("[node:{:?}][6/6] 启动 dmwatcher", node.role);
+    let install_path = shell_quote(&node.install_path);
+    let data_path = shell_quote(&node.data_path);
+    let instance_name = shell_quote(&node.instance_name);
+    let log_path = shell_quote(&format!("/tmp/dmwatcher_{}.log", node.instance_name));
     let cmd = format!(
-        "nohup {0}/bin/dmwatcher {1}/{2}/dmwatcher.ini > /tmp/dmwatcher_{2}.log 2>&1 &",
-        node.install_path, node.data_path, node.instance_name
+        "nohup {install_path}/bin/dmwatcher {data_path}/{instance_name}/dmwatcher.ini > {log_path} 2>&1 &"
     );
     runner
         .exec(&cmd)
@@ -256,10 +277,11 @@ mod tests {
     fn test_build_dminit_args_format() {
         let node = make_primary_node();
         let args = build_dminit_args(&node);
-        assert_eq!(args[0], "/opt/dmdbms/bin/dminit", "第一项应为 dminit 路径");
-        assert!(args.contains(&"PATH=/opt/dmdbms/data".to_string()), "应含 PATH=");
-        assert!(args.contains(&"INSTANCE_NAME=DMSVR01".to_string()), "应含 INSTANCE_NAME=");
-        assert!(args.contains(&"PORT_NUM=5236".to_string()), "应含 PORT_NUM=（无空格）");
+        // CR-04 修复后：路径经 shell_quote 包裹
+        assert_eq!(args[0], "'/opt/dmdbms'/bin/dminit", "第一项应为 shell_quote 包裹的 dminit 路径");
+        assert!(args.contains(&"PATH='/opt/dmdbms/data'".to_string()), "应含 shell_quote 包裹的 PATH=");
+        assert!(args.contains(&"INSTANCE_NAME='DMSVR01'".to_string()), "应含 shell_quote 包裹的 INSTANCE_NAME=");
+        assert!(args.contains(&"PORT_NUM=5236".to_string()), "应含 PORT_NUM=（数值无需 shell_quote）");
         assert!(args.contains(&"PAGE_SIZE=8".to_string()), "应含 PAGE_SIZE=");
     }
 
@@ -325,19 +347,46 @@ mod tests {
     async fn test_upload_installer_and_install_pushes_xml() {
         let node = make_primary_node();
         let runner = MockRunner::new(vec![]);
-        // 使用不存在的路径——upload 会因无法读取 ISO 失败，但 XML 应已推送
-        let pkg = std::path::PathBuf::from("/tmp/fake_nonexistent.iso");
-        // XML 推送发生在 ISO 读取之前，所以这里先检查 sftp_log 在失败前
-        // 实际上 tokio::fs::read 失败会返回 Err 在 sftp_write xml 之后
-        // 测试：传入一个临时文件作为"安装包"
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        let result = upload_installer_and_install(&node, tmp.path(), &runner).await;
-        // 即使 install cmd 可能因 exec 默认 Ok 通过，sftp_log 应含 xml 和 iso
-        let _ = result; // 结果可能 Ok 也可能因 dminit 等原因 Err，主要验证 sftp
-        let log = runner.sftp_log();
-        let has_xml = log.iter().any(|(p, _)| p.contains(".xml"));
-        let has_iso = log.iter().any(|(p, _)| p.contains(".iso"));
-        assert!(has_xml, "sftp_log 应含 .xml 路径: {:?}", log.iter().map(|(p,_)| p).collect::<Vec<_>>());
-        assert!(has_iso, "sftp_log 应含 .iso 路径: {:?}", log.iter().map(|(p,_)| p).collect::<Vec<_>>());
+        let _ = upload_installer_and_install(&node, tmp.path(), &runner).await;
+        let sftp_log = runner.sftp_log();
+        let exec_log = runner.exec_log();
+        // CR-01 修复后：应含 .bin 路径而非 .iso
+        let has_bin = sftp_log.iter().any(|(p, _)| p.ends_with(".bin"));
+        let has_iso = sftp_log.iter().any(|(p, _)| p.ends_with(".iso"));
+        let has_xml = sftp_log.iter().any(|(p, _)| p.contains(".xml"));
+        assert!(has_xml, "sftp_log 应含 .xml 路径: {:?}", sftp_log.iter().map(|(p,_)| p).collect::<Vec<_>>());
+        assert!(has_bin, "sftp_log 应含 .bin 路径（CR-01）: {:?}", sftp_log.iter().map(|(p,_)| p).collect::<Vec<_>>());
+        assert!(!has_iso, "sftp_log 不应含 .iso 路径（CR-01 修复后）");
+        let has_chmod = exec_log.iter().any(|cmd| cmd.contains("chmod +x"));
+        assert!(has_chmod, "exec_log 应含 chmod +x 调用（CR-01）: {:?}", exec_log);
+    }
+
+    #[test]
+    fn test_shell_quote_single_quotes_path() {
+        assert_eq!(shell_quote("/opt/dmdbms"), "'/opt/dmdbms'");
+    }
+
+    #[test]
+    fn test_shell_quote_escapes_embedded_single_quote() {
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn test_shell_quote_blocks_injection() {
+        let result = shell_quote("/tmp; rm -rf /");
+        assert!(result.starts_with('\''), "结果应以单引号开头");
+        assert!(result.ends_with('\''), "结果应以单引号结尾");
+        assert!(result.contains("; rm -rf /"), "注入字符应被包裹在单引号内");
+    }
+
+    #[tokio::test]
+    async fn test_start_dmserver_mount_quotes_paths() {
+        let node = make_primary_node();
+        let runner = MockRunner::new(vec![]);
+        start_dmserver_mount(&node, &runner).await.unwrap();
+        let log = runner.exec_log();
+        let found = log.iter().any(|cmd| cmd.contains("'/opt/dmdbms'"));
+        assert!(found, "命令应含经 shell_quote 包裹的 install_path: {:?}", log);
     }
 }
