@@ -530,22 +530,19 @@ jobs:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`cargo dist init` 生成配置的精确结果**
+1. **`cargo dist init` 生成配置的精确结果** — RESOLVED
    - What we know: 会生成 `[workspace.metadata.dist]` 块和 `.github/workflows/release.yml`
-   - What's unclear: 交互选择哪些选项会生成最接近期望的配置（尤其是 windows-msvc 的 NASM 安装步骤是否可通过 dist 配置自动处理）
-   - Recommendation: Wave 1 第一个任务就是运行 `cargo dist init` 并记录实际生成内容；预期需要手动补充 Windows 的 NASM 安装步骤
+   - **Resolution:** Windows NASM 安装步骤需手动补充在 `release.yml` 的 windows runner 步骤中（`choco install nasm`，参考 russh CI）；`cargo dist init` 本身不自动处理。Plan 02 Task 2 中包含此补充步骤。
 
-2. **aarch64 构建后实际产物是否正确**
+2. **aarch64 构建后实际产物是否正确** — RESOLVED
    - What we know: apt 安装 gcc-aarch64-linux-gnu + linker 配置理论上可以解决 ring 问题
-   - What's unclear: 是否还有其他 crate（如 russh 的 C 依赖）在 aarch64 交叉编译时有问题
-   - Recommendation: Wave 2 第一步就是触发一次实际 CI run 验证三个平台的构建产物
+   - **Resolution:** russh 0.61.2 无 C 依赖（纯 Rust），ring 通过 aarch64 交叉编译的已知方案（apt + linker config）可解决。Wave 2 通过 `cargo build --target aarch64-unknown-linux-gnu` 本地验证；CI 实际运行作为 Manual-Only 验证。
 
-3. **`install-path` 配置**
+3. **`install-path` 配置** — RESOLVED
    - What we know: 默认 `CARGO_HOME`（即 `~/.cargo/bin`）；也可配置为系统路径
-   - What's unclear: 对于 DM 运维场景，是否更应该安装到 `/usr/local/bin`
-   - Recommendation: 使用默认 `CARGO_HOME`，用户可手动移动；不影响功能
+   - **Resolution:** 使用默认 `CARGO_HOME`。DM 运维场景中，运维人员通常通过 PATH 使用工具，`~/.cargo/bin` 已足够；若需要 `/usr/local/bin` 用户可手动 `sudo install`。不引入额外配置复杂度。
 
 ---
 
