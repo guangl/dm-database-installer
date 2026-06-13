@@ -1,0 +1,11 @@
+[book]
+title = "dm-installer 文档"
+description = "达梦数据库自动化安装工具"
+language = "zh"
+src = "src"
+
+[output.html]
+site-url = "/dm-database-installer/"
+git-repository-url = "https://github.com/guangl/dm-database-installer"
+default-theme = "navy"
+edit-url-template = "https://github.com/guangl/dm-database-installer/edit/main/docs/{path}"

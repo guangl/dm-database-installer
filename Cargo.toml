@@ -3,7 +3,7 @@ name = "dm-database-installer"
 version = "0.1.0"
 edition = "2024"
 description = "达梦数据库安装器 (dm-database-installer) — 单机/集群静默部署工具"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/guangl/dm-database-installer"
 
 [[bin]]
