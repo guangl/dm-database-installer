@@ -9,12 +9,19 @@ use crate::config::cluster::{NodeConfig, NodeRole};
 use crate::config::InstallConfig;
 use crate::install::silent_install::generate_install_xml;
 
+/// 对 shell 参数进行单引号转义，防止命令注入（CR-04）。
+/// 所有用户可控路径和实例名在拼入 shell 命令前必须经过此函数。
+fn shell_quote(raw: &str) -> String {
+    format!("'{}'", raw.replace('\'', "'\\''"))
+}
+
 /// 构建 dminit 命令行参数列表（等号两侧无空格，防止 Pitfall 2）。
+/// 路径和实例名经 shell_quote 转义（CR-04 防注入）。
 pub fn build_dminit_args(node: &NodeConfig) -> Vec<String> {
     vec![
-        format!("{}/bin/dminit", node.install_path),
-        format!("PATH={}", node.data_path),
-        format!("INSTANCE_NAME={}", node.instance_name),
+        format!("{}/bin/dminit", shell_quote(&node.install_path)),
+        format!("PATH={}", shell_quote(&node.data_path)),
+        format!("INSTANCE_NAME={}", shell_quote(&node.instance_name)),
         format!("PORT_NUM={}", node.port),
         format!("PAGE_SIZE={}", node.page_size),
         format!("CHARSET={}", node.charset),
@@ -42,12 +49,16 @@ pub async fn upload_installer_and_install(
     let bytes = tokio::fs::read(package_path)
         .await
         .with_context(|| format!("无法读取安装包 {}", package_path.display()))?;
-    let remote_iso = format!("/tmp/dm_installer_{}.iso", node.instance_name);
+    let remote_bin_path = format!("/tmp/dm_installer_{}.bin", node.instance_name);
     runner
-        .sftp_write(&remote_iso, &bytes)
+        .sftp_write(&remote_bin_path, &bytes)
         .await
         .context("SFTP 上传安装包失败")?;
-    let install_cmd = format!("cd /tmp && DMInstall.bin -q {}", remote_xml);
+    runner
+        .exec(&format!("chmod +x {}", shell_quote(&remote_bin_path)))
+        .await
+        .map_err(|e| anyhow::anyhow!("chmod 安装包失败: {}", e))?;
+    let install_cmd = format!("{} -q {}", shell_quote(&remote_bin_path), shell_quote(&remote_xml));
     let (stdout, exit_code) = runner
         .exec(&install_cmd)
         .await
@@ -130,9 +141,9 @@ pub async fn distribute_configs(
         .await
         .context("SFTP 上传 dmwatcher.ini 失败")?;
     let merge_cmd = format!(
-        "cat {0} >> {1}",
-        target_path(node, "dm.ini.cluster_suffix"),
-        target_path(node, "dm.ini")
+        "cat {} >> {}",
+        shell_quote(&target_path(node, "dm.ini.cluster_suffix")),
+        shell_quote(&target_path(node, "dm.ini"))
     );
     runner
         .exec(&merge_cmd)
@@ -142,11 +153,15 @@ pub async fn distribute_configs(
 }
 
 /// 以 mount 模式启动 dmserver（后台 nohup，Pitfall 4）。
+/// 路径和实例名经 shell_quote 转义（CR-04 防注入）。
 pub async fn start_dmserver_mount(node: &NodeConfig, runner: &dyn CommandRunner) -> Result<()> {
     tracing::info!("[node:{:?}][5/6] mount 模式启动 dmserver", node.role);
+    let install_path = shell_quote(&node.install_path);
+    let data_path = shell_quote(&node.data_path);
+    let instance_name = shell_quote(&node.instance_name);
+    let log_path = shell_quote(&format!("/tmp/dmserver_{}.log", node.instance_name));
     let cmd = format!(
-        "nohup {0}/bin/dmserver {1}/{2}/dm.ini mount > /tmp/dmserver_{2}.log 2>&1 &",
-        node.install_path, node.data_path, node.instance_name
+        "nohup {install_path}/bin/dmserver {data_path}/{instance_name}/dm.ini mount > {log_path} 2>&1 &"
     );
     runner
         .exec(&cmd)
@@ -171,7 +186,9 @@ pub async fn configure_database_role(
     );
     let cmd = format!(
         "echo \"{}\" | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
-        sql_block, node.install_path, node.port
+        sql_block,
+        shell_quote(&node.install_path),
+        node.port
     );
     let (stdout, exit_code) = runner
         .exec(&cmd)
@@ -187,11 +204,15 @@ pub async fn configure_database_role(
 }
 
 /// 启动 dmwatcher 守护进程（后台 nohup）。
+/// 路径和实例名经 shell_quote 转义（CR-04 防注入）。
 pub async fn start_dmwatcher(node: &NodeConfig, runner: &dyn CommandRunner) -> Result<()> {
     tracing::info!("[node:{:?}][6/6] 启动 dmwatcher", node.role);
+    let install_path = shell_quote(&node.install_path);
+    let data_path = shell_quote(&node.data_path);
+    let instance_name = shell_quote(&node.instance_name);
+    let log_path = shell_quote(&format!("/tmp/dmwatcher_{}.log", node.instance_name));
     let cmd = format!(
-        "nohup {0}/bin/dmwatcher {1}/{2}/dmwatcher.ini > /tmp/dmwatcher_{2}.log 2>&1 &",
-        node.install_path, node.data_path, node.instance_name
+        "nohup {install_path}/bin/dmwatcher {data_path}/{instance_name}/dmwatcher.ini > {log_path} 2>&1 &"
     );
     runner
         .exec(&cmd)
@@ -256,10 +277,11 @@ mod tests {
     fn test_build_dminit_args_format() {
         let node = make_primary_node();
         let args = build_dminit_args(&node);
-        assert_eq!(args[0], "/opt/dmdbms/bin/dminit", "第一项应为 dminit 路径");
-        assert!(args.contains(&"PATH=/opt/dmdbms/data".to_string()), "应含 PATH=");
-        assert!(args.contains(&"INSTANCE_NAME=DMSVR01".to_string()), "应含 INSTANCE_NAME=");
-        assert!(args.contains(&"PORT_NUM=5236".to_string()), "应含 PORT_NUM=（无空格）");
+        // CR-04 修复后：路径经 shell_quote 包裹
+        assert_eq!(args[0], "'/opt/dmdbms'/bin/dminit", "第一项应为 shell_quote 包裹的 dminit 路径");
+        assert!(args.contains(&"PATH='/opt/dmdbms/data'".to_string()), "应含 shell_quote 包裹的 PATH=");
+        assert!(args.contains(&"INSTANCE_NAME='DMSVR01'".to_string()), "应含 shell_quote 包裹的 INSTANCE_NAME=");
+        assert!(args.contains(&"PORT_NUM=5236".to_string()), "应含 PORT_NUM=（数值无需 shell_quote）");
         assert!(args.contains(&"PAGE_SIZE=8".to_string()), "应含 PAGE_SIZE=");
     }
 
