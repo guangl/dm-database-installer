@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::cli::InstallArgs;
 use crate::config::InstallConfig;
-use crate::ui::StatusLevel;
 
 pub mod checksum;
 pub mod idempotent;
@@ -20,8 +19,7 @@ fn resolve_config(args: &InstallArgs) -> Result<InstallConfig> {
 
 /// 安装子命令入口（INST-01 完整编排器）。
 ///
-/// 流程：幂等检测 → 包路径 → checksum → ISO 提取 → 参数确认 → DMInstall.bin → dminit
-/// Plan 04 接管：systemd 服务注册
+/// 流程：幂等检测 → 包路径 → checksum → ISO 提取 → DMInstall.bin → dminit
 pub async fn run(args: &InstallArgs) -> Result<()> {
     tracing::info!("开始安装达梦数据库");
     let config = resolve_config(args)?;
@@ -34,11 +32,10 @@ pub async fn run(args: &InstallArgs) -> Result<()> {
     verify_checksum(args, &package.path)?;
 
     let extract_dir = step_extract(&package.path)?;
-    step_confirm_params(args, &config)?;
     step_silent_install(&config, &extract_dir)?;
     step_dminit(&config)?;
 
-    crate::ui::print_status(StatusLevel::Info, "Plan 04 将注册 systemd 服务");
+    tracing::info!("Plan 04 将注册 systemd 服务");
     Ok(())
 }
 
@@ -70,22 +67,17 @@ fn verify_checksum(args: &InstallArgs, path: &std::path::Path) -> Result<()> {
 }
 
 fn step_extract(path: &std::path::Path) -> Result<tempfile::TempDir> {
-    tracing::info!("[4/7] 提取 DMInstall.bin");
+    tracing::info!("[4/6] 提取 DMInstall.bin");
     package::extract_dminstall_bin(path)
 }
 
-fn step_confirm_params(args: &InstallArgs, config: &InstallConfig) -> Result<()> {
-    tracing::info!("[5/7] 参数确认");
-    crate::ui::confirm_immutable_params(config, args.defaults || args.yes)
-}
-
 fn step_silent_install(config: &InstallConfig, extract_dir: &tempfile::TempDir) -> Result<()> {
-    tracing::info!("[6/7] DMInstall.bin 静默安装");
+    tracing::info!("[5/6] DMInstall.bin 静默安装");
     silent_install::run(config, extract_dir.path())
 }
 
 fn step_dminit(config: &InstallConfig) -> Result<()> {
-    tracing::info!("[7/7] dminit 初始化");
+    tracing::info!("[6/6] dminit 初始化");
     init::run_dminit(config)
 }
 

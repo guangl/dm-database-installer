@@ -7,7 +7,6 @@ mod cluster;
 mod common;
 mod config;
 mod standalone;
-mod ui;
 
 /// dm-database-installer 主入口。
 /// 解析 CLI 参数，初始化 tracing 日志，dispatch 到对应子命令。
