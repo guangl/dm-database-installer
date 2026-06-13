@@ -6,6 +6,7 @@ use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
 use russh::{client, ChannelMsg};
 use russh_sftp::client::SftpSession;
 use thiserror::Error;
+use tokio::io::AsyncWriteExt;
 
 use crate::config::cluster::SshCredentials;
 
@@ -49,10 +50,15 @@ impl client::Handler for TofuHandler {
         &mut self,
         server_public_key: &russh::keys::PublicKey,
     ) -> Result<bool, russh::Error> {
-        self.accepted_keys
-            .lock()
-            .unwrap()
-            .push(server_public_key.clone());
+        let fingerprint = server_public_key.fingerprint(Default::default());
+        tracing::warn!(
+            "[ssh][TOFU] 接受服务器公钥（未验证）: {} — 生产环境请配置 host_key_fingerprint",
+            fingerprint
+        );
+        match self.accepted_keys.lock() {
+            Ok(mut accepted) => accepted.push(server_public_key.clone()),
+            Err(poisoned) => poisoned.into_inner().push(server_public_key.clone()),
+        }
         Ok(true)
     }
 }
@@ -113,13 +119,28 @@ async fn try_auth(
     Err(russh::Error::NotAuthenticated)
 }
 
+/// 展开路径中的 `~/` 前缀为 $HOME 环境变量值（CR-03）。
+/// Rust PathBuf 不会自动展开 `~`，需要手动处理。
+/// 若路径无 `~/` 前缀或 HOME 未设置，则原样返回。
+fn expand_tilde(path: &std::path::PathBuf) -> std::path::PathBuf {
+    if let Some(path_str) = path.to_str() {
+        if let Some(rest) = path_str.strip_prefix("~/") {
+            if let Some(home_dir) = std::env::var_os("HOME") {
+                return std::path::PathBuf::from(home_dir).join(rest);
+            }
+        }
+    }
+    path.clone()
+}
+
 /// 尝试公钥鉴权。
 async fn try_key_auth(
     handle: &mut client::Handle<TofuHandler>,
     user: &str,
     identity_file: &std::path::PathBuf,
 ) -> Result<(), russh::Error> {
-    let key_pair = load_secret_key(identity_file, None)?;
+    let expanded_path = expand_tilde(identity_file);
+    let key_pair = load_secret_key(&expanded_path, None)?;
     let rsa_hash = handle.best_supported_rsa_hash().await?.flatten();
     let key = PrivateKeyWithHashAlg::new(Arc::new(key_pair), rsa_hash);
     let result = handle.authenticate_publickey(user, key).await?;
@@ -167,11 +188,21 @@ impl CommandRunner for SshSession {
                 remote_path: remote_path.to_string(),
                 source,
             })?;
-        sftp.write(remote_path, bytes)
+        let mut remote_file = sftp
+            .create(remote_path)
             .await
             .map_err(|source| SshError::SftpUpload {
                 remote_path: remote_path.to_string(),
                 source,
+            })?;
+        remote_file
+            .write_all(bytes)
+            .await
+            .map_err(|io_err| SshError::SftpUpload {
+                remote_path: remote_path.to_string(),
+                source: russh_sftp::client::error::Error::UnexpectedBehavior(
+                    io_err.to_string(),
+                ),
             })
     }
 }
@@ -280,11 +311,13 @@ impl CommandRunner for MockRunner {
 
 #[cfg(test)]
 mod tests {
+    use russh::client::Handler;
     use super::*;
 
     #[test]
     fn test_expand_tilde_replaces_home() {
-        std::env::set_var("HOME", "/home/testuser");
+        // SAFETY: 单线程测试中修改环境变量，无并发风险
+        unsafe { std::env::set_var("HOME", "/home/testuser") };
         let input = std::path::PathBuf::from("~/.ssh/id_rsa");
         let expanded = expand_tilde(&input);
         assert_eq!(
@@ -303,7 +336,8 @@ mod tests {
 
     #[test]
     fn test_expand_tilde_missing_home_returns_input() {
-        std::env::remove_var("HOME");
+        // SAFETY: 单线程测试中修改环境变量，无并发风险
+        unsafe { std::env::remove_var("HOME") };
         let input = std::path::PathBuf::from("~/foo");
         let expanded = expand_tilde(&input);
         assert_eq!(expanded, input, "HOME 未设置时应原路径返回不 panic");
