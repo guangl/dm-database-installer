@@ -13,7 +13,7 @@ pub async fn run(args: &crate::cli::ClusterDeployArgs) -> Result<()> {
     tracing::info!("[cluster][1/6] 建立 SSH 会话");
     let mut runners: Vec<(NodeConfig, Arc<dyn ssh::CommandRunner>)> = Vec::new();
     for node in &config.cluster.nodes {
-        let session = ssh::SshSession::connect(&node.host, 22, &node.ssh.user, &node.ssh)
+        let session = ssh::SshSession::connect(&node.host, 22, &node.ssh)
             .await
             .map_err(|e| anyhow::anyhow!("连接节点 {} 失败: {}", node.host, e))?;
         runners.push((node.clone(), Arc::new(session)));

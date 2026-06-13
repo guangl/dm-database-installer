@@ -1,0 +1,19 @@
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum SshError {
+    #[error("SSH 连接失败 {host}: {source}")]
+    Connect {
+        host: String,
+        #[source]
+        source: russh::Error,
+    },
+    #[error("SSH 命令执行失败 (exit {exit_code}): {command}")]
+    ExecFailed { command: String, exit_code: u32 },
+    #[error("SFTP 上传失败 {remote_path}: {source}")]
+    SftpUpload {
+        remote_path: String,
+        #[source]
+        source: russh_sftp::client::error::Error,
+    },
+}
