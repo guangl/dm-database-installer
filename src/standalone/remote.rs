@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
+use std::time::Duration;
 
 use crate::cli::InstallArgs;
 use crate::common::download::{fetch_dm_installer_for, PackageHandle};
@@ -157,40 +159,62 @@ async fn upload_and_install_remote(
     tracing::info!("[3/5] 上传安装包并远端静默安装");
 
     let xml_file = generate_install_xml(config).context("生成 XML response file 失败")?;
-    let xml_content =
-        std::fs::read_to_string(xml_file.path()).context("读取 XML 临时文件失败")?;
+    let xml_content = std::fs::read_to_string(xml_file.path()).context("读取 XML 临时文件失败")?;
     let remote_xml = "/tmp/dm_standalone_install.xml".to_string();
-    tracing::debug!("上传 XML response file ({} bytes) -> {}", xml_content.len(), remote_xml);
     runner
         .sftp_write(&remote_xml, xml_content.as_bytes())
         .await
         .context("SFTP 上传 XML response file 失败")?;
+    println!("  上传配置文件完成");
 
     let bin_path = extract_dir.join("DMInstall.bin");
-    let bin_bytes =
-        std::fs::read(&bin_path).with_context(|| format!("读取 DMInstall.bin 失败: {}", bin_path.display()))?;
+    let bin_bytes = std::fs::read(&bin_path)
+        .with_context(|| format!("读取 DMInstall.bin 失败: {}", bin_path.display()))?;
     let remote_bin = "/tmp/dm_standalone_DMInstall.bin".to_string();
-    tracing::debug!("上传 DMInstall.bin ({} bytes) -> {}", bin_bytes.len(), remote_bin);
-    runner.sftp_write(&remote_bin, &bin_bytes).await.context("SFTP 上传 DMInstall.bin 失败")?;
+    let pb = upload_progress_bar(bin_bytes.len() as u64);
+    runner
+        .sftp_write_with_progress(&remote_bin, &bin_bytes, &|n| pb.inc(n))
+        .await
+        .context("SFTP 上传 DMInstall.bin 失败")?;
+    pb.finish_with_message("上传完成");
 
     runner
         .exec(&format!("chmod +x {}", shell_quote(&remote_bin)))
         .await
         .map_err(|e| anyhow::anyhow!("chmod DMInstall.bin 失败: {e}"))?;
 
-    let install_cmd = format!(
-        "{} -q {}",
-        shell_quote(&remote_bin),
-        shell_quote(&remote_xml)
-    );
-    tracing::debug!("执行远端静默安装: {}", install_cmd);
+    let spinner = install_spinner();
+    let install_cmd = format!("{} -q {}", shell_quote(&remote_bin), shell_quote(&remote_xml));
     runner
         .exec(&install_cmd)
         .await
         .map_err(|e| anyhow::anyhow!("远端 DMInstall.bin 执行失败: {e}"))?;
+    spinner.finish_with_message("静默安装完成");
     tracing::info!("远端 DMInstall.bin 静默安装成功");
-
     Ok(())
+}
+
+fn upload_progress_bar(total_bytes: u64) -> ProgressBar {
+    let pb = ProgressBar::new(total_bytes);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "  上传 DMInstall.bin [{bar:40.cyan/blue}] {bytes}/{total_bytes} @ {bytes_per_sec}, ETA {eta}",
+        )
+        .unwrap_or_else(|_| ProgressStyle::default_bar())
+        .progress_chars("=>-"),
+    );
+    pb
+}
+
+fn install_spinner() -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("  {spinner:.green} {msg} [{elapsed}]")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+    );
+    pb.set_message("正在静默安装达梦数据库...");
+    pb.enable_steady_tick(Duration::from_millis(120));
+    pb
 }
 
 async fn run_dminit_remote(

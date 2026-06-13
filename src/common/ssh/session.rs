@@ -46,6 +46,7 @@ pub struct SshSession {
 impl SshSession {
     /// 建立 SSH 连接，优先使用私钥，其次密码。`user` 从 `creds.user` 读取。
     pub async fn connect(host: &str, port: u16, creds: &SshCredentials) -> Result<Self, SshError> {
+        tracing::debug!("[ssh] 正在连接 {}@{}:{}", creds.user, host, port);
         let config = Arc::new(client::Config::default());
         let handler = TofuHandler { accepted_keys: std::sync::Mutex::new(Vec::new()) };
         let addr = format!("{}:{}", host, port);
@@ -55,6 +56,7 @@ impl SshSession {
         try_auth(&mut handle, creds)
             .await
             .map_err(|source| SshError::Connect { host: host.to_string(), source })?;
+        tracing::debug!("[ssh] 认证成功: {}@{}:{}", creds.user, host, port);
         Ok(Self { handle })
     }
 }
@@ -75,6 +77,17 @@ impl CommandRunner for SshSession {
     }
 
     async fn sftp_write(&self, remote_path: &str, bytes: &[u8]) -> Result<(), SshError> {
+        self.sftp_write_with_progress(remote_path, bytes, &|_| {}).await
+    }
+
+    async fn sftp_write_with_progress(
+        &self,
+        remote_path: &str,
+        bytes: &[u8],
+        on_chunk: &(dyn Fn(u64) + Send + Sync),
+    ) -> Result<(), SshError> {
+        const CHUNK: usize = 64 * 1024;
+        tracing::debug!("[sftp] 上传 {} bytes -> {}", bytes.len(), remote_path);
         let channel = self
             .handle
             .channel_open_session()
@@ -91,10 +104,15 @@ impl CommandRunner for SshSession {
             .create(remote_path)
             .await
             .map_err(|source| SshError::SftpUpload { remote_path: remote_path.to_string(), source })?;
-        remote_file.write_all(bytes).await.map_err(|io_err| SshError::SftpUpload {
-            remote_path: remote_path.to_string(),
-            source: russh_sftp::client::error::Error::UnexpectedBehavior(io_err.to_string()),
-        })
+        for chunk in bytes.chunks(CHUNK) {
+            remote_file.write_all(chunk).await.map_err(|io_err| SshError::SftpUpload {
+                remote_path: remote_path.to_string(),
+                source: russh_sftp::client::error::Error::UnexpectedBehavior(io_err.to_string()),
+            })?;
+            on_chunk(chunk.len() as u64);
+        }
+        tracing::debug!("[sftp] 上传完成: {}", remote_path);
+        Ok(())
     }
 }
 
@@ -104,13 +122,18 @@ async fn try_auth(
     creds: &SshCredentials,
 ) -> Result<(), russh::Error> {
     if let Some(identity_file) = &creds.identity_file {
+        tracing::debug!("[ssh] 尝试私钥认证: {}", identity_file.display());
         if try_key_auth(handle, &creds.user, identity_file).await.is_ok() {
+            tracing::debug!("[ssh] 私钥认证成功");
             return Ok(());
         }
+        tracing::debug!("[ssh] 私钥认证失败，回退到密码认证");
     }
-    if let Some(password) = &creds.password {
-        let result = handle.authenticate_password(&creds.user, password.clone()).await?;
+    if let Some(_password) = &creds.password {
+        tracing::debug!("[ssh] 尝试密码认证");
+        let result = handle.authenticate_password(&creds.user, _password.clone()).await?;
         if result.success() {
+            tracing::debug!("[ssh] 密码认证成功");
             return Ok(());
         }
     }
@@ -136,6 +159,7 @@ async fn collect_exec_output(
     channel: &mut russh::Channel<client::Msg>,
     command: &str,
 ) -> Result<(Vec<u8>, u32), SshError> {
+    tracing::debug!("[ssh] 执行远端命令: {}", command);
     let mut stdout = Vec::new();
     let mut exit_code = 0u32;
     loop {
@@ -146,7 +170,14 @@ async fn collect_exec_output(
             _ => {}
         }
     }
+    tracing::debug!(
+        "[ssh] 命令完成: exit_code={}, stdout={} bytes",
+        exit_code,
+        stdout.len()
+    );
     if exit_code != 0 {
+        let output_preview = String::from_utf8_lossy(&stdout);
+        tracing::warn!("[ssh] 命令失败 (exit {}): {}", exit_code, output_preview.trim());
         return Err(SshError::ExecFailed { command: command.to_string(), exit_code });
     }
     Ok((stdout, exit_code))
