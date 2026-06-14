@@ -23,7 +23,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 **Milestone Goal:** 补全 RWS 读写分离集群端到端可用、DSC 共享存储集群完整实现（含 ASM 初始化）、status 命令查询所有节点运行状态。
 
-- [ ] **Phase 5: RWS 读写分离集群** — 补全 run_read_routing_phase，使 dm-installer install rws 端到端可走通
+- [ ] **Phase 5: RWS 读写分离集群** — 补全 run_read_routing_phase，使 dm-installer install rws 端到端可走通 (3 plans)
 - [ ] **Phase 6: status 命令** — 新增 dm-installer status 子命令，查询本地与所有远程节点状态
 - [ ] **Phase 7: DSC 共享存储集群** — 完整实现 DSC 部署：ASM 初始化 + 共享存储 dminit + 多节点启动
 
@@ -76,6 +76,6 @@ Plans:
 | 2. TOML 配置驱动单机 | v1.0 | 1/1 | Complete | 2026-06-12 |
 | 3. 主备集群 | v1.0 | 3/3 | Complete | 2026-06-12 |
 | 4. 发布流水线 | v1.0 | 3/3 | Complete | 2026-06-14 |
-| 5. RWS 读写分离集群 | v1.1 | 0/3 | Not started | - |
+| 5. RWS 读写分离集群 | v1.1 | 0/3 | Planned | - |
 | 6. status 命令 | v1.1 | 0/TBD | Not started | - |
 | 7. DSC 共享存储集群 | v1.1 | 0/TBD | Not started | - |
