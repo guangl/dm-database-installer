@@ -37,7 +37,12 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   1. 用户执行 `dm-installer install rws` 后主库与只读备库全部启动，无需手动操作
   2. 备节点启动后通过 SQL 自动设置 READ_ONLY 标志，客户端连接只读端口不可执行写操作
   3. 安装中断后重跑可从检查点恢复，不重复已完成步骤
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — ClusterCheckpoint 实现（新建 src/cluster/checkpoint.rs，声明模块）
+- [ ] 05-02-PLAN.md — run_read_routing_phase + wait_for_standby_open（追加到 src/cluster/phases.rs）
+- [ ] 05-03-PLAN.md — RWS checkpoint gate 集成 + 替换 TODO:50（修改 src/cluster/rws/mod.rs）
 
 ### Phase 6: status 命令
 **Goal**: `dm-installer status` 命令查询本地及所有远程节点的进程/端口/角色状态，输出对齐表格
@@ -71,6 +76,6 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 2. TOML 配置驱动单机 | v1.0 | 1/1 | Complete | 2026-06-12 |
 | 3. 主备集群 | v1.0 | 3/3 | Complete | 2026-06-12 |
 | 4. 发布流水线 | v1.0 | 3/3 | Complete | 2026-06-14 |
-| 5. RWS 读写分离集群 | v1.1 | 0/TBD | Not started | - |
+| 5. RWS 读写分离集群 | v1.1 | 0/3 | Not started | - |
 | 6. status 命令 | v1.1 | 0/TBD | Not started | - |
 | 7. DSC 共享存储集群 | v1.1 | 0/TBD | Not started | - |
