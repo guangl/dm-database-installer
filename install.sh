@@ -13,6 +13,9 @@ DM_PAGE_SIZE=32
 DM_EXTENT_SIZE=32
 DM_CHARSET=0
 DM_CASE_SENSITIVE=Y
+DM_ARCH_PATH="$DM_DATA_PATH/arch"
+DM_ARCH_FILE_SIZE=128
+DM_ARCH_SPACE_LIMIT=0
 
 VERSIONS_URL="https://raw.githubusercontent.com/guangl/dm-database-installer/main/versions.txt"
 
@@ -244,12 +247,29 @@ run_dminit() {
         "EXTENT_SIZE=$DM_EXTENT_SIZE" \
         "CASE_SENSITIVE=$DM_CASE_SENSITIVE" \
         "CHARSET=$DM_CHARSET" \
+        "ARCH_INI=1" \
         "SYSDBA_PWD=$SYSDBA_PWD" \
         "SYSAUDITOR_PWD=$SYSAUDITOR_PWD" || {
         log_err "dminit 初始化失败"
         exit 1
     }
     log_ok "数据库初始化完成"
+}
+
+# ── 写入 dmarch.ini ────────────────────────────────────────────────────────────
+write_dmarch_ini() {
+    log_info "写入本地归档配置 dmarch.ini..."
+    mkdir -p "$DM_ARCH_PATH"
+    cat > "$DM_DATA_PATH/dmarch.ini" <<EOF
+[ARCHIVE_LOCAL1]
+ARCH_TYPE = LOCAL
+ARCH_DEST = $DM_ARCH_PATH
+ARCH_FILE_SIZE = $DM_ARCH_FILE_SIZE
+ARCH_SPACE_LIMIT = $DM_ARCH_SPACE_LIMIT
+ARCH_HANG_FLAG = 0
+ARCH_COMPRESSED = 0
+EOF
+    log_ok "dmarch.ini 写入完成: $DM_DATA_PATH/dmarch.ini"
 }
 
 # ── 注册 systemd 服务 ────────────────────────────────────────────────────────────
@@ -328,6 +348,7 @@ main() {
     write_response_xml
     run_dminstall
     run_dminit
+    write_dmarch_ini
     register_service
     print_success
 }
