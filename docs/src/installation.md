@@ -2,10 +2,12 @@
 
 ## 系统要求
 
-| 平台 | 架构 | 最低 glibc |
-|------|------|-----------|
-| Linux | x86_64 | 2.28（CentOS 8 / RHEL 8 / Debian 10 以上） |
-| Linux | aarch64 | 2.17 |
+| 平台 | 架构 | 备注 |
+|------|------|------|
+| Linux | x86_64 | glibc ≥ 2.23（Ubuntu 16.04 / CentOS 7 / Debian 8 以上） |
+| Linux | aarch64 | glibc ≥ 2.23 |
+| macOS | x86_64 | 10.12+ |
+| macOS | Apple Silicon | 11.0+ |
 | Windows | x86_64 | — |
 
 ## 方式一：预编译二进制（推荐）

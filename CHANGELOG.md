@@ -29,8 +29,8 @@
 
 ### 平台
 
-- 预编译二进制：Linux x86_64（glibc ≥ 2.28）、Linux aarch64（glibc ≥ 2.17）、Windows x86_64
-- CI/CD：GitHub Actions + cargo-dist + manylinux_2_28 容器确保 glibc 兼容性
+- 预编译二进制：Linux x86_64/aarch64（glibc ≥ 2.23）、macOS x86_64/Apple Silicon、Windows x86_64
+- CI/CD：GitHub Actions + cargo-dist + cargo-zigbuild 精确控制 glibc 版本
 
 [Unreleased]: https://github.com/guangl/dm-database-installer/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/guangl/dm-database-installer/releases/tag/v0.1.0

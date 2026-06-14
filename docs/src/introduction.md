@@ -16,7 +16,7 @@
 | 主备集群 | 批量推送安装包、生成并同步 dm.ini / dmarch.ini / dmmal.ini |
 | 断点续传 | 安装中断后重跑从检查点恢复，不重复已完成步骤 |
 | 配置驱动 | TOML 文件，最少两行即可运行；`dm-installer init` 生成模板 |
-| 跨平台 | Linux x86_64 / aarch64 / Windows x86_64 |
+| 跨平台 | Linux x86_64 / aarch64、macOS x86_64 / Apple Silicon、Windows x86_64 |
 
 ## 源码
 
