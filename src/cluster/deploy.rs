@@ -434,6 +434,13 @@ pub async fn verify_node_role(
             node.host, output
         );
     }
+    if expected_role == NodeRole::Standby && node.read_only {
+        anyhow::ensure!(
+            output.contains("OPEN"),
+            "只读备节点 {} STATUS$ 验证失败：期望 STATUS$=OPEN，实际:\n{}",
+            node.host, output
+        );
+    }
     tracing::info!("[node:{:?}] 角色验证通过 MODE$={}", node.role, expected_mode);
     Ok(())
 }

@@ -47,8 +47,8 @@ where
     phases::run_watcher_phase(&runners, &dminit).await?;
     phases::run_monitor_phase(&specific, &runners, &dminit).await?;
     phases::run_sqllog_phase(&specific, &runners, &dminit).await?;
-    phases::run_verify_phase(&runners, &dminit).await?;
     phases::run_read_routing_phase(&specific, &runners, &dminit).await?;
+    phases::run_verify_phase(&runners, &dminit).await?;
     crate::cluster::checkpoint::ClusterCheckpoint::remove()?;
     tracing::info!("集群部署完成");
     Ok(())
