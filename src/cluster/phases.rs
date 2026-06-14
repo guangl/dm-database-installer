@@ -274,8 +274,9 @@ async fn wait_for_standby_open_impl(
 ) -> Result<()> {
     use crate::common::shell_quote;
     let cmd = format!(
-        "echo 'SELECT STATUS$,MODE$ FROM V$INSTANCE;' | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
+        "echo 'SELECT STATUS$,MODE$ FROM V$INSTANCE;' | {}/bin/disql SYSDBA/{}@localhost:{}",
         shell_quote(&dminit.install_path),
+        shell_quote(&dminit.sysdba_password),
         dminit.port,
     );
     for attempt in 1..=max_retries {

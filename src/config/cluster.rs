@@ -158,6 +158,9 @@ pub struct DminitConfig {
     pub case_sensitive: bool,
     #[serde(default = "default_extent_size")]
     pub extent_size: u8,
+    /// SYSDBA 用户密码，用于 disql 连接，默认 "SYSDBA"
+    #[serde(default = "default_sysdba_password")]
+    pub sysdba_password: String,
 }
 
 fn default_install_path() -> String { "/opt/dmdbms".to_string() }
@@ -167,6 +170,7 @@ fn default_page_size() -> u8 { 8 }
 fn default_charset() -> u8 { 0 }
 fn default_case_sensitive() -> bool { true }
 fn default_extent_size() -> u8 { 16 }
+fn default_sysdba_password() -> String { "SYSDBA".to_string() }
 
 impl Default for DminitConfig {
     fn default() -> Self {
@@ -178,6 +182,7 @@ impl Default for DminitConfig {
             charset: default_charset(),
             case_sensitive: default_case_sensitive(),
             extent_size: default_extent_size(),
+            sysdba_password: default_sysdba_password(),
         }
     }
 }

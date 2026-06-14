@@ -199,8 +199,9 @@ pub async fn start_dmserver_normal(node: &NodeConfig, dminit: &DminitConfig, run
 pub async fn stop_dmserver(node: &NodeConfig, dminit: &DminitConfig, runner: &dyn CommandRunner) -> Result<()> {
     tracing::info!("[node:{:?}] 停止 dmserver", node.role);
     let cmd = format!(
-        "echo 'shutdown immediate;' | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
+        "echo 'shutdown immediate;' | {}/bin/disql SYSDBA/{}@localhost:{}",
         shell_quote(&dminit.install_path),
+        shell_quote(&dminit.sysdba_password),
         dminit.port,
     );
     runner.exec(&cmd).await.map_err(|e| anyhow::anyhow!("停止 dmserver 失败: {}", e))?;
@@ -298,9 +299,10 @@ pub async fn configure_database_role(
         "SP_SET_PARA_VALUE(1,'ALTER_MODE_STATUS',1);sp_set_oguid({oguid});{role_sql}SP_SET_PARA_VALUE(1,'ALTER_MODE_STATUS',0);"
     );
     let cmd = format!(
-        "echo \"{}\" | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
+        "echo \"{}\" | {}/bin/disql SYSDBA/{}@localhost:{}",
         sql_block,
         shell_quote(&dminit.install_path),
+        shell_quote(&dminit.sysdba_password),
         dminit.port
     );
     let (stdout, exit_code) = runner
@@ -399,8 +401,9 @@ pub async fn verify_node_role(
     runner: &dyn CommandRunner,
 ) -> Result<()> {
     let cmd = format!(
-        "echo 'SELECT STATUS$,MODE$ FROM V$INSTANCE;' | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
+        "echo 'SELECT STATUS$,MODE$ FROM V$INSTANCE;' | {}/bin/disql SYSDBA/{}@localhost:{}",
         shell_quote(&dminit.install_path),
+        shell_quote(&dminit.sysdba_password),
         dminit.port,
     );
     let (stdout, exit_code) = runner
@@ -443,8 +446,9 @@ pub async fn configure_read_only_standby(
 ) -> Result<()> {
     tracing::info!("[node:{:?}] 开启只读备节点 (alter database open read only)", node.role);
     let cmd = format!(
-        "echo 'alter database open read only;' | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
+        "echo 'alter database open read only;' | {}/bin/disql SYSDBA/{}@localhost:{}",
         shell_quote(&dminit.install_path),
+        shell_quote(&dminit.sysdba_password),
         dminit.port,
     );
     let (stdout, exit_code) = runner
@@ -478,9 +482,10 @@ pub async fn configure_sqllog(
         sqllog.min_exec_time, sqllog.file_size, sqllog.file_num,
     );
     let cmd = format!(
-        "echo \"{}\" | {}/bin/disql SYSDBA/SYSDBA@localhost:{}",
+        "echo \"{}\" | {}/bin/disql SYSDBA/{}@localhost:{}",
         sql,
         shell_quote(&dminit.install_path),
+        shell_quote(&dminit.sysdba_password),
         dminit.port,
     );
     for attempt in 1..=6u32 {
@@ -521,6 +526,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            ..Default::default()
         }
     }
 
