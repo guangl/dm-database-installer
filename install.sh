@@ -197,6 +197,21 @@ download_and_extract() {
     log_info "解压安装包..."
     unzip -q "$zip_file" -d "$extract_dir"
 
+    # zip 内是 ISO，挂载后查找安装文件
+    local iso_file
+    iso_file=$(find "$extract_dir" -name "*.iso" -type f | head -1)
+    if [ -n "$iso_file" ]; then
+        log_info "检测到 ISO，挂载中..."
+        local iso_dir="$TMPDIR_WORK/dm8_iso"
+        mkdir -p "$iso_dir"
+        mount -o loop,ro "$iso_file" "$iso_dir" || {
+            log_err "挂载 ISO 失败，请确认以 root 运行"
+            exit 1
+        }
+        trap 'umount "$iso_dir" 2>/dev/null; [ -n "$TMPDIR_WORK" ] && rm -rf "$TMPDIR_WORK"' EXIT
+        extract_dir="$iso_dir"
+    fi
+
     DM_INSTALL_BIN=$(find "$extract_dir" -name "DMInstall.bin" -type f | head -1)
     if [ -z "$DM_INSTALL_BIN" ]; then
         log_err "未在安装包中找到 DMInstall.bin"
