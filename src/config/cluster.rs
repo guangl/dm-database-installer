@@ -216,8 +216,7 @@ fn default_inst_dw_port() -> u16 { 5239 }
 /// 集群特有配置，对应 dw.toml / rws.toml / dsc.toml / dpc.toml。
 #[derive(Debug, Deserialize)]
 pub struct ClusterSpecificConfig {
-    /// 守护系统全局唯一标识，默认今日日期 YYYYMMDD
-    #[serde(default = "default_oguid")]
+    /// 守护系统全局唯一标识，守护系统内必须唯一，无默认值——必须显式配置
     pub oguid: u32,
     /// 节点列表
     #[serde(default)]
@@ -243,8 +242,6 @@ pub struct ClusterSpecificConfig {
     #[serde(default)]
     pub sqllog: SqlLogConfig,
 }
-
-fn default_oguid() -> u32 { 20260614 }
 
 /// 从文件加载并验证集群特有配置。
 pub fn load_cluster_specific(path: &Path, install_type: crate::config::InstallType) -> Result<ClusterSpecificConfig> {
@@ -445,6 +442,8 @@ port = 5236
     #[test]
     fn test_load_cluster_valid_default_ports() {
         let toml = r#"
+oguid = 453331
+
 [[nodes]]
 role = "primary"
 host = "192.168.1.10"
@@ -474,6 +473,8 @@ identity_file = "~/.ssh/id_rsa"
     #[test]
     fn test_validate_rejects_no_primary() {
         let toml = r#"
+oguid = 453331
+
 [[nodes]]
 role = "standby"
 host = "192.168.1.10"
@@ -501,6 +502,8 @@ identity_file = "~/.ssh/id_rsa"
     #[test]
     fn test_validate_rejects_port_conflict() {
         let toml = r#"
+oguid = 453331
+
 [[nodes]]
 role = "primary"
 host = "192.168.1.10"
@@ -532,6 +535,8 @@ port = 5236
     #[test]
     fn test_validate_rejects_missing_ssh_credentials() {
         let toml = r#"
+oguid = 453331
+
 [[nodes]]
 role = "primary"
 host = "192.168.1.10"
@@ -587,6 +592,8 @@ identity_file = "~/.ssh/id_rsa"
     #[test]
     fn test_validate_rejects_invalid_page_size() {
         let toml = r#"
+oguid = 453331
+
 [[nodes]]
 role = "primary"
 host = "192.168.1.10"
@@ -617,6 +624,8 @@ page_size = 12
     #[test]
     fn test_validate_rejects_duplicate_instance_name() {
         let toml = r#"
+oguid = 453331
+
 [[nodes]]
 role = "primary"
 host = "192.168.1.10"
@@ -756,7 +765,7 @@ identity_file = "~/.ssh/id_rsa"
     }
 
     #[test]
-    fn test_default_oguid_is_today() {
+    fn test_missing_oguid_fails() {
         let toml = r#"
 [[nodes]]
 role = "primary"
@@ -777,7 +786,8 @@ user = "root"
 identity_file = "~/.ssh/id_rsa"
 "#;
         let file = write_toml(toml);
-        let cfg = load_cluster_specific(file.path(), InstallType::Dw).unwrap();
-        assert_eq!(cfg.oguid, 20260614, "oguid 默认值应为今日 YYYYMMDD");
+        let err = load_cluster_specific(file.path(), InstallType::Dw).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("oguid") || msg.contains("missing field"), "缺少 oguid 应报错，实际: {msg}");
     }
 }
