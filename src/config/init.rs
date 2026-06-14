@@ -27,8 +27,10 @@ pub fn run(kind: &InitKind) -> Result<()> {
             let dir = output_dir(args);
             write_template(&dir.join("config.toml"), args.force, RWS_COMMON)?;
             write_template(&dir.join("rws.toml"), args.force, RWS_SPECIFIC)?;
-            println!("[占位] 已生成读写分离配置模板 (config.toml + rws.toml)");
-            println!("注意: 读写分离部署逻辑尚未实现，模板仅供参考");
+            println!("已生成读写分离集群配置模板:");
+            println!("  config.toml  — 通用配置（type、安装包路径等）");
+            println!("  rws.toml     — 读写分离特有配置（节点、OGUID、路由等）");
+            println!("编辑后使用: dm-installer install");
         }
         InitKind::Dsc(args) => {
             let dir = output_dir(args);
@@ -138,7 +140,7 @@ level = "info"
 "#;
 
 const RWS_COMMON: &str = r#"# 达梦数据库读写分离集群 — 通用配置
-# TODO: 读写分离部署逻辑尚未实现
+# 使用方式: dm-installer install
 
 type = "rws"
 
@@ -251,9 +253,7 @@ file_num      = 128    # 保留的历史文件数
 min_exec_time = 0      # 最小执行时间阈值（ms），0 = 记录全部 SQL
 "#;
 
-// TODO(cluster-rws): 读写分离部署逻辑待实现
 const RWS_SPECIFIC: &str = r#"# 达梦数据库读写分离集群 — 特有配置（rws.toml）
-# TODO: 读写分离部署逻辑尚未实现
 
 oguid = 453331
 
