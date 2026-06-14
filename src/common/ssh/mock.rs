@@ -12,6 +12,8 @@ pub struct MockRunner {
     pub sftp_writes: std::sync::Mutex<Vec<(String, Vec<u8>)>>,
     /// 记录所有 exec 调用的命令字符串
     pub exec_calls: std::sync::Mutex<Vec<String>>,
+    /// sftp_read 返回值：path -> bytes（未预设路径返回空 Vec）
+    pub sftp_read_data: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
     /// 严格模式：未匹配命令返回 exit 127 Err（默认 false）
     pub strict: bool,
 }
@@ -22,12 +24,17 @@ impl MockRunner {
             responses: std::sync::Mutex::new(responses),
             sftp_writes: std::sync::Mutex::new(Vec::new()),
             exec_calls: std::sync::Mutex::new(Vec::new()),
+            sftp_read_data: std::sync::Mutex::new(std::collections::HashMap::new()),
             strict: false,
         }
     }
 
     pub fn new_strict(responses: Vec<(String, u32, Vec<u8>)>) -> Self {
         Self { strict: true, ..Self::new(responses) }
+    }
+
+    pub fn set_sftp_read(&self, path: &str, content: Vec<u8>) {
+        self.sftp_read_data.lock().unwrap().insert(path.to_string(), content);
     }
 
     pub fn exec_log(&self) -> Vec<String> {
@@ -64,6 +71,11 @@ impl CommandRunner for MockRunner {
     async fn sftp_write(&self, remote_path: &str, bytes: &[u8]) -> Result<(), SshError> {
         self.sftp_writes.lock().unwrap().push((remote_path.to_string(), bytes.to_vec()));
         Ok(())
+    }
+
+    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
+        let map = self.sftp_read_data.lock().unwrap();
+        Ok(map.get(remote_path).cloned().unwrap_or_default())
     }
 }
 

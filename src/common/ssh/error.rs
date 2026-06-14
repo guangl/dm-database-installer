@@ -16,4 +16,10 @@ pub enum SshError {
         #[source]
         source: russh_sftp::client::error::Error,
     },
+    #[error("SFTP 下载失败 {remote_path}: {source}")]
+    SftpDownload {
+        remote_path: String,
+        #[source]
+        source: russh_sftp::client::error::Error,
+    },
 }

@@ -32,9 +32,13 @@ pub enum Commands {
 /// install 子命令参数（配置从 config.toml 自动读取，无需 --config）
 #[derive(clap::Args)]
 pub struct InstallArgs {
-    /// 本地 ISO 安装包路径（仅单机安装；不提供则自动下载）
+    /// 本地安装包路径，覆盖 config.toml 中的 installer_package（仅单机）
     #[arg(long)]
     pub package: Option<PathBuf>,
+
+    /// 自定义下载链接，覆盖 config.toml 中的 installer_url（仅单机）
+    #[arg(long)]
+    pub url: Option<String>,
 
     /// 可选的 SHA-256 校验和（十六进制字符串）
     #[arg(long)]
@@ -45,7 +49,6 @@ pub struct InstallArgs {
 #[derive(clap::Args)]
 pub struct ValidateArgs {
     /// 配置文件路径（默认读取当前目录 config.toml）
-    #[arg(long)]
     pub config: Option<PathBuf>,
 }
 
@@ -61,25 +64,11 @@ pub struct InitArgs {
 pub enum InitKind {
     /// 生成单机安装配置模板（输出 config.toml）
     Standalone(InitOutputArgs),
-    /// 生成集群安装配置模板（输出 config.toml）
-    Cluster(ClusterInitArgs),
-}
-
-/// cluster init 子命令参数
-#[derive(clap::Args)]
-pub struct ClusterInitArgs {
-    #[command(subcommand)]
-    pub kind: ClusterInitKind,
-}
-
-/// 集群类型
-#[derive(Subcommand)]
-pub enum ClusterInitKind {
-    /// 主备集群（Primary-Standby）
-    PrimaryStandby(InitOutputArgs),
-    /// 读写分离集群（基于主备，备节点承担只读查询）
+    /// 生成主备集群（DW）配置模板（输出 config.toml）
+    Dw(InitOutputArgs),
+    /// 生成读写分离集群配置模板（输出 config.toml）
     Rws(InitOutputArgs),
-    /// 共享存储集群 DSC（Data Sharing Cluster，多实例共享 SAN/NFS）
+    /// 生成 DSC 共享存储集群配置模板（输出 config.toml）
     Dsc(InitOutputArgs),
 }
 
@@ -124,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_validate_with_explicit_config() {
-        let cli = Cli::try_parse_from(["dm-installer", "validate", "--config", "/etc/dm.toml"]).unwrap();
+        let cli = Cli::try_parse_from(["dm-installer", "validate", "/etc/dm.toml"]).unwrap();
         let Commands::Validate(args) = cli.command else { panic!("expected Validate") };
         assert_eq!(args.config, Some(PathBuf::from("/etc/dm.toml")));
     }

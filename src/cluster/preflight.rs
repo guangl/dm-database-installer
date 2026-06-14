@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 
 use crate::common::ssh::CommandRunner;
-use crate::config::cluster::NodeConfig;
+use crate::config::cluster::{DminitConfig, NodeConfig};
 
 /// 检查节点是否具备 sudo 免密权限。
 pub async fn check_sudo_nopass(runner: &dyn CommandRunner) -> Result<()> {
@@ -84,14 +84,14 @@ fn parse_df_available(stdout: &[u8]) -> Result<u64> {
 }
 
 /// 对单个节点执行全部三项预检查（sudo / 端口 / 磁盘），任一失败即返回带节点信息的 Err。
-pub async fn check_node(node: &NodeConfig, runner: &dyn CommandRunner) -> Result<()> {
+pub async fn check_node(node: &NodeConfig, dminit: &DminitConfig, runner: &dyn CommandRunner) -> Result<()> {
     check_sudo_nopass(runner)
         .await
         .with_context(|| format!("节点 {} ({:?}) 预检查失败", node.host, node.role))?;
-    check_port_available(runner, node.port)
+    check_port_available(runner, dminit.port)
         .await
         .with_context(|| format!("节点 {} ({:?}) 预检查失败", node.host, node.role))?;
-    check_disk_space(runner, &node.install_path)
+    check_disk_space(runner, &dminit.install_path)
         .await
         .with_context(|| format!("节点 {} ({:?}) 预检查失败", node.host, node.role))?;
     Ok(())
@@ -100,12 +100,14 @@ pub async fn check_node(node: &NodeConfig, runner: &dyn CommandRunner) -> Result
 /// 并发对所有节点执行预检查，收集所有失败节点后统一报告。
 pub async fn preflight_all_nodes(
     items: Vec<(NodeConfig, Arc<dyn CommandRunner>)>,
+    dminit: &DminitConfig,
 ) -> Result<()> {
     tracing::info!("开始并发预检查，共 {} 个节点", items.len());
     let futures = items.iter().map(|(node, runner)| {
         let node = node.clone();
         let runner = Arc::clone(runner);
-        async move { check_node(&node, runner.as_ref()).await }
+        let dminit = dminit.clone();
+        async move { check_node(&node, &dminit, runner.as_ref()).await }
     });
     let results: Vec<Result<()>> = join_all(futures).await;
     let failures: Vec<String> = results
@@ -128,23 +130,28 @@ pub async fn preflight_all_nodes(
 mod tests {
     use super::*;
     use crate::common::ssh::MockRunner;
-    use crate::config::cluster::{NodeConfig, NodeRole, SshCredentials};
+    use crate::config::cluster::{DminitConfig, NodeConfig, NodeRole, SshCredentials};
+
+    fn make_dminit() -> DminitConfig {
+        DminitConfig {
+            install_path: "/opt/dmdbms".to_string(),
+            data_path: "/opt/dmdbms/data".to_string(),
+            port: 5236,
+            page_size: 8,
+            charset: 0,
+            case_sensitive: true,
+            extent_size: 16,
+        }
+    }
 
     fn make_node() -> NodeConfig {
         NodeConfig {
             role: NodeRole::Primary,
             host: "192.168.1.10".to_string(),
-            port: 5236,
             instance_name: "DMSVR01".to_string(),
-            install_path: "/opt/dmdbms".to_string(),
-            data_path: "/opt/dmdbms/data".to_string(),
             mal_port: 5237,
             dw_port: 5238,
             inst_dw_port: 5239,
-            page_size: 8,
-            charset: 0,
-            case_sensitive: true,
-            extent_size: 16,
             read_only: false,
             ssh: SshCredentials {
                 user: "root".to_string(),
@@ -171,7 +178,7 @@ mod tests {
             ("df -B1 /opt".to_string(), 0, df_out),
         ]);
         let node = make_node();
-        let result = check_node(&node, &runner).await;
+        let result = check_node(&node, &make_dminit(), &runner).await;
         assert!(result.is_ok(), "三项全通过应返回 Ok: {:?}", result.err());
     }
 
@@ -181,7 +188,7 @@ mod tests {
             ("sudo -n true".to_string(), 1, vec![]),
         ]);
         let node = make_node();
-        let result = check_node(&node, &runner).await;
+        let result = check_node(&node, &make_dminit(), &runner).await;
         assert!(result.is_err(), "sudo 失败应返回 Err");
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("192.168.1.10"), "应含节点 host: {msg}");
@@ -199,7 +206,7 @@ mod tests {
             ),
         ]);
         let node = make_node();
-        let result = check_node(&node, &runner).await;
+        let result = check_node(&node, &make_dminit(), &runner).await;
         assert!(result.is_err(), "端口被占应返回 Err");
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("端口 5236 已被占用"), "应含端口错误: {msg}");
@@ -214,7 +221,7 @@ mod tests {
             ("df -B1 /opt".to_string(), 0, df_out),
         ]);
         let node = make_node();
-        let result = check_node(&node, &runner).await;
+        let result = check_node(&node, &make_dminit(), &runner).await;
         assert!(result.is_err(), "磁盘不足应返回 Err");
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("磁盘空间不足"), "应含磁盘错误: {msg}");
@@ -242,7 +249,7 @@ mod tests {
         node_fail.role = NodeRole::Standby;
 
         let items = vec![(node_ok, runner_ok), (node_fail, runner_fail)];
-        let result = preflight_all_nodes(items).await;
+        let result = preflight_all_nodes(items, &make_dminit()).await;
         assert!(result.is_err(), "有失败节点时应返回 Err");
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("192.168.1.11"), "应含失败节点 host: {msg}");

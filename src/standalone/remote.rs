@@ -15,9 +15,7 @@ use super::{cache_package, checkpoint, generate_passwords, print_generated_crede
 const REMOTE_BIN: &str = "/tmp/dm_standalone_DMInstall.bin";
 const REMOTE_XML: &str = "/tmp/dm_standalone_install.xml";
 
-fn shell_quote(raw: &str) -> String {
-    format!("'{}'", raw.replace('\'', "'\\''"))
-}
+use crate::common::shell_quote;
 
 pub async fn run(
     args: &InstallArgs,
@@ -66,7 +64,7 @@ pub async fn run(
     cp.save()?;
 
     // [2/5] 获取本地安装包（自动下载时缓存到 CWD，支持续传）
-    let package_path = resolve_package_for_remote(args, &common, &session, &mut cp).await?;
+    let package_path = resolve_package_for_remote(args, &common.installer, &session, &mut cp).await?;
     verify_checksum(args, &package_path)?;
 
     // [3/5] 上传 DMInstall.bin 到远端
@@ -105,6 +103,7 @@ pub async fn run(
         );
     }
     run_dminit_remote(specific, &sysdba_pwd, &sysauditor_pwd, &session).await?;
+    run_write_dmarch_ini_remote(specific, &session).await?;
 
     // [6/6] 远端注册并启动 DM 服务
     run_service_remote(specific, &session).await?;
@@ -121,36 +120,55 @@ pub async fn run(
 /// 获取安装包路径：CLI > config > checkpoint 缓存 > 自动下载（按远端平台）。
 async fn resolve_package_for_remote(
     args: &InstallArgs,
-    common: &CommonConfig,
+    installer: &crate::config::InstallerSource,
     runner: &dyn CommandRunner,
     cp: &mut checkpoint::Checkpoint,
 ) -> Result<std::path::PathBuf> {
+    use crate::config::InstallerSource;
     tracing::info!("[2/6] 获取安装包");
 
     if let Some(p) = &args.package {
-        println!("使用本地安装包 (CLI): {}", p.display());
+        println!("使用本地安装包 (CLI --package): {}", p.display());
         return Ok(p.clone());
     }
-    if let Some(p) = &common.installer_package {
-        println!("使用本地安装包 (config.toml): {}", p.display());
-        return Ok(p.clone());
-    }
-    if let Some(cached) = cp
-        .package_cache
-        .as_ref()
-        .map(std::path::Path::new)
-        .filter(|p| p.exists())
-    {
-        println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
-        return Ok(cached.to_path_buf());
+    if let Some(url) = &args.url {
+        println!("下载安装包 (CLI --url): {}", url);
+        let handle = crate::common::download::fetch_from_url(url).await?;
+        let cached = cache_package(&handle.path)?;
+        cp.package_cache = Some(cached.to_string_lossy().into_owned());
+        cp.save()?;
+        return Ok(cached);
     }
 
-    let platform = detect_remote_platform(runner).await;
-    let handle = fetch_dm_installer_for(&platform).await?;
-    let cached_path = cache_package(&handle.path)?;
-    cp.package_cache = Some(cached_path.to_string_lossy().into_owned());
-    cp.save()?;
-    Ok(cached_path)
+    match installer {
+        InstallerSource::LocalFile(path) => {
+            println!("使用本地安装包 (config.toml): {}", path.display());
+            Ok(path.clone())
+        }
+        InstallerSource::Url(url) => {
+            if let Some(cached) = cp.package_cache.as_ref().map(std::path::Path::new).filter(|p| p.exists()) {
+                println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
+                return Ok(cached.to_path_buf());
+            }
+            let handle = crate::common::download::fetch_from_url(url).await?;
+            let cached = cache_package(&handle.path)?;
+            cp.package_cache = Some(cached.to_string_lossy().into_owned());
+            cp.save()?;
+            Ok(cached)
+        }
+        InstallerSource::Auto => {
+            if let Some(cached) = cp.package_cache.as_ref().map(std::path::Path::new).filter(|p| p.exists()) {
+                println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
+                return Ok(cached.to_path_buf());
+            }
+            let platform = detect_remote_platform(runner).await;
+            let handle = fetch_dm_installer_for(&platform).await?;
+            let cached = cache_package(&handle.path)?;
+            cp.package_cache = Some(cached.to_string_lossy().into_owned());
+            cp.save()?;
+            Ok(cached)
+        }
+    }
 }
 
 async fn detect_remote_language(runner: &dyn CommandRunner) -> &'static str {
@@ -287,7 +305,7 @@ async fn run_dminit_remote(
     tracing::info!("[5/6] 远端 dminit 初始化");
     let dminit = format!("{}/bin/dminit", config.install_path);
     let cmd = format!(
-        "{} PATH={} DB_NAME=DAMENG INSTANCE_NAME={} PORT_NUM={} PAGE_SIZE={} EXTENT_SIZE={} CHARSET={} CASE_SENSITIVE={} SYSDBA_PWD={} SYSAUDITOR_PWD={}",
+        "{} PATH={} DB_NAME=DAMENG INSTANCE_NAME={} PORT_NUM={} PAGE_SIZE={} EXTENT_SIZE={} CHARSET={} CASE_SENSITIVE={} ARCH_INI=1 SYSDBA_PWD={} SYSAUDITOR_PWD={}",
         shell_quote(&dminit),
         shell_quote(&config.data_path),
         shell_quote(&config.instance_name),
@@ -303,6 +321,24 @@ async fn run_dminit_remote(
         .exec(&cmd)
         .await
         .map_err(|e| anyhow::anyhow!("远端 dminit 执行失败: {e}"))?;
+    Ok(())
+}
+
+async fn run_write_dmarch_ini_remote(config: &InstallConfig, runner: &dyn CommandRunner) -> Result<()> {
+    tracing::info!("[5b/6] 远端写入 dmarch.ini");
+    let arch_path = config.archive.arch_path.clone()
+        .unwrap_or_else(|| format!("{}/arch", config.data_path));
+    runner
+        .exec(&format!("mkdir -p {}", shell_quote(&arch_path)))
+        .await
+        .map_err(|e| anyhow::anyhow!("远端创建归档目录失败: {e}"))?;
+    let content = crate::standalone::init::generate_standalone_dmarch_ini(config);
+    let dmarch_path = format!("{}/dmarch.ini", config.data_path);
+    runner
+        .sftp_write(&dmarch_path, content.as_bytes())
+        .await
+        .map_err(|e| anyhow::anyhow!("远端写入 dmarch.ini 失败: {e}"))?;
+    tracing::info!("远端 dmarch.ini 写入完成: {}", dmarch_path);
     Ok(())
 }
 
@@ -485,6 +521,7 @@ mod tests {
             charset: 1,
             case_sensitive: true,
             extent_size: 32,
+            archive: Default::default(),
             ssh_target: None,
         }
     }

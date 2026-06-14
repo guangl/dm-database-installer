@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
 use russh::{client, ChannelMsg};
 use russh_sftp::client::SftpSession;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::ssh::SshCredentials;
 
@@ -78,6 +78,23 @@ impl CommandRunner for SshSession {
 
     async fn sftp_write(&self, remote_path: &str, bytes: &[u8]) -> Result<(), SshError> {
         self.sftp_write_with_progress(remote_path, bytes, &|_| {}).await
+    }
+
+    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
+        let channel = self.handle.channel_open_session().await
+            .map_err(|e| SshError::Connect { host: "sftp".to_string(), source: e })?;
+        channel.request_subsystem(true, "sftp").await
+            .map_err(|e| SshError::Connect { host: "sftp-subsystem".to_string(), source: e })?;
+        let sftp = SftpSession::new(channel.into_stream()).await
+            .map_err(|source| SshError::SftpDownload { remote_path: remote_path.to_string(), source })?;
+        let mut file = sftp.open(remote_path).await
+            .map_err(|source| SshError::SftpDownload { remote_path: remote_path.to_string(), source })?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).await.map_err(|e| SshError::SftpDownload {
+            remote_path: remote_path.to_string(),
+            source: russh_sftp::client::error::Error::UnexpectedBehavior(e.to_string()),
+        })?;
+        Ok(buf)
     }
 
     async fn sftp_write_with_progress(

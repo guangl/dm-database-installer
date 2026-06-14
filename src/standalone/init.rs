@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::path::Path;
 use std::process::Command;
 
 use crate::config::InstallConfig;
@@ -52,9 +53,29 @@ pub(crate) fn build_dminit_command(
         format!("EXTENT_SIZE={}", config.extent_size),
         format!("CHARSET={}", config.charset),
         format!("CASE_SENSITIVE={}", if config.case_sensitive { "Y" } else { "N" }),
+        "ARCH_INI=1".to_string(),
         format!("SYSDBA_PWD={}", sysdba_pwd),
         format!("SYSAUDITOR_PWD={}", sysauditor_pwd),
     ]
+}
+
+/// 生成单机 dmarch.ini 内容（仅本地归档，无 REALTIME 段）。
+pub fn generate_standalone_dmarch_ini(config: &InstallConfig) -> String {
+    let arch_path = crate::config::resolve_arch_path(&config.archive, &config.data_path);
+    crate::config::format_local_arch_section(&arch_path, &config.archive)
+}
+
+/// 创建归档目录并写入 dmarch.ini 到 data_path。
+pub fn write_dmarch_ini(config: &InstallConfig) -> Result<()> {
+    let arch_path = crate::config::resolve_arch_path(&config.archive, &config.data_path);
+    std::fs::create_dir_all(&arch_path)
+        .with_context(|| format!("创建归档目录失败: {}", arch_path))?;
+    let content = generate_standalone_dmarch_ini(config);
+    let dmarch_path = Path::new(&config.data_path).join("dmarch.ini");
+    std::fs::write(&dmarch_path, &content)
+        .with_context(|| format!("写入 dmarch.ini 失败: {}", dmarch_path.display()))?;
+    tracing::info!("dmarch.ini 写入完成: {}", dmarch_path.display());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -86,6 +107,7 @@ mod tests {
         assert!(all_args.contains("EXTENT_SIZE="), "缺少 EXTENT_SIZE 参数");
         assert!(all_args.contains("CHARSET="), "缺少 CHARSET 参数");
         assert!(all_args.contains("CASE_SENSITIVE="), "缺少 CASE_SENSITIVE 参数");
+        assert!(all_args.contains("ARCH_INI=1"), "缺少 ARCH_INI=1 参数");
         assert!(all_args.contains("SYSDBA_PWD=DMAdmin1@2024"), "缺少或错误的 SYSDBA_PWD");
         assert!(all_args.contains("SYSAUDITOR_PWD=AuditAdmin2#2024"), "缺少或错误的 SYSAUDITOR_PWD");
     }
@@ -95,5 +117,39 @@ mod tests {
         let args = cmd(&InstallConfig::default());
         assert!(!args.is_empty(), "命令参数列表不能为空");
         assert!(args[0].ends_with("/bin/dminit"), "第一个元素应以 /bin/dminit 结尾，实际: {}", args[0]);
+    }
+
+    #[test]
+    fn test_generate_standalone_dmarch_ini_default_arch_path() {
+        let config = InstallConfig::default();
+        let ini = generate_standalone_dmarch_ini(&config);
+        assert!(ini.contains("ARCH_TYPE = LOCAL"), "应含 LOCAL 归档段");
+        assert!(
+            ini.contains(&format!("{}/arch", config.data_path)),
+            "默认归档路径应为 data_path/arch"
+        );
+        assert!(ini.contains("ARCH_FILE_SIZE = 128"), "默认文件大小应为 128");
+        assert!(ini.contains("ARCH_HANG_FLAG = 0"), "单机默认不挂起");
+    }
+
+    #[test]
+    fn test_generate_standalone_dmarch_ini_custom_arch_path() {
+        use crate::config::ArchiveConfig;
+        let config = InstallConfig {
+            archive: ArchiveConfig {
+                arch_path: Some("/data/myarch".to_string()),
+                file_size: 256,
+                space_limit: 2048,
+                hang_flag: true,
+                compressed: true,
+            },
+            ..Default::default()
+        };
+        let ini = generate_standalone_dmarch_ini(&config);
+        assert!(ini.contains("ARCH_DEST = /data/myarch"), "应使用自定义归档路径");
+        assert!(ini.contains("ARCH_FILE_SIZE = 256"), "应使用自定义 file_size");
+        assert!(ini.contains("ARCH_SPACE_LIMIT = 2048"), "应使用自定义 space_limit");
+        assert!(ini.contains("ARCH_HANG_FLAG = 1"), "hang_flag=true 应输出 1");
+        assert!(ini.contains("ARCH_COMPRESSED = 1"), "compressed=true 应输出 1");
     }
 }
