@@ -212,11 +212,15 @@ download_and_extract() {
         extract_dir="$iso_dir"
     fi
 
-    DM_INSTALL_BIN=$(find "$extract_dir" -name "DMInstall.bin" -type f | head -1)
-    if [ -z "$DM_INSTALL_BIN" ]; then
+    local bin_in_iso
+    bin_in_iso=$(find "$extract_dir" -name "DMInstall.bin" -type f | head -1)
+    if [ -z "$bin_in_iso" ]; then
         log_err "未在安装包中找到 DMInstall.bin"
         exit 1
     fi
+    # ISO 以只读方式挂载，需将文件复制到可写目录后再 chmod
+    DM_INSTALL_BIN="$TMPDIR_WORK/DMInstall.bin"
+    cp "$bin_in_iso" "$DM_INSTALL_BIN"
     chmod +x "$DM_INSTALL_BIN"
     log_ok "解压完成"
 }
