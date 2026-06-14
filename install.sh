@@ -29,6 +29,23 @@ log_err()  { printf "%s[ERR]%s  %s\n" "$RED"    "$RESET" "$*" >&2; }
 log_warn() { printf "%s[WARN]%s %s\n" "$YELLOW" "$RESET" "$*"; }
 log_info() { printf "[--]   %s\n" "$*"; }
 
+# ── 密码生成 ──────────────────────────────────────────────────────────────────────
+# 生成满足达梦密码策略的随机密码（16 位，含大写/小写/数字/特殊字符）
+generate_password() {
+    local u l d s body
+    u=$(LC_ALL=C tr -dc 'ABCDEFGHJKLMNPQRSTUVWXYZ' < /dev/urandom | head -c 1)
+    l=$(LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz'  < /dev/urandom | head -c 1)
+    d=$(LC_ALL=C tr -dc '23456789'                   < /dev/urandom | head -c 1)
+    s=$(LC_ALL=C tr -dc '@#$%&*!'                    < /dev/urandom | head -c 1)
+    body=$(LC_ALL=C tr -dc 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$%&*!' \
+           < /dev/urandom | head -c 12)
+    printf '%s' "${u}${l}${d}${s}${body}" \
+        | fold -w1 \
+        | awk 'BEGIN{srand()} {print rand() " " $0}' \
+        | sort -k1 -n \
+        | awk '{printf $2}'
+}
+
 # ── 清理 ─────────────────────────────────────────────────────────────────────────
 TMPDIR_WORK=""
 cleanup() { [ -n "$TMPDIR_WORK" ] && rm -rf "$TMPDIR_WORK"; }
@@ -226,7 +243,9 @@ run_dminit() {
         "PAGE_SIZE=$DM_PAGE_SIZE" \
         "EXTENT_SIZE=$DM_EXTENT_SIZE" \
         "CASE_SENSITIVE=$DM_CASE_SENSITIVE" \
-        "CHARSET=$DM_CHARSET" || {
+        "CHARSET=$DM_CHARSET" \
+        "SYSDBA_PWD=$SYSDBA_PWD" \
+        "SYSAUDITOR_PWD=$SYSAUDITOR_PWD" || {
         log_err "dminit 初始化失败"
         exit 1
     }
@@ -235,27 +254,40 @@ run_dminit() {
 
 # ── 注册 systemd 服务 ────────────────────────────────────────────────────────────
 register_service() {
-    local service_script="$DM_INSTALL_PATH/script/dm_service_installer.sh"
+    local service_script="$DM_INSTALL_PATH/script/root/dm_service_installer.sh"
     if [ ! -f "$service_script" ]; then
         log_warn "未找到 dm_service_installer.sh，跳过服务注册"
         return 0
     fi
+    chmod +x "$service_script"
 
-    log_info "注册 systemd 服务..."
+    # 1. 注册并启动 DMAP 辅助进程服务
+    log_info "注册 DMAP 辅助进程服务..."
+    bash "$service_script" -t dmap || {
+        log_err "DMAP 服务注册失败"
+        exit 1
+    }
+    systemctl enable DmAPService \
+        || log_warn "请手动执行: systemctl enable DmAPService"
+    systemctl start DmAPService \
+        || log_warn "DmAPService 启动失败，请检查: journalctl -u DmAPService"
+
+    # 2. 注册并启动 dmserver 数据库服务
+    log_info "注册 dmserver 数据库服务..."
+    local dm_ini="$DM_DATA_PATH/$DM_DB_NAME/dm.ini"
     bash "$service_script" -t dmserver \
-        -p "$DM_INSTALL_PATH/bin/dmserver" \
-        -n "$DM_INSTANCE" \
-        -d "$DM_DATA_PATH" || {
-        log_err "服务注册失败"
+        -p "$dm_ini" \
+        -m auto || {
+        log_err "dmserver 服务注册失败"
         exit 1
     }
 
-    local service_name="DmService${DM_INSTANCE}.service"
-    systemctl enable "$service_name" \
-        || log_warn "请手动执行: systemctl enable $service_name"
-    systemctl start "$service_name" \
-        || log_warn "服务启动失败，请检查: journalctl -u $service_name"
-    log_ok "服务注册完成: $service_name"
+    local service_name="DmService${DM_INSTANCE}"
+    systemctl enable "${service_name}.service" \
+        || log_warn "请手动执行: systemctl enable ${service_name}.service"
+    systemctl start "${service_name}.service" \
+        || log_warn "服务启动失败，请检查: journalctl -u ${service_name}.service"
+    log_ok "服务注册完成: ${service_name}.service"
 }
 
 # ── 完成提示 ──────────────────────────────────────────────────────────────────────
@@ -268,7 +300,16 @@ ${GREEN}✓ 达梦数据库安装完成${RESET}
   数据路径  : $DM_DATA_PATH
   监听端口  : $DM_PORT
 
-  连接测试  : $DM_INSTALL_PATH/bin/disql SYSDBA/SYSDBA@localhost:$DM_PORT
+╔══════════════════════════════════════════════════╗
+║              达梦数据库初始凭证                  ║
+╠══════════════════════════════════════════════════╣
+║  SYSDBA     密码: $(printf '%-32s' "$SYSDBA_PWD")║
+║  SYSAUDITOR 密码: $(printf '%-32s' "$SYSAUDITOR_PWD")║
+╠══════════════════════════════════════════════════╣
+║  首次登录后请立即修改密码                        ║
+╚══════════════════════════════════════════════════╝
+
+  连接测试  : $DM_INSTALL_PATH/bin/disql SYSDBA/"$SYSDBA_PWD"@localhost:$DM_PORT
   查看状态  : systemctl status DmService${DM_INSTANCE}.service
 
 EOF
@@ -279,6 +320,8 @@ main() {
     check_root
     check_existing_install
     check_deps
+    SYSDBA_PWD=$(generate_password)
+    SYSAUDITOR_PWD=$(generate_password)
     detect_platform
     select_download_url
     download_and_extract

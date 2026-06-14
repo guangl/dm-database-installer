@@ -1,3 +1,6 @@
 /target
 .claude/
 /docs/book/
+dm_installer_checkpoint.json
+.dm_cache_*.iso
+.dm_cache_*.zip

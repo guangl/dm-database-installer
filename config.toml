@@ -1,0 +1,10 @@
+# 达梦数据库单机安装 — 通用配置
+# 使用方式: dm-installer install
+
+type = "standalone"
+
+# DM 安装包本地路径（不填则自动下载）
+# installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
+
+# 日志级别：trace / debug / info / warn / error
+log_level = "info"
