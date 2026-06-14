@@ -8,6 +8,15 @@
 
 开发者一行命令搞定本地达梦环境，DBA 用配置文件完成生产集群部署——两类用户都不需要手动操作达梦原生安装程序。
 
+## Current Milestone: v1.1 集群扩展
+
+**Goal:** 补全 RWS 读写分离集群端到端可用、DSC 共享存储集群完整实现（含 ASM 初始化）、status 命令查询所有节点运行状态。
+
+**Target features:**
+- RWS 集群完整实现（补全 run_read_routing_phase，dm-installer install rws 端到端可走通）
+- dm-installer status 命令（本地 + SSH 远程节点状态：进程/端口/数据库角色）
+- DSC 共享存储集群部署（dmasmtool ASM 初始化 + 共享存储上的 dminit + 多节点启动）
+
 ## Requirements
 
 ### Validated
@@ -25,10 +34,11 @@
 
 ### Active
 
-- [ ] TOML 配置文件驱动的 DSC 集群安装（多节点共享存储）
+- [ ] RWS 读写分离集群完整实现（v1.1）
+- [ ] `dm-installer status` 运行状态查询（本地 + SSH 远程，v1.1）
+- [ ] TOML 配置文件驱动的 DSC 集群安装（多节点共享存储，含 ASM 初始化，v1.1）
 - [ ] TOML 配置文件驱动的 DPC 集群安装（MP/BP/SP 三角色）
 - [ ] PLAT-04 完整实现：setup.exe /q /XML 集成（Windows 目标机）
-- [ ] `dm-installer status` 运行状态查询
 - [ ] `--dry-run` 模式
 
 ### Out of Scope
@@ -86,4 +96,4 @@
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 after v1.0.0 milestone*
+*Last updated: 2026-06-14 — milestone v1.1 集群扩展 started*
