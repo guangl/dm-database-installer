@@ -33,6 +33,7 @@ impl MockRunner {
         Self { strict: true, ..Self::new(responses) }
     }
 
+    #[allow(dead_code)]
     pub fn set_sftp_read(&self, path: &str, content: Vec<u8>) {
         self.sftp_read_data.lock().unwrap().insert(path.to_string(), content);
     }

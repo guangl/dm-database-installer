@@ -47,13 +47,13 @@ fn resolve_common_config_path(input: Option<&Path>) -> std::path::PathBuf {
         Some(p) => p,
     };
     let specific_names = ["standalone.toml", "dw.toml", "rws.toml", "dsc.toml", "dpc.toml"];
-    if let Some(name) = path.file_name().and_then(|f| f.to_str()) {
-        if specific_names.contains(&name) {
-            let dir = path.parent().unwrap_or(Path::new("."));
-            let common = dir.join(super::CONFIG_FILE);
-            println!("提示: {} 是特有配置文件，自动切换到 {} 进行验证", name, common.display());
-            return common;
-        }
+    if let Some(name) = path.file_name().and_then(|f| f.to_str())
+        && specific_names.contains(&name)
+    {
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let common = dir.join(super::CONFIG_FILE);
+        println!("提示: {} 是特有配置文件，自动切换到 {} 进行验证", name, common.display());
+        return common;
     }
     path.to_path_buf()
 }
