@@ -52,20 +52,20 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RWS-01 | — | Pending |
-| RWS-02 | — | Pending |
-| STAT-01 | — | Pending |
-| STAT-02 | — | Pending |
-| STAT-03 | — | Pending |
-| DSC-01 | — | Pending |
-| DSC-02 | — | Pending |
-| DSC-03 | — | Pending |
+| RWS-01 | Phase 5 | Pending |
+| RWS-02 | Phase 5 | Pending |
+| STAT-01 | Phase 6 | Pending |
+| STAT-02 | Phase 6 | Pending |
+| STAT-03 | Phase 6 | Pending |
+| DSC-01 | Phase 7 | Pending |
+| DSC-02 | Phase 7 | Pending |
+| DSC-03 | Phase 7 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 8 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 8 ⚠️
+- Mapped to phases: 8 (Phase 5: 2, Phase 6: 3, Phase 7: 3)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-14*
-*Last updated: 2026-06-14 — milestone v1.1 initial definition*
+*Last updated: 2026-06-14 — traceability mapped to v1.1 roadmap phases*
