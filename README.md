@@ -22,7 +22,19 @@
 
 ## 安装
 
-### 方式一：预编译二进制（推荐）
+### 方式一：一行命令直接安装 DM 数据库（开发者推荐）
+
+纯 shell 脚本，无需 Rust，无需任何外部依赖，`curl | bash` 即可在本地拉起 DM8 环境：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash
+```
+
+> 仅支持 Linux（x86_64 / aarch64）。安装完成后会输出随机生成的 SYSDBA / SYSAUDITOR 密码，请妥善保存。
+
+### 方式二：安装 dm-installer 管理工具（DBA / 生产环境推荐）
+
+适合需要自定义参数、SSH 远程部署、主备集群等精细化场景。
 
 **Linux / macOS**
 ```sh
@@ -34,13 +46,13 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/guangl/dm-database-inst
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/guangl/dm-database-installer/releases/latest/download/dm-database-installer-installer.ps1 | iex"
 ```
 
-### 方式二：从 crates.io 安装
+### 方式三：从 crates.io 安装
 
 ```sh
 cargo install dm-database-installer
 ```
 
-### 方式三：从源码编译
+### 方式四：从源码编译
 
 ```sh
 git clone https://github.com/guangl/dm-database-installer.git

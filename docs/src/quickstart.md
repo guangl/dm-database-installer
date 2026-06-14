@@ -1,6 +1,24 @@
 # 快速开始
 
-## 本地单机安装（最快路径）
+## 一行命令（最快路径）
+
+适合开发者在本地快速拉起 DM8 环境，无需安装任何工具：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash
+```
+
+脚本自动检测系统架构与发行版，下载并静默安装 DM8。安装完成后会输出随机生成的 SYSDBA / SYSAUDITOR 密码，请妥善保存。
+
+> 仅支持 Linux（x86_64 / aarch64）。需要自定义参数或生产部署，请使用下方 `dm-installer` 工具。
+
+---
+
+## 使用 dm-installer 工具（自定义参数）
+
+首先按[安装说明](installation.md)安装 `dm-installer`，然后：
+
+### 本地单机安装
 
 ```sh
 # 1. 生成配置模板（当前目录）
