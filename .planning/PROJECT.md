@@ -34,7 +34,7 @@
 
 ### Active
 
-- [ ] RWS 读写分离集群完整实现（v1.1）
+- [x] RWS 读写分离集群完整实现（v1.1）— 已在 Phase 05 验证
 - [ ] `dm-installer status` 运行状态查询（本地 + SSH 远程，v1.1）
 - [ ] TOML 配置文件驱动的 DSC 集群安装（多节点共享存储，含 ASM 初始化，v1.1）
 - [ ] TOML 配置文件驱动的 DPC 集群安装（MP/BP/SP 三角色）
@@ -96,4 +96,4 @@
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 — milestone v1.1 集群扩展 started*
+*Last updated: 2026-06-14 — Phase 05 (rws) complete: checkpoint 断点续传 + run_read_routing_phase 集成*
