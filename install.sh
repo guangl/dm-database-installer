@@ -281,7 +281,7 @@ write_response_xml() {
     cat >"$RESPONSE_XML" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <DATABASE>
-    <LANGUAGE>CN</LANGUAGE>
+    <LANGUAGE>ZH</LANGUAGE>
     <INSTALL_TYPE>0</INSTALL_TYPE>
     <INSTALL_PATH>${DM_INSTALL_PATH}</INSTALL_PATH>
     <DM_DATA_PATH>${DM_DATA_PATH}</DM_DATA_PATH>
