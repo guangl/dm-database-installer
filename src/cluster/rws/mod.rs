@@ -51,3 +51,29 @@ pub async fn run_with_runners(
     tracing::info!("集群部署完成");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_checkpoint_gate_skips_done_phases() {
+        let dir = TempDir::new().unwrap();
+        let cp = crate::cluster::checkpoint::ClusterCheckpoint {
+            preflight_done: true,
+            install_done: true,
+            primary_init_done: true,
+            backup_done: false,
+            standby_restore_done: false,
+        };
+        cp.save_to(dir.path()).unwrap();
+        let loaded = crate::cluster::checkpoint::ClusterCheckpoint::load_from(dir.path())
+            .unwrap()
+            .unwrap();
+        assert!(loaded.preflight_done, "preflight gate: 应可跳过");
+        assert!(loaded.install_done, "install gate: 应可跳过");
+        assert!(loaded.primary_init_done, "primary_init gate: 应可跳过");
+        assert!(!loaded.backup_done, "backup gate: 应继续执行");
+        assert!(!loaded.standby_restore_done, "standby_restore gate: 应继续执行");
+    }
+}
