@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -144,7 +144,7 @@ async fn try_auth(
 async fn try_key_auth(
     handle: &mut client::Handle<TofuHandler>,
     user: &str,
-    identity_file: &PathBuf,
+    identity_file: &Path,
 ) -> Result<(), russh::Error> {
     let expanded = expand_tilde(identity_file);
     let key_pair = load_secret_key(&expanded, None)?;
@@ -185,26 +185,26 @@ async fn collect_exec_output(
 
 /// Rust PathBuf 不会自动展开 `~`，需要手动处理。
 /// Windows 用 USERPROFILE，Unix 用 HOME；两种路径分隔符均支持。
-fn expand_tilde(path: &PathBuf) -> PathBuf {
+fn expand_tilde(path: &Path) -> PathBuf {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
     expand_tilde_with_home(path, home.as_deref())
 }
 
-fn expand_tilde_with_home(path: &PathBuf, home: Option<&std::ffi::OsStr>) -> PathBuf {
+fn expand_tilde_with_home(path: &Path, home: Option<&std::ffi::OsStr>) -> PathBuf {
     let s = match path.to_str() {
         Some(s) => s,
-        None => return path.clone(),
+        None => return path.to_path_buf(),
     };
     let rest = if let Some(r) = s.strip_prefix("~/") {
         r
     } else if let Some(r) = s.strip_prefix("~\\") {
         r
     } else {
-        return path.clone();
+        return path.to_path_buf();
     };
     match home {
         Some(h) => PathBuf::from(h).join(rest),
-        None => path.clone(),
+        None => path.to_path_buf(),
     }
 }
 

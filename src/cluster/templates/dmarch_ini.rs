@@ -4,6 +4,7 @@ use crate::config::cluster::NodeConfig;
 ///
 /// - 主节点：ARCH_DEST = 备节点实例名（实时归档目标为备节点）
 /// - 备节点：ARCH_DEST = 主节点实例名（用于角色切换时）
+///
 /// 本地归档目录基于当前节点的 data_path。
 pub fn generate_dmarch_ini(node: &NodeConfig, peer_instance: &str) -> String {
     format!(

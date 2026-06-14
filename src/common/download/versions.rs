@@ -45,8 +45,8 @@ pub fn filter_entries<'a>(
     entries
         .iter()
         .filter(|e| e.arch == arch)
-        .filter(|e| cpu.map_or(true, |c| e.cpu == c))
-        .filter(|e| os.map_or(true, |o| e.os == o))
+        .filter(|e| cpu.is_none_or(|c| e.cpu == c))
+        .filter(|e| os.is_none_or(|o| e.os == o))
         .collect()
 }
 
@@ -61,7 +61,7 @@ pub fn filter_entries_os_prefix<'a>(
     entries
         .iter()
         .filter(|e| e.arch == arch)
-        .filter(|e| cpu.map_or(true, |c| e.cpu == c))
+        .filter(|e| cpu.is_none_or(|c| e.cpu == c))
         .filter(|e| e.os.starts_with(os_prefix))
         .collect()
 }

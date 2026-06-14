@@ -156,7 +156,7 @@ fn parse_release_file(path: &str) -> Option<String> {
     if lower.contains("centos") && upper.contains("RELEASE 7") {
         return Some("centos7".into());
     }
-    if (lower.contains("red hat") || lower.contains("redhat")) {
+    if lower.contains("red hat") || lower.contains("redhat") {
         if upper.contains("RELEASE 7") {
             return Some("rhel7".into());
         }

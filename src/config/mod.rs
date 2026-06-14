@@ -45,6 +45,7 @@ pub struct CommonConfig {
     pub installer_package: Option<PathBuf>,
     /// 日志级别，默认 info
     #[serde(default = "default_log_level")]
+    #[allow(dead_code)]
     pub log_level: String,
 }
 
@@ -301,17 +302,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    fn write_standalone(content: &str) -> (NamedTempFile, NamedTempFile) {
-        let dir = tempfile::tempdir().unwrap();
-        // common: config.toml
-        let mut common = NamedTempFile::new_in(dir.path()).unwrap();
-        writeln!(common, "type = \"standalone\"").unwrap();
-        // specific: standalone.toml
-        let mut specific = NamedTempFile::new_in(dir.path()).unwrap();
-        writeln!(specific, "{}", content).unwrap();
-        (common, specific)
     }
 
     #[test]

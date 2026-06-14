@@ -39,7 +39,7 @@ pub async fn upload_installer_and_install(
     tracing::info!("[node:{:?}][1/6] 生成 XML response file", node.role);
     let install_config = node_to_install_config(node);
     let language = detect_node_language(runner).await;
-    let xml_file = generate_install_xml(&install_config, &language).context("生成 XML response file 失败")?;
+    let xml_file = generate_install_xml(&install_config, language).context("生成 XML response file 失败")?;
     let xml_content = std::fs::read_to_string(xml_file.path()).context("读取 XML 临时文件失败")?;
     let remote_xml = format!("/tmp/cluster_install_{}.xml", node.instance_name);
     runner

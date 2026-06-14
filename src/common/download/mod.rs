@@ -15,10 +15,6 @@ pub struct PackageHandle {
 }
 
 impl PackageHandle {
-    pub fn from_user_path(path: PathBuf) -> Self {
-        Self { path, _owned_dir: None }
-    }
-
     fn from_download(path: PathBuf, dir: TempDir) -> Self {
         Self { path, _owned_dir: Some(dir) }
     }
@@ -37,15 +33,13 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
     let all = versions::parse_versions();
     let mut matches = versions::filter_entries(&all, &platform.arch, platform.cpu.as_deref(), platform.os.as_deref());
 
-    if matches.is_empty() {
-        if let Some(os_str) = &platform.os {
-            for prefix in os_fallback_prefixes(os_str) {
-                let prefix_matches = versions::filter_entries_os_prefix(&all, &platform.arch, platform.cpu.as_deref(), prefix);
-                if !prefix_matches.is_empty() {
-                    tracing::warn!("OS '{}' 无精确匹配，自动选用最近版本 '{}'", os_str, prefix_matches[0].os);
-                    matches = prefix_matches;
-                    break;
-                }
+    if matches.is_empty() && let Some(os_str) = &platform.os {
+        for prefix in os_fallback_prefixes(os_str) {
+            let prefix_matches = versions::filter_entries_os_prefix(&all, &platform.arch, platform.cpu.as_deref(), prefix);
+            if !prefix_matches.is_empty() {
+                tracing::warn!("OS '{}' 无精确匹配，自动选用最近版本 '{}'", os_str, prefix_matches[0].os);
+                matches = prefix_matches;
+                break;
             }
         }
     }
@@ -72,10 +66,8 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
 /// 例：kylin10_sp1 → ["kylin10_sp1", "kylin10"]；kylin10 → ["kylin10"]
 fn os_fallback_prefixes(os: &str) -> Vec<&str> {
     let mut prefixes = vec![os];
-    if let Some(base) = os.split("_sp").next() {
-        if base != os {
-            prefixes.push(base);
-        }
+    if let Some(base) = os.split("_sp").next() && base != os {
+        prefixes.push(base);
     }
     prefixes
 }
