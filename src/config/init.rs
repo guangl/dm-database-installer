@@ -29,7 +29,7 @@ pub fn run(kind: &InitKind) -> Result<()> {
             write_template(&dir.join("rws.toml"), args.force, RWS_SPECIFIC)?;
             println!("已生成读写分离集群配置模板:");
             println!("  config.toml  — 通用配置（type、安装包路径等）");
-            println!("  rws.toml     — 读写分离特有配置（节点、OGUID 等）");
+            println!("  rws.toml     — 读写分离特有配置（节点、OGUID、路由等）");
             println!("编辑后使用: dm-installer install");
         }
         InitKind::Dsc(args) => {
