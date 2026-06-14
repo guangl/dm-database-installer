@@ -277,11 +277,17 @@ download_and_extract() {
 
 # ── 生成响应文件 ──────────────────────────────────────────────────────────────────
 write_response_xml() {
+    local sys_lang
+    case "${LANG:-${LC_ALL:-}}" in
+        zh_*) sys_lang="ZH" ;;
+        *)    sys_lang="EN" ;;
+    esac
+
     RESPONSE_XML="$TMPDIR_WORK/dm_install.xml"
     cat >"$RESPONSE_XML" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <DATABASE>
-    <LANGUAGE>ZH</LANGUAGE>
+    <LANGUAGE>${sys_lang}</LANGUAGE>
     <INSTALL_TYPE>0</INSTALL_TYPE>
     <INSTALL_PATH>${DM_INSTALL_PATH}</INSTALL_PATH>
     <DM_DATA_PATH>${DM_DATA_PATH}</DM_DATA_PATH>
