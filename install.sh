@@ -195,18 +195,38 @@ select_download_url() {
     log_ok "匹配安装包: $(basename "$DOWNLOAD_URL")"
 }
 
+# ── 选择有足够空间的临时目录（至少 4GB）─────────────────────────────────────────
+choose_work_dir() {
+    # 达梦安装包 zip ~1.8GB + ISO ~1.5GB，需要约 4GB 可用空间
+    local need_kb=$((4 * 1024 * 1024))
+    for candidate in /var/tmp /tmp; do
+        local avail_kb
+        avail_kb=$(df -Pk "$candidate" 2>/dev/null | awk 'NR==2{print $4}')
+        if [ -n "$avail_kb" ] && [ "$avail_kb" -ge "$need_kb" ]; then
+            printf '%s' "$candidate"
+            return
+        fi
+    done
+    log_err "磁盘空间不足：/var/tmp 和 /tmp 均低于 4GB 可用"
+    log_err "请释放磁盘空间后重试，或将安装包手动下载到空间充足的目录"
+    exit 1
+}
+
 # ── 下载并解压 ────────────────────────────────────────────────────────────────────
 download_and_extract() {
-    TMPDIR_WORK=$(mktemp -d)
+    local base_dir
+    base_dir=$(choose_work_dir)
+    TMPDIR_WORK=$(mktemp -d -p "$base_dir")
     local zip_file="$TMPDIR_WORK/dm8.zip"
     local extract_dir="$TMPDIR_WORK/dm8_extract"
     mkdir -p "$extract_dir"
 
-    log_info "下载安装包..."
-    curl -L --progress-bar -o "$zip_file" \
+    log_info "下载安装包（临时目录: $TMPDIR_WORK）..."
+    curl -L --no-progress-meter -o "$zip_file" \
         --max-time 1800 --retry 3 \
         "$DOWNLOAD_URL" || {
         log_err "下载失败: $DOWNLOAD_URL"
+        log_err "如网络正常但仍报错，请检查 $base_dir 磁盘可用空间"
         exit 1
     }
     log_ok "下载完成"
@@ -261,7 +281,9 @@ XML
 # ── 静默安装 ──────────────────────────────────────────────────────────────────────
 run_dminstall() {
     log_info "执行静默安装（以下为安装器输出）..."
-    if ! "$DM_INSTALL_BIN" -q "$RESPONSE_XML"; then
+    # DMInstall.bin 默认使用 /tmp 作为自身临时目录，需要 2GB 可用空间。
+    # 将其重定向到我们已验证有足够空间的目录，避免 tmpfs 不足报错。
+    if ! DM_INSTALL_TMPDIR="$TMPDIR_WORK" "$DM_INSTALL_BIN" -q "$RESPONSE_XML"; then
         log_err "安装失败，请根据上方安装器输出排查原因"
         exit 1
     fi
