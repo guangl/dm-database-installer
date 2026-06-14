@@ -36,7 +36,7 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     cp.save()?;
 
     // [2/7] 获取安装包（自动下载时缓存到 CWD，支持续传）
-    let package_path = resolve_package(args, &common, &mut cp).await?;
+    let package_path = resolve_package(args, &common.installer, &mut cp).await?;
     verify_checksum(args, &package_path)?;
 
     // [3/7] 提取 DMInstall.bin
@@ -58,6 +58,7 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         println!("[续] 跳过 dminit，实例已初始化");
     } else {
         step_dminit(&specific, &sysdba_pwd, &sysauditor_pwd)?;
+        step_write_dmarch_ini(&specific)?;
     }
 
     // [6/7] 注册并启动 DM 系统服务
@@ -145,36 +146,57 @@ fn validate_password_complexity(pwd: &str) -> Result<()> {
     Ok(())
 }
 
-/// 解析安装包路径：优先级为 CLI --package > config installer_package > checkpoint 缓存 > 自动下载。
-/// 自动下载时将包持久化到 CWD，路径存入 checkpoint，支持中断续传。
+/// 解析安装包路径：CLI > config > checkpoint 缓存 > 自动下载。
+/// 需要网络下载时将结果持久化到 CWD（.dm_cache_ 前缀），支持中断续传。
 async fn resolve_package(
     args: &InstallArgs,
-    common: &CommonConfig,
+    installer: &crate::config::InstallerSource,
     cp: &mut checkpoint::Checkpoint,
 ) -> Result<std::path::PathBuf> {
+    use crate::config::InstallerSource;
     tracing::info!("[2/7] 获取安装包路径");
 
     if let Some(p) = &args.package {
-        println!("使用本地安装包 (CLI): {}", p.display());
+        println!("使用本地安装包 (CLI --package): {}", p.display());
         return Ok(p.clone());
     }
-    if let Some(p) = &common.installer_package {
-        println!("使用本地安装包 (config.toml): {}", p.display());
-        return Ok(p.clone());
+    if let Some(url) = &args.url {
+        println!("下载安装包 (CLI --url): {}", url);
+        let handle = crate::common::download::fetch_from_url(url).await?;
+        let cached = cache_package(&handle.path)?;
+        cp.package_cache = Some(cached.to_string_lossy().into_owned());
+        cp.save()?;
+        return Ok(cached);
     }
 
-    // 检查 checkpoint 中的已下载缓存
-    if let Some(cached) = cp.package_cache.as_ref().map(std::path::Path::new).filter(|p| p.exists()) {
-        println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
-        return Ok(cached.to_path_buf());
+    match installer {
+        InstallerSource::LocalFile(path) => {
+            println!("使用本地安装包 (config.toml): {}", path.display());
+            Ok(path.clone())
+        }
+        InstallerSource::Url(url) => {
+            if let Some(cached) = cp.package_cache.as_ref().map(std::path::Path::new).filter(|p| p.exists()) {
+                println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
+                return Ok(cached.to_path_buf());
+            }
+            let handle = crate::common::download::fetch_from_url(url).await?;
+            let cached = cache_package(&handle.path)?;
+            cp.package_cache = Some(cached.to_string_lossy().into_owned());
+            cp.save()?;
+            Ok(cached)
+        }
+        InstallerSource::Auto => {
+            if let Some(cached) = cp.package_cache.as_ref().map(std::path::Path::new).filter(|p| p.exists()) {
+                println!("[续] 跳过下载，使用已缓存安装包: {}", cached.display());
+                return Ok(cached.to_path_buf());
+            }
+            let handle = crate::common::download::fetch_dm_installer().await?;
+            let cached = cache_package(&handle.path)?;
+            cp.package_cache = Some(cached.to_string_lossy().into_owned());
+            cp.save()?;
+            Ok(cached)
+        }
     }
-
-    // 自动下载，完成后持久化到 CWD
-    let handle = crate::common::download::fetch_dm_installer().await?;
-    let cached_path = cache_package(&handle.path)?;
-    cp.package_cache = Some(cached_path.to_string_lossy().into_owned());
-    cp.save()?;
-    Ok(cached_path)
 }
 
 /// 将安装包复制到 CWD，文件名加 `.dm_cache_` 前缀，避免与用户文件冲突。
@@ -216,6 +238,11 @@ fn step_silent_install(config: &InstallConfig, extract_dir: &tempfile::TempDir) 
 fn step_dminit(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &str) -> Result<()> {
     tracing::info!("[6/7] dminit 初始化");
     init::run_dminit(config, sysdba_pwd, sysauditor_pwd)
+}
+
+fn step_write_dmarch_ini(config: &InstallConfig) -> Result<()> {
+    tracing::info!("[6b/7] 写入 dmarch.ini");
+    init::write_dmarch_ini(config)
 }
 
 fn step_register_service(config: &InstallConfig) -> Result<()> {

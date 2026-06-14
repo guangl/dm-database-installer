@@ -15,9 +15,35 @@ pub struct PackageHandle {
 }
 
 impl PackageHandle {
+    pub fn from_path(path: PathBuf) -> Self {
+        Self { path, _owned_dir: None }
+    }
     fn from_download(path: PathBuf, dir: TempDir) -> Self {
         Self { path, _owned_dir: Some(dir) }
     }
+}
+
+/// 从指定 URL 下载安装包（支持 .zip 自动解压，.iso/.bin 直接使用）。
+pub async fn fetch_from_url(url: &str) -> Result<PackageHandle> {
+    let file_name = url.split('/').next_back().unwrap_or("dm_installer");
+    println!("下载安装包: {}", file_name);
+    println!("来源: {}", url);
+
+    let download_dir = TempDir::new().context("创建临时目录失败")?;
+    let dest = download_dir.path().join(file_name);
+
+    http::download_with_progress(url, &dest).await?;
+
+    let installer = if file_name.to_lowercase().ends_with(".zip") {
+        println!("解压安装包...");
+        let extracted = http::extract_zip_installer(&dest, download_dir.path())?;
+        println!("已解压: {}", extracted.display());
+        extracted
+    } else {
+        dest
+    };
+
+    Ok(PackageHandle::from_download(installer, download_dir))
 }
 
 /// 根据 versions.txt 自动检测本地平台并下载安装包。
@@ -45,21 +71,7 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
     }
 
     let entry = select::select_version(&all, &matches, &platform.arch)?;
-
-    let file_name = entry.file_name();
-    println!("下载安装包: {}", file_name);
-    println!("来源: {}", entry.url);
-
-    let download_dir = TempDir::new().context("创建临时目录失败")?;
-    let zip_path = download_dir.path().join(file_name);
-
-    http::download_with_progress(&entry.url, &zip_path).await?;
-
-    println!("解压安装包...");
-    let installer = http::extract_zip_installer(&zip_path, download_dir.path())?;
-    println!("已解压: {}", installer.display());
-
-    Ok(PackageHandle::from_download(installer, download_dir))
+    fetch_from_url(&entry.url).await
 }
 
 /// 构建 OS 前缀回退链：先精确前缀，再去掉 _sp* 后缀降级。

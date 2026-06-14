@@ -2,6 +2,38 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+/// 日志回滚策略。
+#[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum LogRotation {
+    #[default]
+    Never,
+    Daily,
+    Hourly,
+}
+
+/// 日志配置，对应 config.toml 的 [logging] section。
+#[derive(Debug, Deserialize)]
+pub struct LogConfig {
+    /// 日志级别：trace / debug / info / warn / error
+    #[serde(default = "default_log_level")]
+    pub level: String,
+    /// 日志文件路径，不填则只输出到终端
+    pub file: Option<PathBuf>,
+    /// 回滚策略，仅在 file 有值时生效
+    #[serde(default)]
+    pub rotation: LogRotation,
+    /// 最多保留的历史日志文件数，0 = 不自动删除
+    #[serde(default)]
+    pub max_files: usize,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self { level: default_log_level(), file: None, rotation: LogRotation::Never, max_files: 0 }
+    }
+}
+
 pub mod cluster;
 pub mod init;
 pub mod ssh;
@@ -15,7 +47,7 @@ pub const CONFIG_FILE: &str = "config.toml";
 #[serde(rename_all = "kebab-case")]
 pub enum InstallType {
     Standalone,
-    PrimaryStandby,
+    Dw,
     Rws,
     Dsc,
     Dpc,
@@ -26,7 +58,7 @@ impl InstallType {
     pub fn specific_config_file(self) -> &'static str {
         match self {
             InstallType::Standalone => "standalone.toml",
-            InstallType::PrimaryStandby => "primary-standby.toml",
+            InstallType::Dw => "dw.toml",
             InstallType::Rws => "rws.toml",
             InstallType::Dsc => "dsc.toml",
             InstallType::Dpc => "dpc.toml",
@@ -34,22 +66,66 @@ impl InstallType {
     }
 }
 
-/// 通用配置（config.toml）：安装类型、安装包来源、日志级别。
-/// SSH 凭证在各特有配置文件中单独配置（standalone.toml / primary-standby.toml 等）。
-#[derive(Debug, Deserialize)]
+/// 安装包来源（三选一）。
+#[derive(Debug, Clone)]
+pub enum InstallerSource {
+    /// 自动从内嵌 versions.txt 检测平台并下载（仅单机/单机 SSH 支持）
+    Auto,
+    /// 用户提供的本地文件路径
+    LocalFile(PathBuf),
+    /// 用户提供的自定义下载链接
+    Url(String),
+}
+
+/// 通用配置（config.toml）：安装类型、安装包来源。
+/// 日志配置通过 load_log_config() 单独提前读取，SSH 凭证在各特有配置文件中单独配置。
+#[derive(Debug)]
 pub struct CommonConfig {
-    /// 安装类型，决定特有配置文件的文件名
-    #[serde(rename = "type")]
     pub install_type: InstallType,
-    /// DM 安装包本地路径，不提供则自动下载（单机）或报错（集群）
-    pub installer_package: Option<PathBuf>,
-    /// 日志级别，默认 info
-    #[serde(default = "default_log_level")]
-    #[allow(dead_code)]
-    pub log_level: String,
+    pub installer: InstallerSource,
+}
+
+/// TOML 反序列化代理：接收原始字段，转换时校验互斥约束。
+#[derive(Deserialize)]
+struct CommonConfigRaw {
+    #[serde(rename = "type")]
+    install_type: InstallType,
+    #[serde(default)]
+    installer_package: Option<PathBuf>,
+    #[serde(default)]
+    installer_url: Option<String>,
+}
+
+impl TryFrom<CommonConfigRaw> for CommonConfig {
+    type Error = anyhow::Error;
+    fn try_from(raw: CommonConfigRaw) -> Result<Self> {
+        let installer = match (raw.installer_package, raw.installer_url) {
+            (Some(_), Some(_)) => bail!("installer_package 和 installer_url 不能同时设置，请二选一"),
+            (Some(path), None) => InstallerSource::LocalFile(path),
+            (None, Some(url)) => InstallerSource::Url(url),
+            (None, None) => InstallerSource::Auto,
+        };
+        Ok(CommonConfig { install_type: raw.install_type, installer })
+    }
 }
 
 fn default_log_level() -> String { "info".to_string() }
+
+/// 仅读取 config.toml 中的 [logging] section，容忍文件缺失（返回默认值）。
+/// 用于在完整配置加载前初始化日志系统。
+pub fn load_log_config() -> LogConfig {
+    #[derive(Deserialize, Default)]
+    struct LogOnly {
+        #[serde(default)]
+        logging: LogConfig,
+    }
+    let Ok(content) = std::fs::read_to_string(CONFIG_FILE) else {
+        return LogConfig::default();
+    };
+    toml::from_str::<LogOnly>(&content)
+        .map(|c| c.logging)
+        .unwrap_or_default()
+}
 
 /// 加载后的完整配置：通用配置 + 特有配置。
 pub enum LoadedConfig {
@@ -89,14 +165,16 @@ pub fn load_config_from(common_path: &Path) -> Result<LoadedConfig> {
 pub(super) fn load_common_config(path: &Path) -> Result<CommonConfig> {
     if !path.exists() {
         bail!(
-            "未找到配置文件 {}\n请先运行 dm-installer init standalone 或 dm-installer init cluster <type>",
+            "未找到配置文件 {}\n请先运行 dm-installer init standalone 或 dm-installer init <dw|rws|dsc>",
             path.display()
         );
     }
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("无法读取配置文件: {}", path.display()))?;
-    toml::from_str::<CommonConfig>(&content)
-        .with_context(|| format!("配置文件解析失败: {}", path.display()))
+    let raw = toml::from_str::<CommonConfigRaw>(&content)
+        .with_context(|| format!("配置文件解析失败: {}", path.display()))?;
+    CommonConfig::try_from(raw)
+        .with_context(|| format!("配置文件无效: {}", path.display()))
 }
 
 pub(super) fn load_standalone_specific(path: &Path) -> Result<InstallConfig> {
@@ -112,7 +190,73 @@ pub(super) fn load_standalone_specific(path: &Path) -> Result<InstallConfig> {
     Ok(cfg)
 }
 
-/// 单机安装特有配置（运行时扁平结构，从 [install] + [instance] + [ssh_target] 三组解析而来）。
+/// 归档配置，单机和集群共用。
+/// 单机：仅本地归档；集群：本地归档 + 实时归档（REALTIME 段由集群层额外拼接）。
+#[derive(Debug, Deserialize, Clone)]
+pub struct ArchiveConfig {
+    /// 归档目录，不填则默认为 {data_path}/arch
+    #[serde(default)]
+    pub arch_path: Option<String>,
+    /// 单归档文件大小（MB），默认 128
+    #[serde(default = "default_arch_file_size")]
+    pub file_size: u32,
+    /// 归档空间上限（MB），0 = 无限
+    #[serde(default)]
+    pub space_limit: u32,
+    /// 归档失败时是否挂起数据库，默认 false
+    #[serde(default)]
+    pub hang_flag: bool,
+    /// 是否压缩归档文件，默认 false
+    #[serde(default)]
+    pub compressed: bool,
+}
+
+fn default_arch_file_size() -> u32 { 128 }
+
+impl Default for ArchiveConfig {
+    fn default() -> Self {
+        Self { arch_path: None, file_size: 128, space_limit: 0, hang_flag: false, compressed: false }
+    }
+}
+
+/// 解析归档目录：优先取配置值，否则用 `{data_path}/arch`。
+pub(crate) fn resolve_arch_path(arch: &ArchiveConfig, data_path: &str) -> String {
+    arch.arch_path.clone().unwrap_or_else(|| format!("{}/arch", data_path))
+}
+
+/// 生成 dmarch.ini 的 LOCAL 段（单机和集群共用）。
+pub(crate) fn format_local_arch_section(arch_path: &str, arch: &ArchiveConfig) -> String {
+    format!(
+        "[ARCHIVE_LOCAL1]\nARCH_TYPE = LOCAL\nARCH_DEST = {}\n\
+         ARCH_FILE_SIZE = {}\nARCH_SPACE_LIMIT = {}\n\
+         ARCH_HANG_FLAG = {}\nARCH_COMPRESSED = {}\n",
+        arch_path,
+        arch.file_size,
+        arch.space_limit,
+        arch.hang_flag as u8,
+        arch.compressed as u8,
+    )
+}
+
+/// 校验数据库初始化参数的值域约束（单机和集群共用）。
+/// `ctx` 为错误前缀（单机传 `""`，集群传 `"dminit "`）。
+pub(crate) fn validate_db_params(ctx: &str, port: u16, page_size: u8, charset: u8, extent_size: u8) -> anyhow::Result<()> {
+    if port == 0 {
+        anyhow::bail!("配置验证失败: {}port 无效: 0；有效范围为 1-65535", ctx);
+    }
+    if ![4u8, 8, 16, 32].contains(&page_size) {
+        anyhow::bail!("配置验证失败: {}page_size 无效: {}；有效值为 4/8/16/32", ctx, page_size);
+    }
+    if ![0u8, 1, 2].contains(&charset) {
+        anyhow::bail!("配置验证失败: {}charset 无效: {}；有效值 0=GB18030 1=UTF-8 2=EUC-KR", ctx, charset);
+    }
+    if ![16u8, 32].contains(&extent_size) {
+        anyhow::bail!("配置验证失败: {}extent_size 无效: {}；有效值为 16/32", ctx, extent_size);
+    }
+    Ok(())
+}
+
+/// 单机安装特有配置（运行时扁平结构，从 [install] + [instance] + [archive] + [ssh_target] 四组解析而来）。
 #[derive(Debug)]
 pub struct InstallConfig {
     pub install_path: String,
@@ -123,6 +267,7 @@ pub struct InstallConfig {
     pub charset: u8,
     pub case_sensitive: bool,
     pub extent_size: u8,
+    pub archive: ArchiveConfig,
     pub ssh_target: Option<ssh::SshTarget>,
 }
 
@@ -177,6 +322,8 @@ struct InstallConfigFile {
     install: InstallSection,
     #[serde(default)]
     instance: InstanceSection,
+    #[serde(default)]
+    archive: ArchiveConfig,
     ssh_target: Option<ssh::SshTarget>,
 }
 
@@ -191,6 +338,7 @@ impl From<InstallConfigFile> for InstallConfig {
             charset: f.instance.charset,
             case_sensitive: f.instance.case_sensitive,
             extent_size: f.instance.extent_size,
+            archive: f.archive,
             ssh_target: f.ssh_target,
         }
     }
@@ -216,6 +364,7 @@ impl Default for InstallConfig {
             charset: default_charset(),
             case_sensitive: default_case_sensitive(),
             extent_size: default_extent_size(),
+            archive: ArchiveConfig::default(),
             ssh_target: None,
         }
     }
@@ -223,18 +372,7 @@ impl Default for InstallConfig {
 
 /// 验证 InstallConfig 字段语义合法性（枚举值域、范围约束）。
 pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
-    if ![4u8, 8, 16, 32].contains(&cfg.page_size) {
-        bail!("配置验证失败: page_size 无效: {}；有效值为 4/8/16/32", cfg.page_size);
-    }
-    if ![0u8, 1, 2].contains(&cfg.charset) {
-        bail!("配置验证失败: charset 无效: {}；有效值 0=GB18030 1=UTF-8 2=EUC-KR", cfg.charset);
-    }
-    if ![16u8, 32].contains(&cfg.extent_size) {
-        bail!("配置验证失败: extent_size 无效: {}；有效值为 16/32", cfg.extent_size);
-    }
-    if cfg.port == 0 {
-        bail!("配置验证失败: port 无效: 0；有效范围为 1-65535");
-    }
+    validate_db_params("", cfg.port, cfg.page_size, cfg.charset, cfg.extent_size)?;
     if let Some(target) = &cfg.ssh_target {
         if target.host.is_empty() {
             bail!("配置验证失败: ssh_target.host 不能为空");

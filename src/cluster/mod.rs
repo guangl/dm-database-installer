@@ -7,6 +7,7 @@ pub mod deploy;
 pub mod dpc;
 pub mod dsc;
 pub mod health;
+pub mod phases;
 pub mod preflight;
 pub mod primary_standby;
 pub mod rws;
@@ -21,7 +22,7 @@ pub async fn run(
 ) -> Result<()> {
     tracing::info!("开始集群部署: {:?}", install_type);
     match install_type {
-        InstallType::PrimaryStandby => primary_standby::run(common, specific).await,
+        InstallType::Dw => primary_standby::run(common, specific).await,
         InstallType::Rws => rws::run(common, specific).await,
         InstallType::Dsc => dsc::run(common, specific).await,
         InstallType::Dpc => dpc::run(common, specific).await,
