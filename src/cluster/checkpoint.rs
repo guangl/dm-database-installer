@@ -41,10 +41,11 @@ impl ClusterCheckpoint {
 
     pub(crate) fn load_from(dir: &Path) -> Result<Option<Self>> {
         let path = dir.join(FILE_NAME);
-        if !path.exists() {
-            return Ok(None);
-        }
-        let content = std::fs::read_to_string(&path)?;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
         let cp: Self = match serde_json::from_str(&content) {
             Ok(c) => c,
             Err(e) => {
@@ -52,7 +53,7 @@ impl ClusterCheckpoint {
                 return Ok(None);
             }
         };
-        println!("[续] 检测到检查点，从上次进度继续安装");
+        tracing::info!("[续] 检测到检查点，从上次进度继续安装");
         Ok(Some(cp))
     }
 
