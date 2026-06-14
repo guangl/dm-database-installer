@@ -537,6 +537,7 @@ mod tests {
                 user: "root".to_string(),
                 identity_file: None,
                 password: Some("pass".to_string()),
+                port: 22,
             },
         }
     }
@@ -554,6 +555,7 @@ mod tests {
                 user: "root".to_string(),
                 identity_file: None,
                 password: Some("pass".to_string()),
+                port: 22,
             },
         }
     }

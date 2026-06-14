@@ -8,6 +8,9 @@ pub struct SshCredentials {
     pub identity_file: Option<PathBuf>,
     #[serde(skip_serializing, default)]
     pub password: Option<String>,
+    /// SSH 端口，默认 22
+    #[serde(default = "default_ssh_port")]
+    pub port: u16,
 }
 
 /// 单机 SSH 远程安装目标（standalone.toml 可选 [ssh_target] 块）。

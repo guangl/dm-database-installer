@@ -351,7 +351,7 @@ mod tests {
             dw_port: 5238,
             inst_dw_port: 5239,
             read_only,
-            ssh: SshCredentials { user: "root".to_string(), identity_file: None, password: Some("pass".to_string()) },
+            ssh: SshCredentials { user: "root".to_string(), identity_file: None, password: Some("pass".to_string()), port: 22 },
         }
     }
 

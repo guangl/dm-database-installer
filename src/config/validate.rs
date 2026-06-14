@@ -276,7 +276,7 @@ async fn check_standalone_ssh(specific: &InstallConfig, issues: &mut Vec<String>
         );
         return;
     }
-    let creds = SshCredentials { user: target.user.clone(), identity_file: None, password: target.password.clone() };
+    let creds = SshCredentials { user: target.user.clone(), identity_file: None, password: target.password.clone(), port: target.ssh_port };
     match SshSession::connect(&target.host, target.ssh_port, &creds).await {
         Ok(session) => {
             println!("  ✓ SSH 目标可连通: {}@{}:{}", target.user, target.host, target.ssh_port);

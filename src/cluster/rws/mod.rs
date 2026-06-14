@@ -11,9 +11,9 @@ pub async fn run(common: CommonConfig, specific: ClusterSpecificConfig) -> Resul
     tracing::info!("[cluster][1/11] 建立 SSH 会话");
     let mut runners: phases::Runners = Vec::new();
     for node in &specific.nodes {
-        let session = ssh::SshSession::connect(&node.host, 22, &node.ssh)
+        let session = ssh::SshSession::connect(&node.host, node.ssh.port, &node.ssh)
             .await
-            .map_err(|e| anyhow::anyhow!("连接节点 {} 失败: {}", node.host, e))?;
+            .map_err(|e| anyhow::anyhow!("连接节点 {}:{} 失败: {}", node.host, node.ssh.port, e))?;
         runners.push((node.clone(), Arc::new(session)));
     }
     run_with_runners(

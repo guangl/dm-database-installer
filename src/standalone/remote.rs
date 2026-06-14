@@ -33,6 +33,7 @@ pub async fn run(
         user: target.user.clone(),
         identity_file: None,
         password: Some(password),
+        port: target.ssh_port,
     };
     let session = connect_with_retry(
         &target.host,
