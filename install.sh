@@ -235,7 +235,7 @@ download_and_extract() {
     mkdir -p "$extract_dir"
 
     log_info "下载安装包（临时目录: $TMPDIR_WORK）..."
-    curl -L --no-progress-meter -o "$zip_file" \
+    curl -L -# -o "$zip_file" \
         --max-time 1800 --retry 3 \
         "$DOWNLOAD_URL" || {
         log_err "下载失败: $DOWNLOAD_URL"
