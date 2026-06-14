@@ -9,6 +9,7 @@ mod common;
 mod config;
 mod guide;
 mod standalone;
+mod status;
 
 /// dm-database-installer 主入口。
 #[tokio::main]
@@ -33,6 +34,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        cli::Commands::Status(args) => status::run(args).await,
         cli::Commands::Validate(args) => config::validate::run(args).await,
         cli::Commands::Init(args) => config::init::run(&args.kind),
         cli::Commands::Completions { shell } => {
