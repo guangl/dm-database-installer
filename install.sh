@@ -322,7 +322,6 @@ run_dminit() {
         "EXTENT_SIZE=$DM_EXTENT_SIZE" \
         "CASE_SENSITIVE=$DM_CASE_SENSITIVE" \
         "CHARSET=$DM_CHARSET" \
-        "ARCH_INI=1" \
         "SYSDBA_PWD=$SYSDBA_PWD" \
         "SYSAUDITOR_PWD=$SYSAUDITOR_PWD"; then
         log_err "数据库初始化失败，请根据上方 dminit 输出排查原因"
