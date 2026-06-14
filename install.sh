@@ -74,9 +74,26 @@ check_deps() {
     command -v curl  >/dev/null 2>&1 || missing+=("curl")
     command -v unzip >/dev/null 2>&1 || missing+=("unzip")
     if [ ${#missing[@]} -gt 0 ]; then
-        log_err "缺少依赖: ${missing[*]}"
+        log_err "缺少必要工具: ${missing[*]}"
+        log_err "Debian/Ubuntu: apt-get install -y ${missing[*]}"
+        log_err "RHEL/CentOS:   yum install -y ${missing[*]}"
         exit 1
     fi
+}
+
+# ── 创建 dmdba 系统用户 ───────────────────────────────────────────────────────────
+create_dmdba_user() {
+    if id dmdba >/dev/null 2>&1; then
+        log_info "系统用户 dmdba 已存在，跳过创建"
+        return 0
+    fi
+    log_info "创建系统用户 dmdba..."
+    groupadd -r dinstall 2>/dev/null || true
+    useradd -r -g dinstall -d /home/dmdba -m -s /bin/bash dmdba || {
+        log_err "创建用户 dmdba 失败（需要 useradd 命令）"
+        exit 1
+    }
+    log_ok "系统用户 dmdba 创建完成"
 }
 
 # ── 平台检测（arch / cpu_key / os_key）────────────────────────────────────────────
@@ -243,11 +260,11 @@ XML
 
 # ── 静默安装 ──────────────────────────────────────────────────────────────────────
 run_dminstall() {
-    log_info "执行静默安装..."
-    "$DM_INSTALL_BIN" -q "$RESPONSE_XML" || {
-        log_err "DMInstall.bin 安装失败"
+    log_info "执行静默安装（以下为安装器输出）..."
+    if ! "$DM_INSTALL_BIN" -q "$RESPONSE_XML"; then
+        log_err "安装失败，请根据上方安装器输出排查原因"
         exit 1
-    }
+    fi
     log_ok "安装完成"
 }
 
@@ -256,8 +273,8 @@ run_dminit() {
     local dminit_bin="$DM_INSTALL_PATH/bin/dminit"
     [ -x "$dminit_bin" ] || { log_err "dminit 不存在: $dminit_bin"; exit 1; }
 
-    log_info "初始化数据库实例..."
-    "$dminit_bin" \
+    log_info "初始化数据库实例（以下为 dminit 输出）..."
+    if ! "$dminit_bin" \
         "PATH=$DM_DATA_PATH" \
         "DB_NAME=$DM_DB_NAME" \
         "INSTANCE_NAME=$DM_INSTANCE" \
@@ -268,10 +285,10 @@ run_dminit() {
         "CHARSET=$DM_CHARSET" \
         "ARCH_INI=1" \
         "SYSDBA_PWD=$SYSDBA_PWD" \
-        "SYSAUDITOR_PWD=$SYSAUDITOR_PWD" || {
-        log_err "dminit 初始化失败"
+        "SYSAUDITOR_PWD=$SYSAUDITOR_PWD"; then
+        log_err "数据库初始化失败，请根据上方 dminit 输出排查原因"
         exit 1
-    }
+    fi
     log_ok "数据库初始化完成"
 }
 
@@ -359,6 +376,7 @@ main() {
     check_root
     check_existing_install
     check_deps
+    create_dmdba_user
     SYSDBA_PWD=$(generate_password)
     SYSAUDITOR_PWD=$(generate_password)
     detect_platform
