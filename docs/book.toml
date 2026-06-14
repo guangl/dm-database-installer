@@ -7,5 +7,4 @@ src = "src"
 [output.html]
 site-url = "/dm-database-installer/"
 git-repository-url = "https://github.com/guangl/dm-database-installer"
-default-theme = "navy"
 edit-url-template = "https://github.com/guangl/dm-database-installer/edit/main/docs/{path}"
