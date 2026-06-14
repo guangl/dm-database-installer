@@ -314,13 +314,11 @@ async fn wait_for_standby_open(
 }
 
 pub async fn run_read_routing_phase(
-    specific: &ClusterSpecificConfig,
     runners: &Runners,
     dminit: &DminitConfig,
 ) -> Result<()> {
     use crate::config::cluster::NodeRole;
-    let _ = specific;
-    tracing::info!("[cluster][12/12] 等待只读备库进入 OPEN 状态");
+    tracing::info!("[cluster][12/12] 开启只读备库并等待进入 OPEN 状态");
     let readonly_standbys: Vec<_> = runners
         .iter()
         .filter(|(node, _)| node.role == NodeRole::Standby && node.read_only)
@@ -329,6 +327,11 @@ pub async fn run_read_routing_phase(
         tracing::warn!("[cluster][12/12] 无 read_only=true 的备节点，跳过只读验证");
         return Ok(());
     }
+    // 先执行 alter database open read only
+    for (node, runner) in &readonly_standbys {
+        deploy::configure_read_only_standby(node, dminit, runner.as_ref()).await?;
+    }
+    // 再轮询等待 OPEN 状态
     for (node, runner) in &readonly_standbys {
         wait_for_standby_open(node, dminit, runner.as_ref()).await?;
     }
@@ -365,22 +368,26 @@ mod tests {
         }
     }
 
-    fn make_specific() -> ClusterSpecificConfig {
-        toml::from_str("").expect("ClusterSpecificConfig 最小空 TOML 解析失败")
-    }
-
     #[tokio::test]
     async fn test_run_read_routing_phase_success() {
         let node = make_standby_node("192.168.1.2", true);
         let dminit = make_dminit();
-        let runner = Arc::new(MockRunner::new(vec![(
-            "echo 'SELECT STATUS$,MODE$ FROM V$INSTANCE;'".to_string(),
-            0,
-            b"STATUS$   MODE$\nOPEN      STANDBY\n".to_vec(),
-        )]));
+        // configure_read_only_standby 先发出 alter database open read only
+        // 然后 wait_for_standby_open 再轮询 SELECT STATUS$,MODE$
+        let runner = Arc::new(MockRunner::new(vec![
+            (
+                "echo 'alter database open read only;'".to_string(),
+                0,
+                b"execute ok\n".to_vec(),
+            ),
+            (
+                "echo 'SELECT STATUS$,MODE$ FROM V$INSTANCE;'".to_string(),
+                0,
+                b"STATUS$   MODE$\nOPEN      STANDBY\n".to_vec(),
+            ),
+        ]));
         let runners: Runners = vec![(node, runner)];
-        let specific = make_specific();
-        let result = run_read_routing_phase(&specific, &runners, &dminit).await;
+        let result = run_read_routing_phase(&runners, &dminit).await;
         assert!(result.is_ok(), "期望 Ok(()), 实际: {:?}", result);
     }
 
@@ -402,8 +409,7 @@ mod tests {
         let dminit = make_dminit();
         let runner = Arc::new(MockRunner::new_strict(vec![]));
         let runners: Runners = vec![(node, runner)];
-        let specific = make_specific();
-        let result = run_read_routing_phase(&specific, &runners, &dminit).await;
+        let result = run_read_routing_phase(&runners, &dminit).await;
         assert!(result.is_ok(), "无 read_only 节点应跳过验证，实际: {:?}", result);
     }
 }
