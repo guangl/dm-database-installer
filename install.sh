@@ -199,7 +199,19 @@ select_download_url() {
 choose_work_dir() {
     # 达梦安装包 zip ~1.8GB + ISO ~1.5GB，需要约 4GB 可用空间
     local need_kb=$((4 * 1024 * 1024))
-    for candidate in /var/tmp /tmp; do
+
+    # 优先使用用户指定目录
+    if [ -n "${DM_WORKDIR:-}" ]; then
+        if [ ! -d "$DM_WORKDIR" ]; then
+            log_err "DM_WORKDIR 目录不存在: $DM_WORKDIR"
+            exit 1
+        fi
+        printf '%s' "$DM_WORKDIR"
+        return
+    fi
+
+    for candidate in /var/tmp /tmp "${HOME:-/root}"; do
+        [ -d "$candidate" ] || continue
         local avail_kb
         avail_kb=$(df -Pk "$candidate" 2>/dev/null | awk 'NR==2{print $4}')
         if [ -n "$avail_kb" ] && [ "$avail_kb" -ge "$need_kb" ]; then
@@ -207,8 +219,9 @@ choose_work_dir() {
             return
         fi
     done
-    log_err "磁盘空间不足：/var/tmp 和 /tmp 均低于 4GB 可用"
-    log_err "请释放磁盘空间后重试，或将安装包手动下载到空间充足的目录"
+    log_err "磁盘空间不足：/var/tmp、/tmp、\$HOME 均低于 4GB 可用"
+    log_err "可通过环境变量指定空间充足的目录重试："
+    log_err "  DM_WORKDIR=/data/tmp bash install.sh"
     exit 1
 }
 
