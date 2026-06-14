@@ -233,6 +233,7 @@ pub async fn run_sqllog_phase(
     let sqllog = specific.sqllog.clone();
     let futs: Vec<_> = runners
         .iter()
+        .filter(|(node, _)| !node.read_only)   // 只读备库跳过 SQL 日志配置
         .map(|(node, runner)| {
             let node = node.clone();
             let runner = Arc::clone(runner);
