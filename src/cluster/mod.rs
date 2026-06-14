@@ -2,6 +2,7 @@ use anyhow::Result;
 use crate::config::{CommonConfig, InstallType};
 use crate::config::cluster::ClusterSpecificConfig;
 
+pub mod checkpoint;
 pub mod deploy;
 pub mod dpc;
 pub mod dsc;
