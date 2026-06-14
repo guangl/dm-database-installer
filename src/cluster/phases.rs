@@ -290,11 +290,11 @@ async fn wait_for_standby_open_impl(
             tracing::info!("[node:{:?}] 只读备库已就绪 STATUS$=OPEN MODE$=STANDBY", node.role);
             return Ok(());
         }
+        tracing::warn!(
+            "[node:{:?}] 备库尚未 OPEN（{}/{}），{}s 后重试",
+            node.role, attempt, max_retries, interval_secs
+        );
         if attempt < max_retries {
-            tracing::warn!(
-                "[node:{:?}] 备库尚未 OPEN（{}/{}），{}s 后重试",
-                node.role, attempt, max_retries, interval_secs
-            );
             tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
         }
     }
