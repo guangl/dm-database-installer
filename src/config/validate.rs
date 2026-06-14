@@ -459,11 +459,28 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn test_check_standalone_archive_absolute_path_passes() {
         use crate::config::ArchiveConfig;
         let cfg = InstallConfig {
             archive: ArchiveConfig {
                 arch_path: Some("/opt/dmdbms/arch".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut issues = Vec::new();
+        check_standalone_archive(&cfg, &mut issues);
+        assert!(issues.is_empty(), "合法绝对路径应通过验证");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_check_standalone_archive_absolute_path_passes() {
+        use crate::config::ArchiveConfig;
+        let cfg = InstallConfig {
+            archive: ArchiveConfig {
+                arch_path: Some(r"C:\dmdbms\arch".to_string()),
                 ..Default::default()
             },
             ..Default::default()
