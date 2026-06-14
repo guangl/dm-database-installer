@@ -245,7 +245,7 @@ download_and_extract() {
             log_err "挂载 ISO 失败，请确认以 root 运行"
             exit 1
         }
-        trap 'umount "$iso_dir" 2>/dev/null; [ -n "$TMPDIR_WORK" ] && rm -rf "$TMPDIR_WORK"' EXIT
+        trap 'umount "$TMPDIR_WORK/dm8_iso" 2>/dev/null; [ -n "$TMPDIR_WORK" ] && rm -rf "$TMPDIR_WORK"' EXIT
         extract_dir="$iso_dir"
     fi
 
