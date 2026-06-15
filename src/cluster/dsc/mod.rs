@@ -444,7 +444,8 @@ async fn verify_all_nodes_dmserver(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
     use tempfile::TempDir;
 
     use crate::cluster::phases;
@@ -456,7 +457,7 @@ mod tests {
     use crate::config::{ArchiveConfig, CommonConfig, InstallerSource, InstallType};
 
     /// 用于串行化需要 set_current_dir 的测试，避免并发竞争。
-    static CWD_LOCK: Mutex<()> = Mutex::new(());
+    static CWD_LOCK: Mutex<()> = Mutex::const_new(());
 
     /// RAII guard：在 Drop 时自动恢复工作目录，即使测试 panic 也能正确恢复。
     struct CwdGuard(std::path::PathBuf);
@@ -552,7 +553,7 @@ mod tests {
     // Test 1: 已完成的步骤被跳过（6 个 DSC gate 全部 true）
     #[tokio::test]
     async fn test_run_with_runners_skips_completed_steps_from_checkpoint() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CWD_LOCK.lock().await;
         let dir = TempDir::new().unwrap();
         // 写入 checkpoint，标记全部 gate 为 true
         let cp = crate::cluster::checkpoint::ClusterCheckpoint {
@@ -626,7 +627,7 @@ mod tests {
     // Test 2: 无 checkpoint 时按顺序调用各步骤
     #[tokio::test]
     async fn test_run_with_runners_calls_steps_in_order_no_checkpoint() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CWD_LOCK.lock().await;
         let dir = TempDir::new().unwrap();
         let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
@@ -766,7 +767,7 @@ mod tests {
     // Test 3: first_node 是 Primary 角色（Standby 在前时仍正确）
     #[tokio::test]
     async fn test_first_node_is_primary_role() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CWD_LOCK.lock().await;
         let dir = TempDir::new().unwrap();
         let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
@@ -816,7 +817,7 @@ mod tests {
     // Test 4: 全 standby 节点时返回错误
     #[tokio::test]
     async fn test_run_with_runners_returns_error_when_no_primary_node() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CWD_LOCK.lock().await;
         let dir = TempDir::new().unwrap();
         let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
@@ -857,7 +858,7 @@ mod tests {
     // Test 5: checkpoint 在 dminit 失败时，前面的 gate 已保存
     #[tokio::test]
     async fn test_checkpoint_saved_after_each_phase() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CWD_LOCK.lock().await;
         let dir = TempDir::new().unwrap();
         let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();

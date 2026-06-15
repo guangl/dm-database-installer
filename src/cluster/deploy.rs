@@ -120,6 +120,7 @@ fn target_path(node: &NodeConfig, dminit: &DminitConfig, filename: &str) -> Stri
 }
 
 /// 分发 4 个 INI 配置文件到远端节点。
+#[allow(clippy::too_many_arguments)]
 pub async fn distribute_configs(
     node: &NodeConfig,
     dminit: &DminitConfig,

@@ -553,7 +553,7 @@ mod tests {
         let status2 =
             query_remote_node_with_runner(&runner2, &node2, 5236, "/opt/dmdbms", "SYSDBA").await;
 
-        let results = vec![status1, status2];
+        let results = [status1, status2];
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].process, "running");
         assert_eq!(results[0].role, "PRIMARY");
