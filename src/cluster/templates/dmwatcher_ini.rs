@@ -52,6 +52,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            sysdba_password: "SYSDBA".to_string(),
         }
     }
 
@@ -68,6 +69,7 @@ mod tests {
                 user: "root".to_string(),
                 identity_file: Some(PathBuf::from("~/.ssh/id_rsa")),
                 password: None,
+                port: 22,
             },
         }
     }
@@ -85,6 +87,7 @@ mod tests {
                 user: "root".to_string(),
                 identity_file: Some(PathBuf::from("~/.ssh/id_rsa")),
                 password: None,
+                port: 22,
             },
         }
     }

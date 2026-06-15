@@ -213,6 +213,32 @@ fn default_mal_port() -> u16 { 5237 }
 fn default_dw_port() -> u16 { 5238 }
 fn default_inst_dw_port() -> u16 { 5239 }
 
+/// DSC 共享存储磁盘配置，对应 dsc.toml 中的 [dsc_storage] 段。
+///
+/// 四个磁盘路径均为块设备路径，必须互不相同。
+#[derive(Debug, Deserialize, Clone)]
+pub struct DscStorageConfig {
+    /// DCR 磁盘路径（块设备），如 /dev/raw/raw1
+    pub dcr_disk: String,
+    /// 表决磁盘路径（块设备），如 /dev/raw/raw2
+    pub vote_disk: String,
+    /// ASM 日志磁盘路径，如 /dev/raw/raw3（DMLOG 磁盘组）
+    pub log_disk: String,
+    /// ASM 数据磁盘路径，如 /dev/raw/raw4（DMDATA 磁盘组）
+    pub data_disk: String,
+}
+
+impl Default for DscStorageConfig {
+    fn default() -> Self {
+        Self {
+            dcr_disk: "/dev/raw/raw1".to_string(),
+            vote_disk: "/dev/raw/raw2".to_string(),
+            log_disk: "/dev/raw/raw3".to_string(),
+            data_disk: "/dev/raw/raw4".to_string(),
+        }
+    }
+}
+
 /// 集群特有配置，对应 dw.toml / rws.toml / dsc.toml / dpc.toml。
 #[derive(Debug, Deserialize)]
 pub struct ClusterSpecificConfig {
@@ -221,7 +247,11 @@ pub struct ClusterSpecificConfig {
     /// 节点列表
     #[serde(default)]
     pub nodes: Vec<NodeConfig>,
-    /// DSC 专用：共享存储路径
+    /// DSC 专用：新版块设备磁盘配置（[dsc_storage] 段）
+    pub dsc_storage: Option<DscStorageConfig>,
+    /// DSC 旧版共享存储路径（已废弃，请迁移到 [dsc_storage]）
+    /// 保留此字段以防 TOML 解析旧配置时报 unknown field 错误
+    #[allow(dead_code)]
     pub shared_storage: Option<String>,
     /// dminit 初始化参数（集群级统一）
     #[serde(default)]
@@ -301,8 +331,28 @@ fn validate_dsc(cfg: &ClusterSpecificConfig) -> Result<()> {
     validate_dminit_config(&cfg.dminit)?;
     check_node_fields(cfg)?;
     check_instance_name_uniqueness(cfg)?;
-    if cfg.shared_storage.is_none() {
-        bail!("配置验证失败: DSC 集群必须设置 shared_storage（共享存储路径）");
+    if cfg.dsc_storage.is_none() {
+        bail!("配置验证失败: DSC 集群必须配置 [dsc_storage]（dcr_disk/vote_disk/log_disk/data_disk）");
+    }
+    let storage = cfg.dsc_storage.as_ref().unwrap();
+    validate_dsc_storage(storage)
+}
+
+fn validate_dsc_storage(storage: &DscStorageConfig) -> Result<()> {
+    let fields = [
+        ("dcr_disk", &storage.dcr_disk),
+        ("vote_disk", &storage.vote_disk),
+        ("log_disk", &storage.log_disk),
+        ("data_disk", &storage.data_disk),
+    ];
+    for (field_name, value) in &fields {
+        if value.is_empty() {
+            bail!("配置验证失败: DSC 磁盘路径不能为空: {}", field_name);
+        }
+    }
+    let unique_paths: HashSet<&str> = fields.iter().map(|(_, v)| v.as_str()).collect();
+    if unique_paths.len() < 4 {
+        bail!("配置验证失败: DSC 磁盘路径必须互不相同（dcr_disk/vote_disk/log_disk/data_disk）");
     }
     Ok(())
 }
