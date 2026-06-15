@@ -51,9 +51,120 @@ generate_password() {
         | awk '{printf $2}'
 }
 
-# ── 清理 ─────────────────────────────────────────────────────────────────────────
+# ── 清理与回退 ───────────────────────────────────────────────────────────────────
 TMPDIR_WORK=""
-cleanup() { [ -n "$TMPDIR_WORK" ] && rm -rf "$TMPDIR_WORK"; }
+BACKUP_DIR=""
+
+_DM_SUCCESS=0
+_DM_CREATED_GROUP=0
+_DM_CREATED_USER=0
+_DM_INSTALLED=0
+_DM_DB_INITED=0
+_DM_DMAP_REGISTERED=0
+_DM_SERVER_REGISTERED=0
+
+_restore_file() {
+    local src="$1" dst="$2"
+    [ -f "$src" ] || return 0
+    cp "$src" "$dst" 2>/dev/null \
+        || log_warn "恢复 $dst 失败，请手动执行: cp $src $dst"
+    log_info "已恢复: $dst"
+}
+
+_rollback_services() {
+    if [ "$_DM_SERVER_REGISTERED" -eq 1 ]; then
+        local svc="DmService${DM_INSTANCE}"
+        systemctl stop    "$svc" 2>/dev/null || true
+        systemctl disable "$svc" 2>/dev/null || true
+        rm -f "/etc/systemd/system/${svc}.service" \
+              "/usr/lib/systemd/system/${svc}.service" 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+        log_info "已回退: ${svc}.service"
+    fi
+    if [ "$_DM_DMAP_REGISTERED" -eq 1 ]; then
+        systemctl stop    DmAPService 2>/dev/null || true
+        systemctl disable DmAPService 2>/dev/null || true
+        rm -f "/etc/systemd/system/DmAPService.service" \
+              "/usr/lib/systemd/system/DmAPService.service" 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+        log_info "已回退: DmAPService.service"
+    fi
+}
+
+_rollback_dm_files() {
+    if [ "$_DM_DB_INITED" -eq 1 ] && [ -n "$DM_DATA_PATH" ]; then
+        rm -rf "$DM_DATA_PATH"
+        log_info "已回退: 数据目录 $DM_DATA_PATH"
+    fi
+    if [ "$_DM_INSTALLED" -eq 1 ] && [ -n "$DM_INSTALL_PATH" ]; then
+        rm -rf "$DM_INSTALL_PATH"
+        log_info "已回退: 安装目录 $DM_INSTALL_PATH"
+    fi
+}
+
+_rollback_system_config() {
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] || return 0
+    _restore_file "$BACKUP_DIR/sysctl.conf.bak"    /etc/sysctl.conf
+    sysctl -p >/dev/null 2>&1 || true
+    _restore_file "$BACKUP_DIR/limits.conf.bak"    /etc/security/limits.conf
+    _restore_file "$BACKUP_DIR/selinux_config.bak" /etc/selinux/config
+    _restore_file "$BACKUP_DIR/sshd_config.bak"    /etc/ssh/sshd_config
+    systemctl reload sshd 2>/dev/null || true
+    _restore_file "$BACKUP_DIR/pam_login.bak"      /etc/pam.d/login
+    _restore_file "$BACKUP_DIR/rc.local.bak"       /etc/rc.local
+    _restore_file "$BACKUP_DIR/profile.bak"        /etc/profile
+    if [ -f "$BACKUP_DIR/thp.bak" ]; then
+        local thp="/sys/kernel/mm/transparent_hugepage/enabled"
+        [ -f "$thp" ] && echo "$(cat "$BACKUP_DIR/thp.bak")" > "$thp" 2>/dev/null || true
+        log_info "已恢复: THP 原始值"
+    fi
+    if [ -f "$BACKUP_DIR/firewall.bak" ]; then
+        grep -q '^active$' "$BACKUP_DIR/firewall.bak" 2>/dev/null && {
+            systemctl enable firewalld 2>/dev/null || true
+            systemctl start  firewalld 2>/dev/null || true
+            log_info "已恢复: firewalld"
+        } || true
+    fi
+    if [ -f "$BACKUP_DIR/selinux_mode.bak" ]; then
+        case "$(cat "$BACKUP_DIR/selinux_mode.bak")" in
+            Enforcing)  setenforce 1 2>/dev/null || true
+                        log_info "已恢复: SELinux 运行时模式 Enforcing" ;;
+            Permissive) setenforce 0 2>/dev/null || true ;;
+        esac
+    fi
+    if [ -f "$BACKUP_DIR/timezone.bak" ]; then
+        local tz; tz=$(cat "$BACKUP_DIR/timezone.bak")
+        [ -n "$tz" ] && timedatectl set-timezone "$tz" 2>/dev/null || true
+        log_info "已恢复: 时区 $tz"
+    fi
+}
+
+_rollback_users() {
+    if [ "$_DM_CREATED_USER" -eq 1 ]; then
+        userdel -r dmdba 2>/dev/null || true
+        log_info "已回退: dmdba 用户"
+    fi
+    if [ "$_DM_CREATED_GROUP" -eq 1 ]; then
+        groupdel dinstall 2>/dev/null || true
+        log_info "已回退: dinstall 用户组"
+    fi
+}
+
+rollback() {
+    log_warn "安装失败，开始回退..."
+    _rollback_services
+    _rollback_dm_files
+    _rollback_system_config
+    _rollback_users
+    log_warn "环境回退完成"
+}
+
+cleanup() {
+    local exit_code=$?
+    [ "$_DM_SUCCESS" -eq 0 ] && [ "$exit_code" -ne 0 ] && rollback
+    [ -n "$TMPDIR_WORK" ] && rm -rf "$TMPDIR_WORK"
+    [ -n "$BACKUP_DIR"  ] && rm -rf "$BACKUP_DIR"
+}
 trap cleanup EXIT
 
 # ── 前置检查 ──────────────────────────────────────────────────────────────────────
@@ -163,9 +274,9 @@ check_selinux() {
 
 # ── 创建 dmdba 系统用户 ───────────────────────────────────────────────────────────
 create_dmdba_user() {
-    getent group dinstall >/dev/null 2>&1 || groupadd -g 1002 dinstall || {
-        log_err "创建用户组 dinstall 失败"
-        exit 1
+    getent group dinstall >/dev/null 2>&1 || {
+        groupadd -g 1002 dinstall || { log_err "创建用户组 dinstall 失败"; exit 1; }
+        _DM_CREATED_GROUP=1
     }
     if id dmdba >/dev/null 2>&1; then
         log_info "系统用户 dmdba 已存在，跳过创建"
@@ -175,6 +286,7 @@ create_dmdba_user() {
             log_err "创建用户 dmdba 失败"
             exit 1
         }
+        _DM_CREATED_USER=1
     fi
     echo 'dmdba:dmdba' | chpasswd || {
         log_err "设置 dmdba 密码失败"
@@ -187,8 +299,36 @@ create_dmdba_user() {
 }
 
 # ── 系统环境配置 ──────────────────────────────────────────────────────────────────
+_backup_system_files() {
+    local thp="/sys/kernel/mm/transparent_hugepage/enabled"
+    local IFS=':'
+    local pairs="
+        /etc/sysctl.conf:sysctl.conf
+        /etc/security/limits.conf:limits.conf
+        /etc/selinux/config:selinux_config
+        /etc/ssh/sshd_config:sshd_config
+        /etc/pam.d/login:pam_login
+        /etc/rc.local:rc.local
+        /etc/profile:profile"
+    while IFS= read -r pair; do
+        pair="${pair## }"; [ -z "$pair" ] && continue
+        local src="${pair%%:*}" bak="${pair##*:}"
+        [ -f "$src" ] && cp "$src" "$BACKUP_DIR/${bak}.bak" 2>/dev/null || true
+    done <<EOF
+$pairs
+EOF
+    [ -f "$thp" ] && grep -o '\[[a-z]*\]' "$thp" | tr -d '[]' \
+        > "$BACKUP_DIR/thp.bak" 2>/dev/null || true
+    systemctl is-active firewalld 2>/dev/null \
+        > "$BACKUP_DIR/firewall.bak" || echo "inactive" > "$BACKUP_DIR/firewall.bak"
+    getenforce 2>/dev/null > "$BACKUP_DIR/selinux_mode.bak" || true
+    timedatectl show --property=Timezone --value 2>/dev/null \
+        > "$BACKUP_DIR/timezone.bak" || true
+}
+
 setup_env() {
     log_info "配置系统环境参数..."
+    _backup_system_files
     _env_selinux
     _env_thp
     _env_timezone
@@ -548,6 +688,7 @@ run_dminstall() {
         log_err "安装失败，请根据上方安装器输出排查原因"
         exit 1
     fi
+    _DM_INSTALLED=1
     log_ok "安装完成"
 }
 
@@ -571,6 +712,7 @@ run_dminit() {
         log_err "数据库初始化失败，请根据上方 dminit 输出排查原因"
         exit 1
     fi
+    _DM_DB_INITED=1
     log_ok "数据库初始化完成"
 }
 
@@ -605,6 +747,7 @@ register_service() {
         log_err "DMAP 服务注册失败"
         exit 1
     }
+    _DM_DMAP_REGISTERED=1
     systemctl enable DmAPService \
         || log_warn "请手动执行: systemctl enable DmAPService"
     systemctl start DmAPService \
@@ -612,13 +755,15 @@ register_service() {
 
     # 2. 注册并启动 dmserver 数据库服务
     log_info "注册 dmserver 数据库服务..."
-    local dm_ini="$DM_DATA_PATH/$DM_DB_NAME/dm.ini"
+    local dm_ini="$DM_DATA_PATH/dm.ini"
     bash "$service_script" -t dmserver \
-        -p "$dm_ini" \
+        -p "$DM_INSTANCE" \
+        -dm_ini "$dm_ini" \
         -m auto || {
         log_err "dmserver 服务注册失败"
         exit 1
     }
+    _DM_SERVER_REGISTERED=1
 
     local service_name="DmService${DM_INSTANCE}"
     systemctl enable "${service_name}.service" \
@@ -708,6 +853,7 @@ main() {
     check_port
     check_memory
     check_install_disk
+    BACKUP_DIR=$(mktemp -d)
     create_dmdba_user
     setup_env
     SYSDBA_PWD=$(generate_password)
@@ -722,6 +868,7 @@ main() {
     register_service
     enable_archivelog
     print_success
+    _DM_SUCCESS=1
 }
 
 main

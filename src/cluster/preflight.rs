@@ -199,9 +199,84 @@ pub async fn check_time_sync(runner: &dyn CommandRunner) -> Result<()> {
     Ok(())
 }
 
-/// 对单个节点执行全部预检查（sudo / 内存 / CPU / 所有端口 / 时钟同步 / 磁盘），任一失败即返回带节点信息的 Err。
+/// 检查是否有 DM 数据库进程正在运行（dmserver / dmwatcher / dmasmsvr）。
+pub async fn check_existing_dm_process(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测 DM 进程是否在运行");
+    let cmd = "ps -eo comm= | grep -E '^(dmserver|dmwatcher|dmasmsvr)$' || true";
+    let (out, _) = runner.exec(cmd).await.map_err(|e| anyhow::anyhow!(e))?;
+    let running = std::str::from_utf8(&out).unwrap_or("").trim();
+    if !running.is_empty() {
+        let names = running.lines().collect::<Vec<_>>().join(", ");
+        bail!(
+            "[预检查] 检测到 DM 进程正在运行: [{}]；请先停止现有服务再重新部署",
+            names
+        );
+    }
+    tracing::debug!("[预检查] 未检测到 DM 进程");
+    Ok(())
+}
+
+/// 检查 dmdba 操作系统用户和组是否已存在（存在则 warn，不阻断部署）。
+pub async fn check_dmdba_user(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测 dmdba 用户/组是否已存在");
+    match runner.exec("id dmdba").await {
+        Ok((out, _)) => {
+            let info = std::str::from_utf8(&out).unwrap_or("").trim().to_string();
+            tracing::warn!(
+                "[预检查] dmdba 用户已存在: {}；可能存在旧版 DM 安装，请确认不会与本次部署冲突",
+                info
+            );
+        }
+        Err(SshError::ExecFailed { exit_code: 1, .. }) => {
+            tracing::debug!("[预检查] dmdba 用户不存在，安装程序将自动创建");
+        }
+        Err(e) => return Err(anyhow::anyhow!(e)),
+    }
+    match runner.exec("getent group dmdba").await {
+        Ok(_) => {
+            tracing::warn!("[预检查] dmdba 组已存在；若与现有配置不一致可能导致权限问题");
+        }
+        Err(SshError::ExecFailed { exit_code: 2, .. }) => {
+            tracing::debug!("[预检查] dmdba 组不存在，安装程序将自动创建");
+        }
+        Err(e) => return Err(anyhow::anyhow!(e)),
+    }
+    Ok(())
+}
+
+/// 检查内核参数 vm.swappiness 和 kernel.shmmax，偏低时 warn 但不阻断部署。
+pub async fn check_kernel_params(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测内核参数（vm.swappiness / kernel.shmmax）");
+    if let Ok((out, _)) = runner.exec("sysctl -n vm.swappiness").await {
+        let val: u64 = std::str::from_utf8(&out).unwrap_or("").trim().parse().unwrap_or(0);
+        if val > 10 {
+            tracing::warn!(
+                "[预检查] vm.swappiness = {}，建议 <= 10；\
+                 永久生效: 在 /etc/sysctl.conf 添加 vm.swappiness=10，然后执行 sysctl -p",
+                val
+            );
+        }
+    }
+    if let Ok((out, _)) = runner.exec("sysctl -n kernel.shmmax").await {
+        const MIN_SHMMAX: u64 = 2 * 1024 * 1024 * 1024;
+        let val: u64 = std::str::from_utf8(&out).unwrap_or("").trim().parse().unwrap_or(u64::MAX);
+        if val < MIN_SHMMAX {
+            tracing::warn!(
+                "[预检查] kernel.shmmax = {} bytes（约 {} GB），建议 >= 2 GB；\
+                 永久生效: 在 /etc/sysctl.conf 添加 kernel.shmmax={}，然后执行 sysctl -p",
+                val,
+                val / (1024 * 1024 * 1024),
+                MIN_SHMMAX
+            );
+        }
+    }
+    Ok(())
+}
+
+/// 对单个节点执行全部预检查，任一硬性检查失败即返回带节点信息的 Err。
 pub async fn check_node(node: &NodeConfig, dminit: &DminitConfig, runner: &dyn CommandRunner) -> Result<()> {
     let ctx = || format!("节点 {} ({:?}) 预检查失败", node.host, node.role);
+    check_existing_dm_process(runner).await.with_context(ctx)?;
     check_sudo_nopass(runner).await.with_context(ctx)?;
     check_memory(runner).await.with_context(ctx)?;
     check_cpu_cores(runner).await.with_context(ctx)?;
@@ -213,6 +288,8 @@ pub async fn check_node(node: &NodeConfig, dminit: &DminitConfig, runner: &dyn C
     check_disk_space(runner, &dminit.install_path).await.with_context(ctx)?;
     check_ulimits(runner).await.with_context(ctx)?;
     check_selinux(runner).await.with_context(ctx)?;
+    check_dmdba_user(runner).await.with_context(ctx)?;
+    check_kernel_params(runner).await.with_context(ctx)?;
     Ok(())
 }
 
@@ -526,6 +603,87 @@ mod tests {
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("192.168.1.10"), "应含源节点 IP: {msg}");
         assert!(msg.contains("192.168.1.11"), "应含目标节点 IP: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_check_existing_dm_process_not_running() {
+        let runner = MockRunner::new(vec![
+            ("ps -eo comm=".to_string(), 0, b"".to_vec()),
+        ]);
+        assert!(check_existing_dm_process(&runner).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_existing_dm_process_dmserver_running() {
+        let runner = MockRunner::new(vec![
+            ("ps -eo comm=".to_string(), 0, b"dmserver\n".to_vec()),
+        ]);
+        let result = check_existing_dm_process(&runner).await;
+        assert!(result.is_err(), "dmserver 在运行应返回 Err");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("dmserver"), "应含进程名: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_check_existing_dm_process_multiple_procs() {
+        let runner = MockRunner::new(vec![
+            ("ps -eo comm=".to_string(), 0, b"dmserver\ndmwatcher\n".to_vec()),
+        ]);
+        let result = check_existing_dm_process(&runner).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("dmwatcher"), "应含 dmwatcher: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_check_dmdba_user_not_exists() {
+        let runner = MockRunner::new(vec![
+            ("id dmdba".to_string(), 1, vec![]),
+            ("getent group dmdba".to_string(), 2, vec![]),
+        ]);
+        assert!(check_dmdba_user(&runner).await.is_ok(), "用户不存在应返回 Ok（warn 免阻断）");
+    }
+
+    #[tokio::test]
+    async fn test_check_dmdba_user_exists_warn_not_bail() {
+        let runner = MockRunner::new(vec![
+            ("id dmdba".to_string(), 0, b"uid=1001(dmdba) gid=1001(dmdba) groups=1001(dmdba)\n".to_vec()),
+            ("getent group dmdba".to_string(), 0, b"dmdba:x:1001:\n".to_vec()),
+        ]);
+        assert!(check_dmdba_user(&runner).await.is_ok(), "用户存在仅 warn 不应 bail");
+    }
+
+    #[tokio::test]
+    async fn test_check_kernel_params_swappiness_high_warn_ok() {
+        let runner = MockRunner::new(vec![
+            ("sysctl -n vm.swappiness".to_string(), 0, b"60\n".to_vec()),
+            ("sysctl -n kernel.shmmax".to_string(), 0, b"4294967296\n".to_vec()),
+        ]);
+        assert!(check_kernel_params(&runner).await.is_ok(), "swappiness 偏高仅 warn 不阻断");
+    }
+
+    #[tokio::test]
+    async fn test_check_kernel_params_shmmax_low_warn_ok() {
+        let runner = MockRunner::new(vec![
+            ("sysctl -n vm.swappiness".to_string(), 0, b"5\n".to_vec()),
+            ("sysctl -n kernel.shmmax".to_string(), 0, b"1073741824\n".to_vec()),
+        ]);
+        assert!(check_kernel_params(&runner).await.is_ok(), "shmmax 偏低仅 warn 不阻断");
+    }
+
+    #[tokio::test]
+    async fn test_check_kernel_params_all_ok() {
+        let runner = MockRunner::new(vec![
+            ("sysctl -n vm.swappiness".to_string(), 0, b"5\n".to_vec()),
+            ("sysctl -n kernel.shmmax".to_string(), 0, b"4294967296\n".to_vec()),
+        ]);
+        assert!(check_kernel_params(&runner).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_kernel_params_sysctl_unavailable() {
+        let runner = MockRunner::new_strict(vec![]);
+        assert!(check_kernel_params(&runner).await.is_ok(), "sysctl 不可用应跳过");
     }
 
     #[tokio::test]
