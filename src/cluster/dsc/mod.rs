@@ -61,89 +61,110 @@ where
         .clone();
 
     let mut cp = crate::cluster::checkpoint::ClusterCheckpoint::load()?.unwrap_or_default();
+    run_early_gates(&mut cp, &common, &runners, &dminit, oguid, &storage, &health_check_fn).await?;
+    run_later_gates(&mut cp, &runners, &specific.nodes, &dminit, oguid, &storage, &health_check_fn).await?;
+    crate::cluster::checkpoint::ClusterCheckpoint::remove()?;
+    tracing::info!("[cluster][10/10] DSC 集群部署完成");
+    Ok(())
+}
 
-    // Gate 1: preflight
+/// Gate 1-4：预检 → 安装 → 分发 DSC 配置 → 启动 DMCSS+DMASM。
+async fn run_early_gates<F>(
+    cp: &mut crate::cluster::checkpoint::ClusterCheckpoint,
+    common: &CommonConfig,
+    runners: &phases::Runners,
+    dminit: &DminitConfig,
+    oguid: u32,
+    storage: &DscStorageConfig,
+    health_check_fn: &F,
+) -> Result<()>
+where
+    F: Fn(String, u16, u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+        + Send
+        + Sync,
+{
     if !cp.preflight_done {
         tracing::info!("[cluster][2/10] SSH 预检查");
-        phases::run_preflight(&runners, &dminit).await?;
+        phases::run_preflight(runners, dminit).await?;
         cp.preflight_done = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过预检查（checkpoint）");
     }
-
-    // Gate 2: 安装（不含 dminit）
     if !cp.install_done {
         tracing::info!("[cluster][3/10] 安装软件包（所有节点并行，不含 dminit）");
-        run_dsc_install_all_nodes(&common, &runners, &dminit).await?;
+        run_dsc_install_all_nodes(common, runners, dminit).await?;
         cp.install_done = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过安装（checkpoint）");
     }
-
-    // Gate 3: 分发 DSC 配置
     if !cp.dsc_config_distributed {
         tracing::info!("[cluster][4/10] 分发 DSC 配置文件（并行所有节点）");
-        run_distribute_dsc_configs_all_nodes(&runners, &dminit, oguid, &storage).await?;
+        run_distribute_dsc_configs_all_nodes(runners, dminit, oguid, storage).await?;
         cp.dsc_config_distributed = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过 DSC 配置分发（checkpoint）");
     }
-
-    // Gate 4: DMCSS + DMASM 启动（所有节点）
     if !cp.css_asm_started {
         tracing::info!("[cluster][5/10] 启动 DMCSS + DMASM（所有节点）");
-        run_start_css_asm_all_nodes(&runners, &dminit, &health_check_fn).await?;
+        run_start_css_asm_all_nodes(runners, dminit, health_check_fn).await?;
         cp.css_asm_started = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过 DMCSS+DMASM 启动（checkpoint）");
     }
+    Ok(())
+}
 
-    // Gate 5: ASM 磁盘组初始化（仅 first_node）
+/// Gate 5-8：ASM 初始化 → 共享 dminit → config 目录分发 → 启动验证 dmserver。
+async fn run_later_gates<F>(
+    cp: &mut crate::cluster::checkpoint::ClusterCheckpoint,
+    runners: &phases::Runners,
+    all_nodes: &[NodeConfig],
+    dminit: &DminitConfig,
+    oguid: u32,
+    storage: &DscStorageConfig,
+    health_check_fn: &F,
+) -> Result<()>
+where
+    F: Fn(String, u16, u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+        + Send
+        + Sync,
+{
     if !cp.asm_diskgroup_created {
         tracing::info!("[cluster][6/10] ASM 磁盘组初始化（first_node）");
-        run_asm_init_first_node(&runners, &dminit, &storage).await?;
+        run_asm_init_first_node(runners, dminit, storage).await?;
         cp.asm_diskgroup_created = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过 ASM 磁盘组初始化（checkpoint）");
     }
-
-    // Gate 6: 共享 dminit（仅 first_node）
     if !cp.dminit_shared_done {
         tracing::info!("[cluster][7/10] 共享存储 dminit（first_node）");
-        run_dminit_shared_first_node(&runners, &specific.nodes, &dminit, oguid, &storage).await?;
+        run_dminit_shared_first_node(runners, all_nodes, dminit, oguid, storage).await?;
         cp.dminit_shared_done = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过共享 dminit（checkpoint）");
     }
-
-    // Gate 7: config 目录分发（first_node → other_nodes）
     if !cp.config_dir_distributed {
         tracing::info!("[cluster][8/10] 分发 config 目录（first_node → other_nodes）");
-        run_distribute_config_dirs(&runners, &dminit).await?;
+        run_distribute_config_dirs(runners, dminit).await?;
         cp.config_dir_distributed = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过 config 目录分发（checkpoint）");
     }
-
-    // Gate 8: dmserver 注册启动并验证
     if !cp.dmserver_started {
         tracing::info!("[cluster][9/10] 启动并验证 dmserver（先 first_node 后 others）");
-        run_start_and_verify_dmserver_all_nodes(&runners, &dminit, &health_check_fn).await?;
+        run_start_and_verify_dmserver_all_nodes(runners, dminit, health_check_fn).await?;
         cp.dmserver_started = true;
         cp.save()?;
     } else {
         tracing::info!("[续] 跳过 dmserver 启动（checkpoint）");
     }
-
-    crate::cluster::checkpoint::ClusterCheckpoint::remove()?;
-    tracing::info!("[cluster][10/10] DSC 集群部署完成");
     Ok(())
 }
 
@@ -344,26 +365,48 @@ where
 {
     let first_idx = first_node_index(runners)?;
     let dmdcr_ini_path = format!("{}/dsc_conf/dmdcr.ini", dminit.install_path);
+    start_first_node_dmserver(runners, dminit, first_idx, &dmdcr_ini_path, health_check_fn).await?;
+    start_other_nodes_dmserver(runners, dminit, first_idx, &dmdcr_ini_path, health_check_fn).await?;
+    verify_all_nodes_dmserver(runners, dminit).await
+}
 
-    // 先在 first_node 启动 dmserver
+/// 注册并启动 first_node 的 dmserver，等待其端口就绪。
+async fn start_first_node_dmserver<F>(
+    runners: &phases::Runners,
+    dminit: &DminitConfig,
+    first_idx: usize,
+    dmdcr_ini_path: &str,
+    health_check_fn: &F,
+) -> Result<()>
+where
+    F: Fn(String, u16, u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+        + Send
+        + Sync,
+{
     let (first_node, first_runner) = &runners[first_idx];
-    let dm_ini_path = format!(
-        "{}/{}/dm.ini",
-        dminit.data_path, first_node.instance_name
-    );
+    let dm_ini_path = format!("{}/{}/dm.ini", dminit.data_path, first_node.instance_name);
     tracing::info!("[node:{}] 注册并启动 dmserver（first_node）", first_node.host);
     deploy::register_and_start_dmserver_service(
-        &dminit.install_path,
-        &dm_ini_path,
-        &dmdcr_ini_path,
-        first_runner.as_ref(),
-    )
-    .await?;
+        &dminit.install_path, &dm_ini_path, dmdcr_ini_path, first_runner.as_ref(),
+    ).await?;
     // first_node 的实际端口按其在数组中的下标（first_idx）计算，与 dminit.ini PORT_NUM 保持一致
     let first_node_port = dminit.port.saturating_add(first_idx as u16);
-    health_check_fn(first_node.host.clone(), first_node_port, 60).await?;
+    health_check_fn(first_node.host.clone(), first_node_port, 60).await
+}
 
-    // 再依次启动其他节点 dmserver
+/// 依次注册并启动其余节点（跳过 first_node）的 dmserver，等待各节点端口就绪。
+async fn start_other_nodes_dmserver<F>(
+    runners: &phases::Runners,
+    dminit: &DminitConfig,
+    first_idx: usize,
+    dmdcr_ini_path: &str,
+    health_check_fn: &F,
+) -> Result<()>
+where
+    F: Fn(String, u16, u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>
+        + Send
+        + Sync,
+{
     for (node_idx, (node, runner)) in runners.iter().enumerate() {
         if node_idx == first_idx {
             continue;
@@ -372,16 +415,18 @@ where
         let dm_ini = format!("{}/{}/dm.ini", dminit.data_path, node.instance_name);
         tracing::info!("[node:{}] 注册并启动 dmserver", node.host);
         deploy::register_and_start_dmserver_service(
-            &dminit.install_path,
-            &dm_ini,
-            &dmdcr_ini_path,
-            runner.as_ref(),
-        )
-        .await?;
+            &dminit.install_path, &dm_ini, dmdcr_ini_path, runner.as_ref(),
+        ).await?;
         health_check_fn(node.host.clone(), port, 60).await?;
     }
+    Ok(())
+}
 
-    // 最后并行验证所有节点（每个节点按其数组下标计算实际端口）
+/// 并行验证所有节点 dmserver 达到 OPEN 状态。
+async fn verify_all_nodes_dmserver(
+    runners: &phases::Runners,
+    dminit: &DminitConfig,
+) -> Result<()> {
     let verify_futs: Vec<_> = runners
         .iter()
         .enumerate()
