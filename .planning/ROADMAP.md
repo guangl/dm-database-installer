@@ -91,7 +91,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 07-03-PLAN.md — DSC 部署原语（install_only / 配置分发 / DMCSS+DMASM+dmserver 注册 / dmasmcmd+dmasmtool / 共享 dminit / config 目录分发 / V$INSTANCE 验证）
+- [x] 07-03-PLAN.md — DSC 部署原语（install_only / 配置分发 / DMCSS+DMASM+dmserver 注册 / dmasmcmd+dmasmtool / 共享 dminit / config 目录分发 / V$INSTANCE 验证）
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -109,4 +109,4 @@ Plans:
 | 4. 发布流水线 | v1.0 | 3/3 | Complete | 2026-06-14 |
 | 5. RWS 读写分离集群 | v1.1 | 3/3 | Complete   | 2026-06-14 |
 | 6. status 命令 | v1.1 | 1/1 | Complete   | 2026-06-15 |
-| 7. DSC 共享存储集群 | v1.1 | 2/4 | In Progress|  |
+| 7. DSC 共享存储集群 | v1.1 | 3/4 | In Progress|  |
