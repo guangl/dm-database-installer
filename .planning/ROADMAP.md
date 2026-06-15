@@ -83,7 +83,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 07-01-PLAN.md — 扩展 DscStorageConfig + ClusterCheckpoint 新增 6 个 DSC 字段（基础数据契约）
+- [x] 07-01-PLAN.md — 扩展 DscStorageConfig + ClusterCheckpoint 新增 6 个 DSC 字段（基础数据契约）
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -109,4 +109,4 @@ Plans:
 | 4. 发布流水线 | v1.0 | 3/3 | Complete | 2026-06-14 |
 | 5. RWS 读写分离集群 | v1.1 | 3/3 | Complete   | 2026-06-14 |
 | 6. status 命令 | v1.1 | 1/1 | Complete   | 2026-06-15 |
-| 7. DSC 共享存储集群 | v1.1 | 0/4 | Planned | - |
+| 7. DSC 共享存储集群 | v1.1 | 1/4 | In Progress|  |
