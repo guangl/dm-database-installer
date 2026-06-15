@@ -1,3 +1,5 @@
+pub mod templates;
+
 use anyhow::Result;
 use crate::config::CommonConfig;
 use crate::config::cluster::ClusterSpecificConfig;
