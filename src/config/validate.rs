@@ -461,9 +461,13 @@ mod tests {
     #[test]
     fn test_check_standalone_archive_absolute_path_passes() {
         use crate::config::ArchiveConfig;
+        #[cfg(not(windows))]
+        let path = "/opt/dmdbms/arch".to_string();
+        #[cfg(windows)]
+        let path = r"C:\dmdbms\arch".to_string();
         let cfg = InstallConfig {
             archive: ArchiveConfig {
-                arch_path: Some("/opt/dmdbms/arch".to_string()),
+                arch_path: Some(path),
                 ..Default::default()
             },
             ..Default::default()
