@@ -2,35 +2,32 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: 集群扩展
-status: completed
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-15T06:02:39.086Z"
-last_activity: 2026-06-15 -- Phase 07 execution started
+status: shipped
+last_updated: "2026-06-15T00:00:00.000Z"
+last_activity: 2026-06-15 -- v1.1 milestone archived
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 4
-  percent: 50
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-14)
+See: .planning/PROJECT.md (updated 2026-06-15)
 
 **Core value:** 开发者一行命令搞定本地达梦环境，DBA 用配置文件完成生产集群部署——两类用户都不需要手动操作达梦原生安装程序。
-**Current focus:** Phase 07 — dsc
+**Current focus:** v1.1 milestone archived — planning next milestone
 
 ## Current Position
 
-Phase: 07 (dsc) — EXECUTING
-Plan: 1 of 4
-Status: Phase 07 complete — pending human UAT on real hardware
-Last activity: 2026-06-15 -- Phase 07 execution started
-
-Progress: [████████████████████] 3/3 plans (Phase 05 complete, 100%)
+Milestone v1.1 集群扩展 — SHIPPED 2026-06-15
+All 3 phases (05/06/07), 8 plans complete.
+Tests: 264 passed, 0 failed.
+Tag: v1.1.0
 
 ## Accumulated Context
 
@@ -38,18 +35,11 @@ Progress: [████████████████████] 3/3 pla
 
 All decisions logged in PROJECT.md Key Decisions table.
 
-Key decisions from v1.0:
-
-- russh 替代 ssh2（无 C 依赖，跨编译友好）
-- reqwest rustls-tls（避免 OpenSSL）
-- cargo-dist + zigbuild（glibc 2.23 兼容，五平台构建）
-- PLAT-04 placeholder: eprintln + exit(1)（v2 spike）
-
-Key context for v1.1:
-
-- RWS: src/cluster/rws/mod.rs 已存在，只缺 run_read_routing_phase（备库 READ_ONLY SQL 配置）
-- Status: 新增 CLI 子命令，读 config.toml，SSH 查询远程节点进程/端口/V$INSTANCE 角色
-- DSC: src/cluster/dsc/mod.rs 是完整 stub（bail!），需完整实现；NO dmwatcher/dmmonitor
+Key decisions from v1.1:
+- D-06: DSC 不用 dmwatcher/dmmonitor（共享存储集群不需要守护进程）
+- ClusterCheckpoint 无 install_path 匹配键（集群同目录无混淆风险）
+- DSC dminit.ini 执行后自动删除（防明文密码遗留）
+- validate_dsc 拒绝 Monitor 节点 + 强制 ≥2 节点
 
 ### Deferred Items
 
@@ -57,9 +47,12 @@ Key context for v1.1:
 |----------|------|--------|-------------|
 | PLAT-04 | Windows 目标机 setup.exe 集成 | placeholder | 2026-06-14 |
 | 主备集群 | 真实双节点人工验证 | pending | 2026-06-14 |
+| RWS | 真实多节点人工验证 | pending | 2026-06-15 |
+| DSC | 真实 2 节点 + 4 块共享块设备端到端验证 | pending | 2026-06-15 |
+| DSC | CLI 入口路径验证（bogus SSH 错误消息确认）| pending | 2026-06-15 |
 
 ## Session Continuity
 
-Last session: 2026-06-14T12:25:33.594Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-status/06-CONTEXT.md
+Last session: 2026-06-15
+Stopped at: v1.1 milestone archive complete
+Next: `/gsd-new-milestone` 规划 v1.2

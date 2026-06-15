@@ -2,20 +2,11 @@
 
 ## What This Is
 
-一个 Rust CLI 工具（+ 纯 shell 脚本），自动化安装达梦数据库（DM8）。面向开发者，提供 `curl | bash install.sh` 一行命令快速拉起单机环境；面向 DBA/运维，通过 TOML 配置文件精细控制单机、主备集群的完整部署流程，支持 SSH 远程操作多节点。
+一个 Rust CLI 工具（+ 纯 shell 脚本），自动化安装达梦数据库（DM8）。面向开发者，提供 `curl | bash install.sh` 一行命令快速拉起单机环境；面向 DBA/运维，通过 TOML 配置文件精细控制单机、主备集群（DW）、读写分离集群（RWS）、DSC 共享存储集群的完整部署流程，支持 SSH 远程操作多节点，并可通过 `dm-installer status` 随时查询所有节点运行状态。
 
 ## Core Value
 
 开发者一行命令搞定本地达梦环境，DBA 用配置文件完成生产集群部署——两类用户都不需要手动操作达梦原生安装程序。
-
-## Current Milestone: v1.1 集群扩展
-
-**Goal:** 补全 RWS 读写分离集群端到端可用、DSC 共享存储集群完整实现（含 ASM 初始化）、status 命令查询所有节点运行状态。
-
-**Target features:**
-- RWS 集群完整实现（补全 run_read_routing_phase，dm-installer install rws 端到端可走通）
-- dm-installer status 命令（本地 + SSH 远程节点状态：进程/端口/数据库角色）
-- DSC 共享存储集群部署（dmasmtool ASM 初始化 + 共享存储上的 dminit + 多节点启动）
 
 ## Requirements
 
@@ -31,12 +22,12 @@
 - ✓ `dm-installer validate` 验证配置合法性 — v1.0
 - ✓ 多平台发布流水线（Linux x86/aarch64、macOS、Windows）— v1.0
 - ✓ PLAT-04 placeholder CLI（install-windows，实际集成留 spike）— v1.0
+- ✓ RWS 读写分离集群完整实现（备库 READ_ONLY + checkpoint 断点续传）— v1.1
+- ✓ `dm-installer status` 运行状态查询（本地 + SSH 远程并发，五列表格）— v1.1
+- ✓ TOML 配置文件驱动的 DSC 集群安装（ASM 初始化 + 共享 dminit + 8 checkpoint gate）— v1.1
 
 ### Active
 
-- [x] RWS 读写分离集群完整实现（v1.1）— 已在 Phase 05 验证
-- [ ] `dm-installer status` 运行状态查询（本地 + SSH 远程，v1.1）
-- [ ] TOML 配置文件驱动的 DSC 集群安装（多节点共享存储，含 ASM 初始化，v1.1）
 - [ ] TOML 配置文件驱动的 DPC 集群安装（MP/BP/SP 三角色）
 - [ ] PLAT-04 完整实现：setup.exe /q /XML 集成（Windows 目标机）
 - [ ] `--dry-run` 模式
@@ -47,14 +38,17 @@
 - 多版本支持 — 官网只提供一个版本，固定最新版
 - 达梦数据库升级/迁移 — 只负责全新安装
 - 图形界面 (GUI) — 纯 CLI 工具
+- DMProxy 安装与配置 — 客户端/中间层决策，由用户自行配置
+- dmwatcher/dmmonitor（DSC）— DSC 共享存储集群不需要守护进程（D-06）
 
 ## Context
 
-- v1.0.0 已发布（2026-06-14），GitHub Releases 含 Linux x86_64/aarch64、macOS x86_64/Apple Silicon、Windows x86_64 五平台二进制
-- 主备集群功能已通过自动化测试验证；双节点真实部署待人工验证
-- install.sh 已支持 x86_64 / aarch64 / loongarch64 / mips64el / sw_64 五种架构
-- 代码规模：Rust 约 3,000+ LOC（src/），shell 约 400 LOC（install.sh）
+- v1.0.0 发布 2026-06-14，v1.1.0 发布 2026-06-15
+- GitHub Releases 含 Linux x86_64/aarch64、macOS x86_64/Apple Silicon、Windows x86_64 五平台二进制
+- 代码规模：Rust 约 5,500+ LOC（src/），shell 约 700+ LOC（install.sh）
 - 技术栈：Rust + tokio + russh + reqwest（rustls-tls）+ clap + serde/toml
+- 测试覆盖：264 个单元/集成测试，含 MockRunner 注入模式
+- DSC/RWS 集群真实多节点人工验证待硬件环境执行
 
 ## Constraints
 
@@ -79,6 +73,10 @@
 | cargo-dist + zigbuild | zigbuild 控制 glibc 版本（≥2.23）；dist 自动生成 CI 和 installer 脚本 | ✓ 成功：glibc 2.23 兼容 Ubuntu 16.04+ |
 | Windows target: msvc 非 gnu | ring + mio 对 windows-gnu 有兼容性问题 | ✓ 成功：windows-msvc 在 windows-2022 runner 原生构建通过 |
 | PLAT-04 placeholder (eprintln+exit) | 用户体验比 todo!() panic 更友好；给未来 spike 留位置 | ✓ 验证：CLI 入口存在，限制说明清晰 |
+| D-06: DSC 不用 dmwatcher/dmmonitor | DSC 共享存储节点直接访问共享数据，无需守护进程 | ✓ 成功：简化 DSC 部署流程 |
+| ClusterCheckpoint 无 install_path 键 | 集群 checkpoint 和配置同目录，无混淆风险 | ✓ 成功：simplify 调用方代码 |
+| DSC dminit.ini 执行后删除 | 防止含明文 SYSDBA 密码的文件遗留在远程节点 | ✓ 成功：安全加固 IN-02 |
+| DSC validate_dsc 拒绝 Monitor 节点 | DSC 部署逻辑不处理 Monitor 角色，配置错误早于 SSH 连接暴露 | ✓ 成功：用户友好的配置验证 |
 
 ## Evolution
 
@@ -96,4 +94,4 @@
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 — Phase 05 (rws) complete: checkpoint 断点续传 + run_read_routing_phase 集成*
+*Last updated: 2026-06-15 — v1.1 milestone complete: RWS + status + DSC 集群*
