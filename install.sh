@@ -732,6 +732,30 @@ EOF
     log_ok "dmarch.ini 写入完成: $DM_DATA_PATH/dmarch.ini"
 }
 
+# ── 修正目录归属 ─────────────────────────────────────────────────────────────────
+# root 执行 DMInstall.bin 和 dminit 时，产生的文件归属 root:root。
+# 达梦服务以 dmdba 运行，必须在启动前将安装目录和数据目录归还给 dmdba:dinstall。
+fix_ownership() {
+    log_info "修正目录归属 dmdba:dinstall..."
+    chown -R dmdba:dinstall "$DM_INSTALL_PATH" || {
+        log_err "修正 $DM_INSTALL_PATH 归属失败"
+        exit 1
+    }
+    # DM_DATA_PATH 是 DM_INSTALL_PATH 的子目录时上面已覆盖；
+    # 若用户自定义到其他挂载点则需单独处理。
+    if [ "${DM_DATA_PATH#"$DM_INSTALL_PATH"}" = "$DM_DATA_PATH" ]; then
+        chown -R dmdba:dinstall "$DM_DATA_PATH" || {
+            log_err "修正 $DM_DATA_PATH 归属失败"
+            exit 1
+        }
+    fi
+    # 验证
+    local owner
+    owner=$(stat -c '%U' "$DM_INSTALL_PATH" 2>/dev/null)
+    [ "$owner" = "dmdba" ] || { log_err "归属验证失败，当前所有者: $owner"; exit 1; }
+    log_ok "目录归属已修正为 dmdba:dinstall"
+}
+
 # ── 注册 systemd 服务 ────────────────────────────────────────────────────────────
 register_service() {
     local service_script="$DM_INSTALL_PATH/script/root/dm_service_installer.sh"
@@ -865,6 +889,7 @@ main() {
     run_dminstall
     run_dminit
     write_dmarch_ini
+    fix_ownership
     register_service
     enable_archivelog
     print_success
