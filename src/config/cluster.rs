@@ -331,6 +331,18 @@ fn validate_dsc(cfg: &ClusterSpecificConfig) -> Result<()> {
     validate_dminit_config(&cfg.dminit)?;
     check_node_fields(cfg)?;
     check_instance_name_uniqueness(cfg)?;
+    // DSC 不支持 Monitor 角色节点（部署逻辑中没有 dmwatcher/dmmonitor 处理）
+    let has_monitor = cfg.nodes.iter().any(|n| n.role == NodeRole::Monitor);
+    if has_monitor {
+        bail!("配置验证失败: DSC 集群不支持 monitor 角色节点，请仅配置 primary/standby");
+    }
+    // DSC 集群至少需要 2 个节点（1 primary + 1 standby）
+    let non_monitor_count = cfg.nodes.iter()
+        .filter(|n| n.role != NodeRole::Monitor)
+        .count();
+    if non_monitor_count < 2 {
+        bail!("配置验证失败: DSC 集群至少需要 2 个节点（1 primary + 1 standby）");
+    }
     if cfg.dsc_storage.is_none() {
         bail!("配置验证失败: DSC 集群必须配置 [dsc_storage]（dcr_disk/vote_disk/log_disk/data_disk）");
     }
