@@ -10,6 +10,7 @@ pub mod health;
 pub mod phases;
 pub mod preflight;
 pub mod primary_standby;
+pub mod rollback;
 pub mod rws;
 pub mod templates;
 

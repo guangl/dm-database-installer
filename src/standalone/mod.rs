@@ -10,6 +10,7 @@ pub mod env_setup;
 pub mod init;
 pub mod package;
 pub mod remote;
+pub mod rollback;
 pub mod service;
 pub mod silent_install;
 
@@ -25,7 +26,16 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
 
     tracing::info!("开始安装达梦数据库（单机）");
     check_local_prerequisites(&specific.install_path, specific.port)?;
+
+    let mut rb = rollback::StandaloneRollback::new(
+        &specific.install_path,
+        &specific.data_path,
+        &specific.instance_name,
+    );
+
+    let env_backup = rollback::EnvBackup::capture()?;
     env_setup::run_local()?;
+    rb.set_env_backup(env_backup);
 
     // [1/7] 加载或创建 checkpoint（跨重试持久化密码和各步骤进度）
     let existing_cp = checkpoint::load(&specific.install_path)?;
@@ -54,6 +64,7 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         cp.installed = true;
         cp.save()?;
     }
+    rb.installed = true;
 
     // [5/7] dminit 初始化（幂等：dm.ini 存在则跳过）
     let dm_ini_exists = Path::new(&specific.data_path).join("dm.ini").exists();
@@ -63,9 +74,11 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         step_dminit(&specific, &sysdba_pwd, &sysauditor_pwd)?;
         step_write_dmarch_ini(&specific)?;
     }
+    rb.db_inited = true;
 
     // [6/7] 注册并启动 DM 系统服务
     step_register_service(&specific)?;
+    rb.services_registered = true;
 
     // [6c/7] 开启归档模式（数据库已 open 后通过 disql 执行）
     step_enable_archivelog(&specific, &sysdba_pwd)?;
@@ -77,6 +90,7 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     }
     checkpoint::Checkpoint::remove()?;
     tracing::info!("单机安装完成");
+    rb.commit();
     Ok(())
 }
 

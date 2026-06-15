@@ -36,17 +36,39 @@ pub async fn run_with_runners(
         + Sync,
 ) -> Result<()> {
     let dminit = specific.dminit.clone();
-    phases::run_preflight(&runners, &dminit).await?;
-    phases::run_install_phase(&common, &runners, &dminit).await?;
-    phases::run_primary_init_phase(&runners, &health_check_fn, &dminit).await?;
-    phases::run_backup_phase(&runners, &dminit).await?;
-    phases::run_standby_restore_phase(&runners, &dminit).await?;
-    phases::run_distribute_phase(&specific, &runners, &dminit).await?;
-    phases::run_startup_phase(&specific, &runners, &health_check_fn, &dminit).await?;
-    phases::run_watcher_phase(&runners, &dminit).await?;
-    phases::run_monitor_phase(&specific, &runners, &dminit).await?;
-    phases::run_sqllog_phase(&specific, &runners, &dminit).await?;
-    phases::run_verify_phase(&runners, &dminit).await?;
+    let mut rb = crate::cluster::rollback::ClusterRollbackState::default();
+    let result = run_phases(&common, &specific, &runners, &health_check_fn, &dminit, &mut rb).await;
+    if result.is_err() {
+        crate::cluster::rollback::run(&rb, &runners, &dminit).await;
+    }
+    result
+}
+
+async fn run_phases(
+    common: &CommonConfig,
+    specific: &ClusterSpecificConfig,
+    runners: &phases::Runners,
+    health_check_fn: &(impl Fn(String, u16, u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>> + Send + Sync),
+    dminit: &crate::config::cluster::DminitConfig,
+    rb: &mut crate::cluster::rollback::ClusterRollbackState,
+) -> Result<()> {
+    phases::run_preflight(runners, dminit).await?;
+    phases::run_install_phase(common, runners, dminit).await?;
+    rb.install_done = true;
+    phases::run_primary_init_phase(runners, health_check_fn, dminit).await?;
+    rb.primary_inited = true;
+    phases::run_backup_phase(runners, dminit).await?;
+    phases::run_standby_restore_phase(runners, dminit).await?;
+    rb.standbys_restored = true;
+    phases::run_distribute_phase(specific, runners, dminit).await?;
+    phases::run_startup_phase(specific, runners, health_check_fn, dminit).await?;
+    rb.services_started = true;
+    phases::run_watcher_phase(runners, dminit).await?;
+    rb.watchers_started = true;
+    phases::run_monitor_phase(specific, runners, dminit).await?;
+    rb.monitors_started = true;
+    phases::run_sqllog_phase(specific, runners, dminit).await?;
+    phases::run_verify_phase(runners, dminit).await?;
     tracing::info!("集群部署完成");
     Ok(())
 }
