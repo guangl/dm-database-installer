@@ -413,6 +413,15 @@ mod tests {
     /// 用于串行化需要 set_current_dir 的测试，避免并发竞争。
     static CWD_LOCK: Mutex<()> = Mutex::new(());
 
+    /// RAII guard：在 Drop 时自动恢复工作目录，即使测试 panic 也能正确恢复。
+    struct CwdGuard(std::path::PathBuf);
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.0);
+        }
+    }
+
     fn make_node(role: NodeRole, host: &str, name: &str) -> NodeConfig {
         NodeConfig {
             role,
@@ -514,7 +523,7 @@ mod tests {
         };
         cp.save_to(dir.path()).unwrap();
 
-        let original_dir = std::env::current_dir().unwrap();
+        let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
 
         let primary = make_node(NodeRole::Primary, "192.168.1.10", "DSC0");
@@ -538,8 +547,6 @@ mod tests {
             |_host, _port, _secs| Box::pin(async { Ok(()) }),
         )
         .await;
-
-        std::env::set_current_dir(original_dir).unwrap();
 
         assert!(result.is_ok(), "所有 checkpoint 均已完成，run_with_runners 应成功，实际: {:?}", result);
 
@@ -574,7 +581,7 @@ mod tests {
     async fn test_run_with_runners_calls_steps_in_order_no_checkpoint() {
         let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = TempDir::new().unwrap();
-        let original_dir = std::env::current_dir().unwrap();
+        let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
 
         let primary = make_node(NodeRole::Primary, "192.168.1.10", "DSC0");
@@ -627,8 +634,6 @@ mod tests {
             |_host, _port, _secs| Box::pin(async { Ok(()) }),
         )
         .await;
-
-        std::env::set_current_dir(original_dir).unwrap();
 
         // MockRunner 默认返回 ([], 0)，所有步骤应成功
         assert!(result.is_ok(), "run_with_runners 应成功，实际: {:?}", result);
@@ -718,7 +723,7 @@ mod tests {
     async fn test_first_node_is_primary_role() {
         let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = TempDir::new().unwrap();
-        let original_dir = std::env::current_dir().unwrap();
+        let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
 
         // Standby 在前，Primary 在后
@@ -747,8 +752,6 @@ mod tests {
         )
         .await;
 
-        std::env::set_current_dir(original_dir).unwrap();
-
         let log_primary = runner_primary.exec_log();
         let log_standby = runner_standby.exec_log();
 
@@ -770,7 +773,7 @@ mod tests {
     async fn test_run_with_runners_returns_error_when_no_primary_node() {
         let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = TempDir::new().unwrap();
-        let original_dir = std::env::current_dir().unwrap();
+        let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
 
         let standby1 = make_node(NodeRole::Standby, "192.168.1.10", "DSC0");
@@ -797,8 +800,6 @@ mod tests {
         )
         .await;
 
-        std::env::set_current_dir(original_dir).unwrap();
-
         assert!(result.is_err(), "全 standby 节点应返回 Err，实际: {:?}", result);
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -813,7 +814,7 @@ mod tests {
     async fn test_checkpoint_saved_after_each_phase() {
         let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = TempDir::new().unwrap();
-        let original_dir = std::env::current_dir().unwrap();
+        let _cwd_guard = CwdGuard(std::env::current_dir().unwrap());
         std::env::set_current_dir(dir.path()).unwrap();
 
         let primary = make_node(NodeRole::Primary, "192.168.1.10", "DSC0");
@@ -870,8 +871,6 @@ mod tests {
             |_host, _port, _secs| Box::pin(async { Ok(()) }),
         )
         .await;
-
-        std::env::set_current_dir(original_dir).unwrap();
 
         // run_with_runners 应当失败
         assert!(result.is_err(), "dminit 失败应导致 run_with_runners 返回 Err，实际: {:?}", result);
