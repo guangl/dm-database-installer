@@ -268,10 +268,11 @@ where
         .collect();
     try_join_all(asm_futs).await?;
 
-    // 3) 等待所有节点 DMASM 端口就绪（9349 为 DMASM 默认端口）
-    for (node, _) in runners {
-        tracing::info!("[node:{}] 等待 DMASM 端口 9349 就绪...", node.host);
-        health_check_fn(node.host.clone(), 9349u16, 60).await?;
+    // 3) 等待所有节点 DMASM 端口就绪（端口按节点 index 递增：9349 + node_idx * 2，与 dmdcr_cfg.ini 保持一致）
+    for (node_idx, (node, _)) in runners.iter().enumerate() {
+        let asm_port = 9349u16 + (node_idx as u16) * 2;
+        tracing::info!("[node:{}] 等待 DMASM 端口 {} 就绪...", node.host, asm_port);
+        health_check_fn(node.host.clone(), asm_port, 60).await?;
     }
     Ok(())
 }
