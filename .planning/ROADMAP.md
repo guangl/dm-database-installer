@@ -25,7 +25,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [x] **Phase 5: RWS 读写分离集群** — 补全 run_read_routing_phase，使 dm-installer install rws 端到端可走通 (3 plans) (completed 2026-06-14)
 - [x] **Phase 6: status 命令** — 新增 dm-installer status 子命令，查询本地与所有远程节点状态 (completed 2026-06-15)
-- [ ] **Phase 7: DSC 共享存储集群** — 完整实现 DSC 部署：ASM 初始化 + 共享存储 dminit + 多节点启动
+- [x] **Phase 7: DSC 共享存储集群** — 完整实现 DSC 部署：ASM 初始化 + 共享存储 dminit + 多节点启动 (completed 2026-06-15)
 
 ## Phase Details
 
@@ -95,7 +95,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 07-04-PLAN.md — DSC 入口编排（run / run_with_runners / 8 个 checkpoint gate）+ 人工验证
+- [x] 07-04-PLAN.md — DSC 入口编排（run / run_with_runners / 8 个 checkpoint gate）+ 人工验证
 
 ## Progress
 
@@ -109,4 +109,4 @@ Plans:
 | 4. 发布流水线 | v1.0 | 3/3 | Complete | 2026-06-14 |
 | 5. RWS 读写分离集群 | v1.1 | 3/3 | Complete   | 2026-06-14 |
 | 6. status 命令 | v1.1 | 1/1 | Complete   | 2026-06-15 |
-| 7. DSC 共享存储集群 | v1.1 | 3/4 | In Progress|  |
+| 7. DSC 共享存储集群 | v1.1 | 4/4 | Complete   | 2026-06-15 |
