@@ -67,7 +67,13 @@ Plans:
   2. 安装流程在每个节点上自动调用 dmasmtool 初始化 ASM 磁盘组，日志可见各节点 ASM 初始化结果
   3. 第一节点执行 dminit（路径指向共享存储），其余节点直接挂载共享存储并启动，不重复 dminit
   4. 所有节点启动后 V\$INSTANCE 角色查询返回预期值，集群可对外提供服务
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — 扩展 DscStorageConfig + ClusterCheckpoint 新增 6 个 DSC 字段（基础数据契约）
+- [ ] 07-02-PLAN.md — DSC 模板生成（dmdcr_cfg.ini / dmasvrmal.ini / dmdcr.ini / dminit.ini）
+- [ ] 07-03-PLAN.md — DSC 部署原语（install_only / 配置分发 / DMCSS+DMASM+dmserver 注册 / dmasmcmd+dmasmtool / 共享 dminit / config 目录分发 / V$INSTANCE 验证）
+- [ ] 07-04-PLAN.md — DSC 入口编排（run / run_with_runners / 8 个 checkpoint gate）+ 人工验证
 
 ## Progress
 
@@ -81,4 +87,4 @@ Plans:
 | 4. 发布流水线 | v1.0 | 3/3 | Complete | 2026-06-14 |
 | 5. RWS 读写分离集群 | v1.1 | 3/3 | Complete   | 2026-06-14 |
 | 6. status 命令 | v1.1 | 1/1 | Complete   | 2026-06-15 |
-| 7. DSC 共享存储集群 | v1.1 | 0/TBD | Not started | - |
+| 7. DSC 共享存储集群 | v1.1 | 0/4 | Planned | - |
