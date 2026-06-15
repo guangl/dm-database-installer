@@ -708,7 +708,31 @@ identity_file = "~/.ssh/id_rsa"
     }
 
     #[test]
-    fn test_dsc_requires_shared_storage() {
+    fn test_dsc_storage_config_default_values() {
+        let storage = DscStorageConfig::default();
+        assert_eq!(storage.dcr_disk, "/dev/raw/raw1");
+        assert_eq!(storage.vote_disk, "/dev/raw/raw2");
+        assert_eq!(storage.log_disk, "/dev/raw/raw3");
+        assert_eq!(storage.data_disk, "/dev/raw/raw4");
+    }
+
+    #[test]
+    fn test_dsc_storage_config_deserializes() {
+        let toml_str = r#"
+dcr_disk = "/dev/sdb1"
+vote_disk = "/dev/sdb2"
+log_disk = "/dev/sdb3"
+data_disk = "/dev/sdb4"
+"#;
+        let storage: DscStorageConfig = toml::from_str(toml_str).expect("反序列化应成功");
+        assert_eq!(storage.dcr_disk, "/dev/sdb1");
+        assert_eq!(storage.vote_disk, "/dev/sdb2");
+        assert_eq!(storage.log_disk, "/dev/sdb3");
+        assert_eq!(storage.data_disk, "/dev/sdb4");
+    }
+
+    #[test]
+    fn test_dsc_requires_dsc_storage() {
         let toml = r#"
 oguid = 453331
 
@@ -733,14 +757,13 @@ identity_file = "~/.ssh/id_rsa"
         let file = write_toml(toml);
         let err = load_cluster_specific(file.path(), InstallType::Dsc).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("shared_storage"), "应提示设置 shared_storage，实际: {msg}");
+        assert!(msg.contains("dsc_storage"), "应提示配置 dsc_storage，实际: {msg}");
     }
 
     #[test]
-    fn test_dsc_accepts_shared_storage() {
+    fn test_dsc_accepts_dsc_storage() {
         let toml = r#"
 oguid = 453331
-shared_storage = "/dev/sdc"
 
 [[nodes]]
 role = "primary"
@@ -759,9 +782,50 @@ instance_name = "DMSVR02"
 [nodes.ssh]
 user = "root"
 identity_file = "~/.ssh/id_rsa"
+
+[dsc_storage]
+dcr_disk = "/dev/raw/raw1"
+vote_disk = "/dev/raw/raw2"
+log_disk = "/dev/raw/raw3"
+data_disk = "/dev/raw/raw4"
 "#;
         let file = write_toml(toml);
         assert!(load_cluster_specific(file.path(), InstallType::Dsc).is_ok(), "DSC 配置应合法");
+    }
+
+    #[test]
+    fn test_dsc_storage_disks_must_be_distinct() {
+        let toml = r#"
+oguid = 453331
+
+[[nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[nodes]]
+role = "standby"
+host = "192.168.1.11"
+instance_name = "DMSVR02"
+
+[nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[dsc_storage]
+dcr_disk = "/dev/raw/raw1"
+vote_disk = "/dev/raw/raw1"
+log_disk = "/dev/raw/raw3"
+data_disk = "/dev/raw/raw4"
+"#;
+        let file = write_toml(toml);
+        let err = load_cluster_specific(file.path(), InstallType::Dsc).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("互不相同") || msg.contains("distinct"), "应提示磁盘路径必须不同，实际: {msg}");
     }
 
     #[test]
