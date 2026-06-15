@@ -27,6 +27,8 @@ pub enum Commands {
         /// 目标 shell 类型（bash/zsh/fish 等）
         shell: clap_complete::Shell,
     },
+    /// 查询本地及 config.toml 中所有远程节点的运行状态
+    Status(StatusArgs),
 }
 
 /// install 子命令参数（配置从 config.toml 自动读取，无需 --config）
@@ -72,6 +74,10 @@ pub enum InitKind {
     Dsc(InitOutputArgs),
 }
 
+/// status 子命令参数（无需额外参数，自动读取 config.toml）
+#[derive(clap::Args)]
+pub struct StatusArgs {}
+
 /// init 子命令公共输出参数
 #[derive(clap::Args)]
 pub struct InitOutputArgs {
@@ -116,5 +122,11 @@ mod tests {
         let cli = Cli::try_parse_from(["dm-installer", "validate", "/etc/dm.toml"]).unwrap();
         let Commands::Validate(args) = cli.command else { panic!("expected Validate") };
         assert_eq!(args.config, Some(PathBuf::from("/etc/dm.toml")));
+    }
+
+    #[test]
+    fn test_status_args_parses() {
+        let cli = Cli::try_parse_from(["dm-installer", "status"]).unwrap();
+        assert!(matches!(cli.command, Commands::Status(StatusArgs { .. })));
     }
 }

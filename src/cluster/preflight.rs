@@ -141,6 +141,7 @@ mod tests {
             charset: 0,
             case_sensitive: true,
             extent_size: 16,
+            sysdba_password: "SYSDBA".to_string(),
         }
     }
 
@@ -157,6 +158,7 @@ mod tests {
                 user: "root".to_string(),
                 identity_file: None,
                 password: Some("pass".to_string()),
+                port: 22,
             },
         }
     }
