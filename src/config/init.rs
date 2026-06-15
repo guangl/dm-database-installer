@@ -27,15 +27,19 @@ pub fn run(kind: &InitKind) -> Result<()> {
             let dir = output_dir(args);
             write_template(&dir.join("config.toml"), args.force, RWS_COMMON)?;
             write_template(&dir.join("rws.toml"), args.force, RWS_SPECIFIC)?;
-            println!("[占位] 已生成读写分离配置模板 (config.toml + rws.toml)");
-            println!("注意: 读写分离部署逻辑尚未实现，模板仅供参考");
+            println!("已生成读写分离集群配置模板:");
+            println!("  config.toml  — 通用配置（type、安装包路径等）");
+            println!("  rws.toml     — 读写分离特有配置（节点、OGUID 等）");
+            println!("编辑后使用: dm-installer install");
         }
         InitKind::Dsc(args) => {
             let dir = output_dir(args);
             write_template(&dir.join("config.toml"), args.force, DSC_COMMON)?;
             write_template(&dir.join("dsc.toml"), args.force, DSC_SPECIFIC)?;
-            println!("[占位] 已生成 DSC 集群配置模板 (config.toml + dsc.toml)");
-            println!("注意: DSC 部署逻辑尚未实现，模板仅供参考");
+            println!("已生成 DSC 共享存储集群配置模板:");
+            println!("  config.toml  — 通用配置（type、安装包路径等）");
+            println!("  dsc.toml     — DSC 特有配置（节点、OGUID、共享块设备等）");
+            println!("编辑后使用: dm-installer install");
         }
     }
     Ok(())
@@ -138,7 +142,7 @@ level = "info"
 "#;
 
 const RWS_COMMON: &str = r#"# 达梦数据库读写分离集群 — 通用配置
-# TODO: 读写分离部署逻辑尚未实现
+# 使用方式: dm-installer install
 
 type = "rws"
 
@@ -152,8 +156,8 @@ level = "info"
 # max_files = 7
 "#;
 
-const DSC_COMMON: &str = r#"# 达梦数据库 DSC 集群 — 通用配置
-# TODO: DSC 部署逻辑尚未实现
+const DSC_COMMON: &str = r#"# 达梦数据库 DSC 共享存储集群 — 通用配置
+# 使用方式: dm-installer install
 
 type = "dsc"
 
@@ -251,9 +255,7 @@ file_num      = 128    # 保留的历史文件数
 min_exec_time = 0      # 最小执行时间阈值（ms），0 = 记录全部 SQL
 "#;
 
-// TODO(cluster-rws): 读写分离部署逻辑待实现
 const RWS_SPECIFIC: &str = r#"# 达梦数据库读写分离集群 — 特有配置（rws.toml）
-# TODO: 读写分离部署逻辑尚未实现
 
 oguid = 453331
 
@@ -330,44 +332,49 @@ file_num      = 128
 min_exec_time = 0
 "#;
 
-// TODO(cluster-dsc): DSC 共享存储集群部署逻辑待实现
 const DSC_SPECIFIC: &str = r#"# 达梦数据库 DSC 共享存储集群 — 特有配置（dsc.toml）
-# TODO: DSC 部署逻辑尚未实现
 
+# 守护系统全局唯一标识，所有节点必须相同，范围 0-2147483647
 oguid = 453331
-shared_storage = "/dev/sdc"
 
-# ─── 节点 1（负责初始化共享实例） ──────────────────────────
+# ─── 共享块设备路径（四个设备，路径必须互不相同且非空） ────────
+[dsc_storage]
+dcr_disk  = "/dev/raw/raw1"   # DCR 控制文件磁盘
+vote_disk = "/dev/raw/raw2"   # 投票磁盘
+log_disk  = "/dev/raw/raw3"   # 日志磁盘（DMLOG ASM 磁盘组）
+data_disk = "/dev/raw/raw4"   # 数据磁盘（DMDATA ASM 磁盘组）
+
+# ─── 节点 1（负责 dminit 初始化共享实例） ──────────────────
 [[nodes]]
-role = "primary"
-host = "192.168.1.10"
+role          = "primary"
+host          = "192.168.1.10"
 instance_name = "DMSVR01"
-install_path = "/opt/dmdbms"
-data_path = "/dmdata/shared"
-port = 5236
-mal_port = 5237
-dw_port = 5238
-inst_dw_port = 5239
 
 [nodes.ssh]
-user = "root"
+user          = "root"
 identity_file = "~/.ssh/id_rsa"
+# password    = "your_password"
 
 # ─── 节点 2 ─────────────────────────────────────────────────
 [[nodes]]
-role = "standby"
-host = "192.168.1.11"
+role          = "standby"
+host          = "192.168.1.11"
 instance_name = "DMSVR02"
-install_path = "/opt/dmdbms"
-data_path = "/dmdata/shared"
-port = 5236
-mal_port = 5237
-dw_port = 5238
-inst_dw_port = 5239
 
 [nodes.ssh]
-user = "root"
+user          = "root"
 identity_file = "~/.ssh/id_rsa"
+# password    = "your_password"
+
+# ─── dminit 初始化参数（集群级统一） ─────────────────────────
+[dminit]
+install_path   = "/opt/dmdbms"
+data_path      = "/dmdata"
+port           = 5236
+page_size      = 8
+charset        = 0       # 0=GB18030  1=UTF-8  2=EUC-KR
+case_sensitive = true
+extent_size    = 16      # 16 或 32
 "#;
 
 
@@ -454,7 +461,8 @@ mod tests {
         assert!(dir.path().join("config.toml").exists());
         assert!(dir.path().join("dsc.toml").exists());
         let content = std::fs::read_to_string(dir.path().join("dsc.toml")).unwrap();
-        assert!(content.contains("shared_storage"));
+        assert!(content.contains("[dsc_storage]"), "应含 [dsc_storage] 块");
+        assert!(content.contains("dcr_disk"), "应含 dcr_disk 字段");
     }
 
     #[test]
