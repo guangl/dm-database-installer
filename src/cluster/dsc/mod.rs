@@ -537,11 +537,13 @@ mod tests {
     /// preflight 依次调用：sudo -n true、ss -tlnp | grep ':5236'、df -B1 /opt
     /// df 必须返回合法的第 2 行第 4 列（Available >= 5GB）。
     fn make_runner_with_preflight() -> MockRunner {
-        // df 输出：第 2 行第 4 列 = 10737418240（10 GB）
+        // df 输出：第 2 行第 4 列 = 26843545600（25 GB，> 20 GB 最低要求）
         let df_output = b"Filesystem     1B-blocks       Used  Available Use% Mounted on\n\
-/dev/sda1    107374182400 10737418240 10737418240  50% /opt\n";
+/dev/sda1    107374182400 10737418240 26843545600  50% /opt\n";
         MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, b"MemTotal:       8388608 kB\n".to_vec()),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 0, vec![]),
             ("df -B1 /opt".to_string(), 0, df_output.to_vec()),
         ])
@@ -631,15 +633,13 @@ mod tests {
 
         let primary = make_node(NodeRole::Primary, "192.168.1.10", "DSC0");
         let standby = make_node(NodeRole::Standby, "192.168.1.11", "DSC1");
+        let df_output = b"Filesystem     1B-blocks       Used  Available Use% Mounted on\n\
+/dev/sda1    107374182400 10737418240 26843545600  50% /opt\n";
         let runner0 = {
-            let r = make_runner_with_preflight();
-            // verify_dsc_node 命令以 "echo 'SELECT STATUS$" 开头，需预设含 OPEN 的响应
-            // 注意：runner 的 responses 用 Vec 构造，追加需重建
-            drop(r);
-            let df_output = b"Filesystem     1B-blocks       Used  Available Use% Mounted on\n\
-/dev/sda1    107374182400 10737418240 10737418240  50% /opt\n";
             MockRunner::new(vec![
                 ("sudo -n true".to_string(), 0, vec![]),
+                ("grep '^MemTotal:'".to_string(), 0, b"MemTotal:       8388608 kB\n".to_vec()),
+                ("nproc".to_string(), 0, b"4\n".to_vec()),
                 ("ss -tlnp | grep ':5236'".to_string(), 0, vec![]),
                 ("df -B1 /opt".to_string(), 0, df_output.to_vec()),
                 // verify_dsc_node 验证（primary）
@@ -650,10 +650,10 @@ mod tests {
         // 预设 tar.gz 读取数据，确保 distribute_config_dir 可以 sftp_read
         runner0.set_sftp_read("/tmp/dsc1_config.tar.gz", b"fake-tar-content".to_vec());
         let runner1 = {
-            let df_output = b"Filesystem     1B-blocks       Used  Available Use% Mounted on\n\
-/dev/sda1    107374182400 10737418240 10737418240  50% /opt\n";
             MockRunner::new(vec![
                 ("sudo -n true".to_string(), 0, vec![]),
+                ("grep '^MemTotal:'".to_string(), 0, b"MemTotal:       8388608 kB\n".to_vec()),
+                ("nproc".to_string(), 0, b"4\n".to_vec()),
                 ("ss -tlnp | grep ':5236'".to_string(), 0, vec![]),
                 ("df -B1 /opt".to_string(), 0, df_output.to_vec()),
                 // verify_dsc_node 验证（standby）
@@ -865,13 +865,15 @@ mod tests {
         let primary = make_node(NodeRole::Primary, "192.168.1.10", "DSC0");
         let standby = make_node(NodeRole::Standby, "192.168.1.11", "DSC1");
 
-        // df 输出（preflight 需要）
+        // df 输出（preflight 需要，25 GB > 20 GB 最低要求）
         let df_output = b"Filesystem     1B-blocks       Used  Available Use% Mounted on\n\
-/dev/sda1    107374182400 10737418240 10737418240  50% /opt\n";
+/dev/sda1    107374182400 10737418240 26843545600  50% /opt\n";
 
         // 设置 Primary runner：preflight 响应 + dmasmcmd/dmasmtool 成功 + dminit 失败
         let runner0 = Arc::new(MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, b"MemTotal:       8388608 kB\n".to_vec()),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 0, vec![]),
             ("df -B1 /opt".to_string(), 0, df_output.to_vec()),
             (
@@ -895,6 +897,8 @@ mod tests {
         ]));
         let runner1 = Arc::new(MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, b"MemTotal:       8388608 kB\n".to_vec()),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 0, vec![]),
             ("df -B1 /opt".to_string(), 0, df_output.to_vec()),
         ]));

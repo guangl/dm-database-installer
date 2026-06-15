@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::path::Path;
 
 use crate::cli::InstallArgs;
@@ -6,6 +6,7 @@ use crate::config::{CommonConfig, InstallConfig};
 
 pub mod checksum;
 pub mod checkpoint;
+pub mod env_setup;
 pub mod init;
 pub mod package;
 pub mod remote;
@@ -23,6 +24,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     }
 
     tracing::info!("开始安装达梦数据库（单机）");
+    check_local_prerequisites(&specific.install_path, specific.port)?;
+    env_setup::run_local()?;
 
     // [1/7] 加载或创建 checkpoint（跨重试持久化密码和各步骤进度）
     let existing_cp = checkpoint::load(&specific.install_path)?;
@@ -63,6 +66,9 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
 
     // [6/7] 注册并启动 DM 系统服务
     step_register_service(&specific)?;
+
+    // [6c/7] 开启归档模式（数据库已 open 后通过 disql 执行）
+    step_enable_archivelog(&specific, &sysdba_pwd)?;
 
     // [7/7] 打印凭证，清理临时文件
     print_generated_credentials(&sysdba_pwd, &sysauditor_pwd);
@@ -248,6 +254,156 @@ fn step_write_dmarch_ini(config: &InstallConfig) -> Result<()> {
 fn step_register_service(config: &InstallConfig) -> Result<()> {
     tracing::info!("[7/7] 注册并启动 DM 服务");
     service::register_and_start(config)
+}
+
+fn step_enable_archivelog(config: &InstallConfig, sysdba_pwd: &str) -> Result<()> {
+    tracing::info!("[7b/7] 开启归档模式");
+    init::enable_archivelog(config, sysdba_pwd)
+}
+
+fn check_local_prerequisites(install_path: &str, port: u16) -> Result<()> {
+    tracing::info!("[预检查] 本地硬件资源检测");
+    check_local_port(port)?;
+    check_local_disk(install_path)?;
+    check_local_memory()?;
+    check_local_cpu()?;
+    check_local_ulimits();
+    check_local_selinux();
+    Ok(())
+}
+
+fn check_local_port(port: u16) -> Result<()> {
+    let output = std::process::Command::new("ss")
+        .args(["-tlnp"])
+        .output()
+        .context("执行 ss 失败，请确认 iproute2 已安装")?;
+    let text = std::str::from_utf8(&output.stdout).unwrap_or("");
+    let port_str = port.to_string();
+    let occupied = text.lines().any(|line| {
+        if let Some(idx) = line.find(&format!(":{port_str}")) {
+            let after = &line[idx + 1 + port_str.len()..];
+            !after.starts_with(|c: char| c.is_ascii_digit())
+        } else {
+            false
+        }
+    });
+    if occupied {
+        bail!("[预检查] 端口 {} 已被占用，请修改配置中的 port 参数或释放该端口", port);
+    }
+    Ok(())
+}
+
+fn check_local_ulimits() {
+    let content = match std::fs::read_to_string("/proc/self/limits") {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    const MIN: u64 = 65536;
+    for line in content.lines() {
+        let (name, col) = if line.starts_with("Max open files") {
+            ("nofile", 3usize)
+        } else if line.starts_with("Max processes") {
+            ("nproc", 2usize)
+        } else {
+            continue;
+        };
+        let soft: u64 = match line.split_whitespace().nth(col).and_then(|s| s.parse().ok()) {
+            Some(n) => n,
+            None => continue, // "unlimited" 解析失败 → 视为无限制
+        };
+        if soft < MIN {
+            tracing::warn!(
+                "[预检查] {} soft limit = {}，建议 >= {}；\
+                 请在 /etc/security/limits.conf 中添加: dmdba soft {} {}",
+                name, soft, MIN, name, MIN
+            );
+        }
+    }
+}
+
+fn check_local_selinux() {
+    let output = match std::process::Command::new("getenforce").output() {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    let mode = std::str::from_utf8(&output.stdout).unwrap_or("").trim();
+    if mode == "Enforcing" {
+        tracing::warn!(
+            "[预检查] SELinux 处于 Enforcing 模式，可能阻断 DM 进程启动；\
+             临时切换: setenforce 0；\
+             永久禁用: 将 /etc/selinux/config 中 SELINUX=enforcing 改为 permissive 并重启"
+        );
+    }
+}
+
+fn check_local_disk(install_path: &str) -> Result<()> {
+    let parent = Path::new(install_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("/"));
+    let output = std::process::Command::new("df")
+        .arg("-B1")
+        .arg(parent)
+        .output()
+        .context("执行 df 失败")?;
+    let available = parse_df_bytes(&output.stdout)?;
+    let min_bytes: u64 = 20 * 1024 * 1024 * 1024;
+    tracing::debug!(
+        "[预检查] 磁盘剩余: {} GB，最低要求: 20 GB",
+        available / (1024 * 1024 * 1024)
+    );
+    if available < min_bytes {
+        bail!("[预检查] 磁盘空间不足: 剩余 {} bytes，需要 >= 20 GB", available);
+    }
+    Ok(())
+}
+
+fn check_local_memory() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let content = std::fs::read_to_string("/proc/meminfo")
+            .context("无法读取 /proc/meminfo")?;
+        let line = content
+            .lines()
+            .find(|l| l.starts_with("MemTotal:"))
+            .context("未找到 MemTotal 行")?;
+        let total_kb: u64 = line
+            .split_whitespace()
+            .nth(1)
+            .context("MemTotal 行格式异常")?
+            .parse()
+            .context("MemTotal 值无法解析")?;
+        let min_kb: u64 = 4 * 1024 * 1024;
+        tracing::debug!(
+            "[预检查] 内存总量: {} GB，最低要求: 4 GB",
+            total_kb / (1024 * 1024)
+        );
+        if total_kb < min_kb {
+            bail!("[预检查] 内存不足: {} KB，需要 >= 4 GB", total_kb);
+        }
+    }
+    Ok(())
+}
+
+fn check_local_cpu() -> Result<()> {
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    if cores < 1 {
+        bail!("[预检查] CPU 核心数不足: {} 核，需要 >= 1 核", cores);
+    }
+    Ok(())
+}
+
+fn parse_df_bytes(stdout: &[u8]) -> Result<u64> {
+    let text = std::str::from_utf8(stdout).context("df 输出不是有效 UTF-8")?;
+    let second_line = text.lines().nth(1).context("df 输出行数不足")?;
+    let available_str = second_line
+        .split_whitespace()
+        .nth(3)
+        .context("df 输出列数不足")?;
+    available_str
+        .parse::<u64>()
+        .context(format!("df Available 列无法解析: {available_str}"))
 }
 
 #[cfg(test)]

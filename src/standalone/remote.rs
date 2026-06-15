@@ -44,10 +44,15 @@ pub async fn run(
     )
     .await?;
 
+    check_remote_prerequisites(specific, &session).await?;
+
     // [1/5] 幂等检测：dm.ini 已存在说明安装已全部完成
     if check_remote_dminit_done(specific, &session).await? {
         return Ok(());
     }
+
+    // [环境准备] 系统内核参数、用户权限、防火墙
+    super::env_setup::run_remote(&session).await?;
 
     // 加载或创建 checkpoint（跨重试持久化密码和各步骤进度）
     let existing_cp = checkpoint::load(&specific.install_path)?;
@@ -433,6 +438,24 @@ async fn remote_register_and_start(
         .map_err(|e| anyhow::anyhow!("启动服务 {} 失败: {e}", svc_name))?;
 
     println!("远端服务 {} 已启动并设置为开机自启", svc_name);
+    Ok(())
+}
+
+async fn check_remote_prerequisites(
+    specific: &InstallConfig,
+    runner: &dyn CommandRunner,
+) -> anyhow::Result<()> {
+    tracing::info!("[预检查] 远端节点硬件资源检测");
+    use crate::cluster::preflight::{
+        check_cpu_cores, check_disk_space, check_memory, check_port_available, check_selinux,
+        check_ulimits,
+    };
+    check_memory(runner).await.context("远端节点内存检测失败")?;
+    check_cpu_cores(runner).await.context("远端节点 CPU 检测失败")?;
+    check_disk_space(runner, &specific.install_path).await.context("远端节点磁盘检测失败")?;
+    check_port_available(runner, specific.port).await.context("远端节点端口检测失败")?;
+    check_ulimits(runner).await.context("远端节点 ulimit 检测失败")?;
+    check_selinux(runner).await.context("远端节点 SELinux 检测失败")?;
     Ok(())
 }
 

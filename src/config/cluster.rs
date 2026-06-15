@@ -304,6 +304,8 @@ pub fn validate_cluster_specific_config(
 fn validate_primary_standby(cfg: &ClusterSpecificConfig) -> Result<()> {
     check_nodes_not_empty(cfg)?;
     check_role_uniqueness(cfg)?;
+    check_standby_required(cfg)?;
+    check_same_host_uniqueness(cfg)?;
     check_oguid_range(cfg)?;
     validate_dminit_config(&cfg.dminit)?;
     check_node_fields(cfg)?;
@@ -313,6 +315,8 @@ fn validate_primary_standby(cfg: &ClusterSpecificConfig) -> Result<()> {
 fn validate_rws(cfg: &ClusterSpecificConfig) -> Result<()> {
     check_nodes_not_empty(cfg)?;
     check_role_uniqueness(cfg)?;
+    check_standby_required(cfg)?;
+    check_same_host_uniqueness(cfg)?;
     check_oguid_range(cfg)?;
     validate_dminit_config(&cfg.dminit)?;
     check_node_fields(cfg)?;
@@ -327,6 +331,7 @@ fn validate_rws(cfg: &ClusterSpecificConfig) -> Result<()> {
 fn validate_dsc(cfg: &ClusterSpecificConfig) -> Result<()> {
     check_nodes_not_empty(cfg)?;
     check_role_uniqueness(cfg)?;
+    check_same_host_uniqueness(cfg)?;
     check_oguid_range(cfg)?;
     validate_dminit_config(&cfg.dminit)?;
     check_node_fields(cfg)?;
@@ -414,11 +419,44 @@ fn check_node_fields(cfg: &ClusterSpecificConfig) -> Result<()> {
 }
 
 fn validate_single_node(node: &NodeConfig, dminit: &DminitConfig) -> Result<()> {
-    if node.mal_port == dminit.port {
-        bail!("配置验证失败: node[{}] mal_port 不能等于 dminit port: {}", node.host, dminit.port);
+    let port_entries = [
+        ("dminit.port", dminit.port),
+        ("mal_port", node.mal_port),
+        ("dw_port", node.dw_port),
+        ("inst_dw_port", node.inst_dw_port),
+    ];
+    let mut seen: HashSet<u16> = HashSet::new();
+    for (name, port) in &port_entries {
+        if !seen.insert(*port) {
+            bail!(
+                "配置验证失败: node[{}] 端口冲突——{} ({}) 与同节点其他端口重复",
+                node.host, name, port
+            );
+        }
     }
     if node.ssh.identity_file.is_none() && node.ssh.password.is_none() {
         bail!("配置验证失败: node[{}] 至少提供 identity_file 或 password 之一", node.host);
+    }
+    Ok(())
+}
+
+fn check_standby_required(cfg: &ClusterSpecificConfig) -> Result<()> {
+    let standby_count = cfg.nodes.iter().filter(|n| n.role == NodeRole::Standby).count();
+    if standby_count == 0 {
+        bail!("配置验证失败: 主备集群至少需要一个备节点 (role = \"standby\")");
+    }
+    Ok(())
+}
+
+fn check_same_host_uniqueness(cfg: &ClusterSpecificConfig) -> Result<()> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    for node in &cfg.nodes {
+        if !seen.insert(node.host.as_str()) {
+            bail!(
+                "配置验证失败: 主机 {} 上配置了多个节点——dminit.port 相同必然造成端口冲突，每台主机只能部署一个实例",
+                node.host
+            );
+        }
     }
     Ok(())
 }
@@ -591,7 +629,92 @@ port = 5236
         let file = write_toml(toml);
         let err = load_cluster_specific(file.path(), InstallType::Dw).unwrap_err();
         let msg = format!("{:#}", err);
-        assert!(msg.contains("mal_port 不能等于 dminit port"), "应含端口冲突错误，实际: {msg}");
+        assert!(msg.contains("端口冲突"), "应含端口冲突错误，实际: {msg}");
+        assert!(msg.contains("mal_port"), "应含 mal_port 字样，实际: {msg}");
+    }
+
+    #[test]
+    fn test_validate_rejects_dw_port_conflict() {
+        let toml = r#"
+oguid = 453331
+
+[[nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+dw_port = 5236
+
+[nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[nodes]]
+role = "standby"
+host = "192.168.1.11"
+instance_name = "DMSVR02"
+
+[nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[dminit]
+port = 5236
+"#;
+        let file = write_toml(toml);
+        let err = load_cluster_specific(file.path(), InstallType::Dw).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("端口冲突"), "应含端口冲突错误，实际: {msg}");
+        assert!(msg.contains("dw_port"), "应含 dw_port 字样，实际: {msg}");
+    }
+
+    #[test]
+    fn test_validate_rejects_no_standby() {
+        let toml = r#"
+oguid = 453331
+
+[[nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+        let file = write_toml(toml);
+        let err = load_cluster_specific(file.path(), InstallType::Dw).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("至少需要一个备节点"), "应含备节点错误，实际: {msg}");
+    }
+
+    #[test]
+    fn test_validate_rejects_same_host() {
+        let toml = r#"
+oguid = 453331
+
+[[nodes]]
+role = "primary"
+host = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[nodes]]
+role = "standby"
+host = "192.168.1.10"
+instance_name = "DMSVR02"
+
+[nodes.ssh]
+user = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+        let file = write_toml(toml);
+        let err = load_cluster_specific(file.path(), InstallType::Dw).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("多个节点"), "应含同主机多节点错误，实际: {msg}");
+        assert!(msg.contains("192.168.1.10"), "应含主机 IP，实际: {msg}");
     }
 
     #[test]

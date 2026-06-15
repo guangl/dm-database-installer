@@ -73,6 +73,7 @@ check_deps() {
     local missing=()
     command -v curl  >/dev/null 2>&1 || missing+=("curl")
     command -v unzip >/dev/null 2>&1 || missing+=("unzip")
+    command -v mount >/dev/null 2>&1 || missing+=("mount")
     if [ ${#missing[@]} -gt 0 ]; then
         log_err "缺少必要工具: ${missing[*]}"
         log_err "Debian/Ubuntu: apt-get install -y ${missing[*]}"
@@ -81,19 +82,260 @@ check_deps() {
     fi
 }
 
-# ── 创建 dmdba 系统用户 ───────────────────────────────────────────────────────────
-create_dmdba_user() {
-    if id dmdba >/dev/null 2>&1; then
-        log_info "系统用户 dmdba 已存在，跳过创建"
+check_port() {
+    if ss -tlnp 2>/dev/null | grep -q ":${DM_PORT}[^0-9]"; then
+        log_err "端口 ${DM_PORT} 已被占用，请修改 DM_PORT 或释放该端口"
+        exit 1
+    fi
+    log_info "端口 ${DM_PORT} 可用"
+}
+
+check_memory() {
+    local total_kb
+    total_kb=$(grep '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}')
+    local need_kb=$((4 * 1024 * 1024))
+    if [ -z "$total_kb" ] || [ "$total_kb" -lt "$need_kb" ]; then
+        log_err "内存不足：当前 $((${total_kb:-0} / 1024)) MB，要求 >= 4 GB"
+        exit 1
+    fi
+    log_info "内存检查通过：$((total_kb / 1024)) MB"
+}
+
+check_install_disk() {
+    local parent
+    parent=$(dirname "$DM_INSTALL_PATH")
+    [ -d "$parent" ] || parent="/"
+    local avail_kb
+    avail_kb=$(df -Pk "$parent" 2>/dev/null | awk 'NR==2{print $4}')
+    local need_kb=$((20 * 1024 * 1024))
+    if [ -z "$avail_kb" ] || [ "$avail_kb" -lt "$need_kb" ]; then
+        log_err "安装路径 ${DM_INSTALL_PATH} 所在分区可用空间不足，需要 >= 20 GB"
+        exit 1
+    fi
+    log_info "安装路径磁盘检查通过：$((avail_kb / 1024 / 1024)) GB 可用"
+}
+
+check_ulimits() {
+    local nofile nproc need=65536 warn=0
+    nofile=$(ulimit -n 2>/dev/null)
+    nproc=$(ulimit -u 2>/dev/null)
+
+    if [ "$nofile" != "unlimited" ] && [ "${nofile:-0}" -lt "$need" ]; then
+        log_warn "open files (nofile) 当前值 ${nofile}，建议 >= ${need}"
+        warn=1
+    fi
+    if [ "$nproc" != "unlimited" ] && [ "${nproc:-0}" -lt "$need" ]; then
+        log_warn "max user processes (nproc) 当前值 ${nproc}，建议 >= ${need}"
+        warn=1
+    fi
+
+    if [ "$warn" -eq 1 ]; then
+        log_warn "ulimit 偏低，DM 运行时可能遇到资源耗尽；请在 /etc/security/limits.conf 添加："
+        log_warn "  dmdba soft nofile 65536    dmdba hard nofile 65536"
+        log_warn "  dmdba soft nproc  65536    dmdba hard nproc  65536"
+    else
+        log_info "ulimit 检查通过: nofile=${nofile} nproc=${nproc}"
+    fi
+}
+
+check_selinux() {
+    if ! command -v getenforce >/dev/null 2>&1; then
         return 0
     fi
-    log_info "创建系统用户 dmdba..."
-    groupadd -r dinstall 2>/dev/null || true
-    useradd -r -g dinstall -d /home/dmdba -m -s /bin/bash dmdba || {
-        log_err "创建用户 dmdba 失败（需要 useradd 命令）"
+    local mode
+    mode=$(getenforce 2>/dev/null)
+    case "$mode" in
+        Enforcing)
+            log_warn "SELinux 处于 Enforcing 模式，可能阻断 DM 进程启动"
+            log_warn "临时切换: setenforce 0"
+            log_warn "永久禁用: 将 /etc/selinux/config 中 SELINUX=enforcing 改为 permissive，然后重启"
+            ;;
+        Permissive)
+            log_info "SELinux 模式: Permissive，不影响安装"
+            ;;
+        *)
+            log_info "SELinux 已禁用"
+            ;;
+    esac
+}
+
+# ── 创建 dmdba 系统用户 ───────────────────────────────────────────────────────────
+create_dmdba_user() {
+    getent group dinstall >/dev/null 2>&1 || groupadd -g 1002 dinstall || {
+        log_err "创建用户组 dinstall 失败"
         exit 1
     }
-    log_ok "系统用户 dmdba 创建完成"
+    if id dmdba >/dev/null 2>&1; then
+        log_info "系统用户 dmdba 已存在，跳过创建"
+    else
+        log_info "创建系统用户 dmdba..."
+        useradd -u 1002 -g dinstall -m -d /home/dmdba -s /bin/bash dmdba || {
+            log_err "创建用户 dmdba 失败"
+            exit 1
+        }
+    fi
+    echo 'dmdba:dmdba' | chpasswd || {
+        log_err "设置 dmdba 密码失败"
+        exit 1
+    }
+    chage -M -1 dmdba || log_warn "设置 dmdba 密码永不过期失败，请手动执行: chage -M -1 dmdba"
+    # 验证
+    id dmdba >/dev/null 2>&1 || { log_err "dmdba 用户创建后验证失败"; exit 1; }
+    log_ok "系统用户 dmdba 已就绪"
+}
+
+# ── 系统环境配置 ──────────────────────────────────────────────────────────────────
+setup_env() {
+    log_info "配置系统环境参数..."
+    _env_selinux
+    _env_thp
+    _env_timezone
+    _env_locale
+    _env_sshd
+    _env_firewall
+    _env_limits
+    _env_pam
+    _env_sysctl
+    log_ok "系统环境参数配置完成"
+}
+
+_env_selinux() {
+    setenforce 0 2>/dev/null || true
+    if [ -f /etc/selinux/config ]; then
+        sed -i '/^SELINUX=/cSELINUX=disabled' /etc/selinux/config || {
+            log_warn "修改 /etc/selinux/config 失败，请手动设置 SELINUX=disabled"
+            return
+        }
+        grep -q '^SELINUX=disabled' /etc/selinux/config \
+            || { log_warn "SELinux 配置写入后验证失败"; return; }
+    fi
+    if command -v getenforce >/dev/null 2>&1; then
+        mode=$(getenforce 2>/dev/null || echo "")
+        [ "$mode" = "Enforcing" ] \
+            && log_warn "SELinux 运行时仍为 Enforcing，重启后永久禁用生效" \
+            || log_info "SELinux 状态: ${mode:-已禁用}"
+    fi
+}
+
+_env_thp() {
+    local thp="/sys/kernel/mm/transparent_hugepage/enabled"
+    if [ -f "$thp" ]; then
+        echo never > "$thp" || { log_warn "关闭 THP 失败"; return; }
+        grep -q 'never' "$thp" || { log_warn "THP 关闭后验证失败，当前值: $(cat "$thp")"; return; }
+    fi
+    if [ -f /etc/rc.local ]; then
+        grep -q 'transparent_hugepage' /etc/rc.local 2>/dev/null \
+            || echo 'echo never > /sys/kernel/mm/transparent_hugepage/enabled' >> /etc/rc.local
+        chmod +x /etc/rc.local
+    fi
+    log_info "Transparent Hugepages 已关闭"
+}
+
+_env_timezone() {
+    timedatectl set-timezone Asia/Shanghai 2>/dev/null || {
+        log_warn "设置时区失败，请手动执行: timedatectl set-timezone Asia/Shanghai"
+        return
+    }
+    timedatectl show --property=Timezone 2>/dev/null | grep -q 'Asia/Shanghai' \
+        || log_warn "时区设置后验证失败，当前值: $(timedatectl show --property=Timezone 2>/dev/null)"
+    log_info "时区已设置为 Asia/Shanghai"
+}
+
+_env_locale() {
+    local marker="export LANG=zh_CN.UTF-8"
+    grep -q "$marker" /etc/profile 2>/dev/null \
+        || echo "$marker" >> /etc/profile
+    grep -q "$marker" /etc/profile \
+        || log_warn "/etc/profile 中 LANG 写入验证失败"
+    log_info "字符集已设置为 zh_CN.UTF-8"
+}
+
+_env_sshd() {
+    [ -f /etc/ssh/sshd_config ] || return 0
+    sed -i '/^#GSSAPIAuthentication/cGSSAPIAuthentication no' /etc/ssh/sshd_config
+    sed -i '/^GSSAPIAuthentication/cGSSAPIAuthentication no'  /etc/ssh/sshd_config
+    sed -i '/^#UseDNS/cUseDNS no'                            /etc/ssh/sshd_config
+    sed -i '/^UseDNS/cUseDNS no'                             /etc/ssh/sshd_config
+    # reload 不断开当前连接，失败时静默忽略（如容器环境无 sshd）
+    systemctl reload sshd 2>/dev/null || true
+    log_info "SSH 配置已优化（GSSAPIAuthentication=no, UseDNS=no）"
+}
+
+_env_firewall() {
+    systemctl stop firewalld    2>/dev/null || true
+    systemctl disable firewalld 2>/dev/null || true
+    state=$(systemctl is-active firewalld 2>/dev/null || echo "inactive")
+    [ "$state" = "active" ] && log_warn "防火墙关闭失败，当前状态仍为 active" \
+                             || log_info "防火墙已关闭"
+}
+
+_env_limits() {
+    local path="/etc/security/limits.conf"
+    [ -f "$path" ] || { log_warn "$path 不存在，跳过 limits 配置"; return; }
+    local lines=(
+        "dmdba  soft  nice     0"   "dmdba  hard  nice     0"
+        "dmdba  soft  as       unlimited" "dmdba  hard  as       unlimited"
+        "dmdba  soft  fsize    unlimited" "dmdba  hard  fsize    unlimited"
+        "dmdba  soft  nproc    65536"     "dmdba  hard  nproc    65536"
+        "dmdba  soft  nofile   65536"     "dmdba  hard  nofile   65536"
+        "dmdba  soft  core     unlimited" "dmdba  hard  core     unlimited"
+        "dmdba  soft  data     unlimited" "dmdba  hard  data     unlimited"
+    )
+    for line in "${lines[@]}"; do
+        grep -qF "$line" "$path" 2>/dev/null || echo "$line" >> "$path"
+    done
+    # 抽查最后一条是否写入
+    grep -qF "dmdba  soft  data     unlimited" "$path" \
+        || log_warn "limits.conf 写入后验证失败"
+    log_info "limits.conf 已配置"
+}
+
+_env_pam() {
+    local path="/etc/pam.d/login"
+    [ -f "$path" ] || return 0
+    grep -q 'pam_limits.so' "$path" 2>/dev/null && return 0
+    printf '\nsession    required        /lib64/security/pam_limits.so\nsession    required        pam_limits.so\n' >> "$path" || {
+        log_warn "写入 /etc/pam.d/login 失败"
+        return
+    }
+    grep -q 'pam_limits.so' "$path" || log_warn "/etc/pam.d/login 写入后验证失败"
+    log_info "PAM limits 已配置"
+}
+
+_env_sysctl() {
+    local path="/etc/sysctl.conf"
+    local params=(
+        "fs.file-max = 6815744"
+        "fs.aio-max-nr = 1048576"
+        "kernel.shmmni = 4096"
+        "kernel.sem = 250 32000 100 128"
+        "net.ipv4.ip_local_port_range = 9000 65500"
+        "net.core.rmem_default = 4194304"
+        "net.core.rmem_max = 4194304"
+        "net.core.wmem_default = 262144"
+        "net.core.wmem_max = 1048576"
+        "vm.swappiness = 0"
+        "vm.dirty_background_ratio = 3"
+        "vm.dirty_ratio = 80"
+        "vm.dirty_expire_centisecs = 500"
+        "vm.dirty_writeback_centisecs = 100"
+    )
+    for param in "${params[@]}"; do
+        key="${param%%=*}"; key="${key%% *}"
+        grep -q "^${key}" "$path" 2>/dev/null || echo "$param" >> "$path"
+    done
+    if ! grep -q '^kernel.shmall' "$path" 2>/dev/null; then
+        mem_kb=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+        shmall=$(awk -v m="$mem_kb" 'BEGIN{printf "%.0f", m*0.64/4}')
+        shmmax=$(awk -v m="$mem_kb" 'BEGIN{printf "%.0f", m*0.64*1024}')
+        echo "kernel.shmall=$shmall" >> "$path"
+        echo "kernel.shmmax=$shmmax" >> "$path"
+    fi
+    sysctl -p >/dev/null 2>&1 || { log_warn "sysctl -p 执行失败，内核参数可能未生效"; return; }
+    # 验证关键参数
+    sysctl fs.file-max 2>/dev/null | grep -q '6815744' \
+        || log_warn "sysctl fs.file-max 验证失败，当前值: $(sysctl fs.file-max 2>/dev/null)"
+    log_info "sysctl 内核参数已生效"
 }
 
 # ── 平台检测（arch / cpu_key / os_key）────────────────────────────────────────────
@@ -384,6 +626,53 @@ register_service() {
     log_ok "服务注册完成: ${service_name}.service"
 }
 
+# ── 等待数据库就绪 ────────────────────────────────────────────────────────────────
+_dm_wait_ready() {
+    local disql_bin="$DM_INSTALL_PATH/bin/disql"
+    local conn="SYSDBA/${SYSDBA_PWD}@localhost:${DM_PORT}"
+    local attempt=1
+    while [ "$attempt" -le 30 ]; do
+        if printf 'exit;\n' | "$disql_bin" "$conn" >/dev/null 2>&1; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        [ "$attempt" -le 30 ] && sleep 2
+    done
+    log_err "数据库未在 60 秒内就绪，请检查服务状态"
+    exit 1
+}
+
+# ── 开启归档模式 ──────────────────────────────────────────────────────────────────
+enable_archivelog() {
+    local disql_bin="$DM_INSTALL_PATH/bin/disql"
+    local conn="SYSDBA/${SYSDBA_PWD}@localhost:${DM_PORT}"
+
+    log_info "等待数据库就绪..."
+    _dm_wait_ready
+
+    # 幂等：查 V$DM_ARCH_INI，路径/文件大小/空间上限全部一致才跳过
+    if {
+        echo "SELECT ARCH_DEST FROM V\$DM_ARCH_INI WHERE ARCH_TYPE='LOCAL' AND ARCH_DEST='${DM_ARCH_PATH}' AND ARCH_FILE_SIZE=${DM_ARCH_FILE_SIZE} AND ARCH_SPACE_LIMIT=${DM_ARCH_SPACE_LIMIT};"
+        echo "exit;"
+    } | "$disql_bin" "$conn" 2>/dev/null | grep -qF "$DM_ARCH_PATH"; then
+        log_info "归档配置已一致，跳过重复开启"
+        return 0
+    fi
+
+    log_info "开启归档模式..."
+    {
+        echo "alter database mount;"
+        echo "alter database archivelog;"
+        echo "alter database add archivelog 'TYPE=LOCAL,DEST=${DM_ARCH_PATH},FILE_SIZE=${DM_ARCH_FILE_SIZE},SPACE_LIMIT=${DM_ARCH_SPACE_LIMIT}';"
+        echo "alter database open;"
+        echo "exit;"
+    } | "$disql_bin" "$conn" || {
+        log_err "开启归档模式失败，请查看上方 disql 输出"
+        exit 1
+    }
+    log_ok "归档模式已开启: $DM_ARCH_PATH"
+}
+
 # ── 完成提示 ──────────────────────────────────────────────────────────────────────
 print_success() {
     cat <<EOF
@@ -414,7 +703,11 @@ main() {
     check_root
     check_existing_install
     check_deps
+    check_port
+    check_memory
+    check_install_disk
     create_dmdba_user
+    setup_env
     SYSDBA_PWD=$(generate_password)
     SYSAUDITOR_PWD=$(generate_password)
     detect_platform
@@ -425,6 +718,7 @@ main() {
     run_dminit
     write_dmarch_ini
     register_service
+    enable_archivelog
     print_success
 }
 

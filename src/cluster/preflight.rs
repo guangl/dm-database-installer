@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 
-use crate::common::ssh::CommandRunner;
+use crate::common::ssh::{CommandRunner, SshError};
 use crate::config::cluster::{DminitConfig, NodeConfig};
 
 /// 检查节点是否具备 sudo 免密权限。
@@ -40,7 +40,7 @@ pub async fn check_port_available(runner: &dyn CommandRunner, port: u16) -> Resu
     }
 }
 
-/// 检查安装路径父目录的磁盘剩余空间（要求 >= 5 GB）。
+/// 检查安装路径父目录的磁盘剩余空间（要求 >= 20 GB）。
 pub async fn check_disk_space(runner: &dyn CommandRunner, install_path: &str) -> Result<()> {
     let parent = Path::new(install_path)
         .parent()
@@ -52,17 +52,61 @@ pub async fn check_disk_space(runner: &dyn CommandRunner, install_path: &str) ->
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
     let available = parse_df_available(&stdout)?;
-    let min_bytes: u64 = 5 * 1024 * 1024 * 1024;
+    let min_bytes: u64 = 20 * 1024 * 1024 * 1024;
     tracing::debug!(
-        "[预检查] 磁盘剩余: {} GB ({} bytes), 最低要求: 5 GB",
-        available / (1024 * 1024 * 1024),
-        available
+        "[预检查] 磁盘剩余: {} GB，最低要求: 20 GB",
+        available / (1024 * 1024 * 1024)
     );
     if available < min_bytes {
         bail!(
-            "[预检查] 磁盘空间不足: 剩余 {} bytes，需要 >= 5 GB",
+            "[预检查] 磁盘空间不足: 剩余 {} bytes，需要 >= 20 GB",
             available
         );
+    }
+    Ok(())
+}
+
+/// 检查节点总内存（要求 MemTotal >= 4 GB）。
+pub async fn check_memory(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测内存大小");
+    let (stdout, _) = runner
+        .exec("grep '^MemTotal:' /proc/meminfo")
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let total_kb = parse_memtotal_kb(&stdout)?;
+    let min_kb: u64 = 4 * 1024 * 1024;
+    tracing::debug!(
+        "[预检查] 内存总量: {} GB，最低要求: 4 GB",
+        total_kb / (1024 * 1024)
+    );
+    if total_kb < min_kb {
+        bail!("[预检查] 内存不足: {} KB，需要 >= 4 GB", total_kb);
+    }
+    Ok(())
+}
+
+fn parse_memtotal_kb(stdout: &[u8]) -> Result<u64> {
+    let text = std::str::from_utf8(stdout).context("/proc/meminfo 输出不是有效 UTF-8")?;
+    let line = text.lines().next().context("/proc/meminfo 输出为空")?;
+    line.split_whitespace()
+        .nth(1)
+        .context("MemTotal 行格式异常")?
+        .parse::<u64>()
+        .context("MemTotal 值无法解析为 u64")
+}
+
+/// 检查节点 CPU 核心数（要求 >= 1 核）。
+pub async fn check_cpu_cores(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测 CPU 核心数");
+    let (stdout, _) = runner
+        .exec("nproc")
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let text = std::str::from_utf8(&stdout).context("nproc 输出不是有效 UTF-8")?;
+    let cores: u64 = text.trim().parse().context("nproc 输出无法解析为整数")?;
+    tracing::debug!("[预检查] CPU 核心数: {}", cores);
+    if cores < 1 {
+        bail!("[预检查] CPU 核心数不足: {} 核，需要 >= 1 核", cores);
     }
     Ok(())
 }
@@ -83,21 +127,140 @@ fn parse_df_available(stdout: &[u8]) -> Result<u64> {
         .context(format!("df Available 列无法解析为 u64: {available_str}"))
 }
 
-/// 对单个节点执行全部三项预检查（sudo / 端口 / 磁盘），任一失败即返回带节点信息的 Err。
-pub async fn check_node(node: &NodeConfig, dminit: &DminitConfig, runner: &dyn CommandRunner) -> Result<()> {
-    check_sudo_nopass(runner)
-        .await
-        .with_context(|| format!("节点 {} ({:?}) 预检查失败", node.host, node.role))?;
-    check_port_available(runner, dminit.port)
-        .await
-        .with_context(|| format!("节点 {} ({:?}) 预检查失败", node.host, node.role))?;
-    check_disk_space(runner, &dminit.install_path)
-        .await
-        .with_context(|| format!("节点 {} ({:?}) 预检查失败", node.host, node.role))?;
+/// 检查 nofile / nproc soft limit（< 65536 时记录 warn，不阻断部署）。
+pub async fn check_ulimits(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测 ulimit (nofile/nproc)");
+    let cmd = "awk '/^Max open files/{print $4} /^Max processes/{print $3}' /proc/self/limits";
+    let (out, _) = runner.exec(cmd).await.map_err(|e| anyhow::anyhow!(e))?;
+    let text = std::str::from_utf8(&out).unwrap_or("").trim().to_string();
+    let mut lines = text.lines();
+    warn_ulimit_if_low("nofile", lines.next().unwrap_or("unlimited"));
+    warn_ulimit_if_low("nproc",  lines.next().unwrap_or("unlimited"));
     Ok(())
 }
 
-/// 并发对所有节点执行预检查，收集所有失败节点后统一报告。
+fn warn_ulimit_if_low(name: &str, val_str: &str) {
+    const MIN: u64 = 65536;
+    let val: u64 = match val_str.trim().parse() {
+        Ok(n) => n,
+        Err(_) => return, // "unlimited" 或解析失败 → 视为无限制
+    };
+    if val < MIN {
+        tracing::warn!(
+            "[预检查] {} soft limit = {}，建议 >= {}；\
+             请在 /etc/security/limits.conf 中添加: dmdba soft {} {}",
+            name, val, MIN, name, MIN
+        );
+    }
+}
+
+/// 检查 SELinux 模式（Enforcing 时记录 warn，不阻断部署）。
+pub async fn check_selinux(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测 SELinux 状态");
+    let (out, _) = match runner.exec("getenforce 2>/dev/null || echo absent").await {
+        Ok(r) => r,
+        Err(_) => {
+            tracing::debug!("[预检查] getenforce 不可用，跳过 SELinux 检测");
+            return Ok(());
+        }
+    };
+    let mode = std::str::from_utf8(&out).unwrap_or("").trim();
+    if mode == "Enforcing" {
+        tracing::warn!(
+            "[预检查] SELinux 处于 Enforcing 模式，可能阻断 DM 进程启动；\
+             临时切换: setenforce 0；\
+             永久禁用: 将 /etc/selinux/config 中 SELINUX=enforcing 改为 permissive 并重启"
+        );
+    } else {
+        tracing::debug!("[预检查] SELinux 状态: {}（不影响安装）", if mode.is_empty() { "未知" } else { mode });
+    }
+    Ok(())
+}
+
+/// 检查 NTP 时钟同步状态（仅 systemd 系统支持；无 timedatectl 时跳过并打 warn）。
+pub async fn check_time_sync(runner: &dyn CommandRunner) -> Result<()> {
+    tracing::debug!("[预检查] 检测 NTP 时钟同步状态");
+    let cmd = "timedatectl show --property=NTPSynchronized --value 2>/dev/null";
+    let out = match runner.exec(cmd).await {
+        Ok((out, _)) => out,
+        Err(_) => {
+            tracing::warn!("[预检查] timedatectl 不可用，跳过时钟同步检测（建议手动确认所有节点已启用 NTP）");
+            return Ok(());
+        }
+    };
+    let status = std::str::from_utf8(&out).unwrap_or("").trim();
+    if status == "no" {
+        bail!("[预检查] NTP 时钟未同步：集群节点须配置 NTP/chrony，时钟偏差可能导致主备切换异常");
+    }
+    tracing::debug!(
+        "[预检查] NTP 时钟同步状态: {}",
+        if status.is_empty() { "未知（跳过）" } else { status }
+    );
+    Ok(())
+}
+
+/// 对单个节点执行全部预检查（sudo / 内存 / CPU / 所有端口 / 时钟同步 / 磁盘），任一失败即返回带节点信息的 Err。
+pub async fn check_node(node: &NodeConfig, dminit: &DminitConfig, runner: &dyn CommandRunner) -> Result<()> {
+    let ctx = || format!("节点 {} ({:?}) 预检查失败", node.host, node.role);
+    check_sudo_nopass(runner).await.with_context(ctx)?;
+    check_memory(runner).await.with_context(ctx)?;
+    check_cpu_cores(runner).await.with_context(ctx)?;
+    check_port_available(runner, dminit.port).await.with_context(ctx)?;
+    check_port_available(runner, node.mal_port).await.with_context(ctx)?;
+    check_port_available(runner, node.dw_port).await.with_context(ctx)?;
+    check_port_available(runner, node.inst_dw_port).await.with_context(ctx)?;
+    check_time_sync(runner).await.with_context(ctx)?;
+    check_disk_space(runner, &dminit.install_path).await.with_context(ctx)?;
+    check_ulimits(runner).await.with_context(ctx)?;
+    check_selinux(runner).await.with_context(ctx)?;
+    Ok(())
+}
+
+/// 检查当前节点是否能 TCP 连通所有其他节点的 mal_port（探测防火墙/路由配置）。
+pub async fn check_inter_node_connectivity(
+    items: &[(NodeConfig, Arc<dyn CommandRunner>)],
+) -> Result<()> {
+    if items.len() <= 1 {
+        return Ok(());
+    }
+    tracing::info!("[预检查] 检测节点间 MAL 网络互通性（{} 个节点）", items.len());
+    let mut failures: Vec<String> = Vec::new();
+    for (src_node, runner) in items {
+        for (dst_node, _) in items {
+            if src_node.host == dst_node.host {
+                continue;
+            }
+            let cmd = format!(
+                "bash -c 'echo > /dev/tcp/{}/{} 2>/dev/null'",
+                dst_node.host, dst_node.mal_port,
+            );
+            match runner.exec(&cmd).await {
+                Ok(_) => {
+                    tracing::debug!(
+                        "[预检查] {} -> {}:{} (mal_port) 连通",
+                        src_node.host, dst_node.host, dst_node.mal_port
+                    );
+                }
+                Err(SshError::ExecFailed { .. }) => {
+                    failures.push(format!(
+                        "  {} 无法连通 {}:{} (mal_port)",
+                        src_node.host, dst_node.host, dst_node.mal_port
+                    ));
+                }
+                Err(e) => {
+                    tracing::warn!("[预检查] {} 连通性检测命令执行异常（跳过）: {e}", src_node.host);
+                }
+            }
+        }
+    }
+    if !failures.is_empty() {
+        bail!("[预检查] 节点间 MAL 网络不通，请检查防火墙规则:\n{}", failures.join("\n"));
+    }
+    tracing::info!("[预检查] 节点间网络互通检查通过");
+    Ok(())
+}
+
+/// 并发对所有节点执行预检查，收集所有失败节点后统一报告，最后检查节点间网络互通。
 pub async fn preflight_all_nodes(
     items: Vec<(NodeConfig, Arc<dyn CommandRunner>)>,
     dminit: &DminitConfig,
@@ -122,6 +285,7 @@ pub async fn preflight_all_nodes(
     if !failures.is_empty() {
         bail!("预检查失败 — 中止部署:\n{}", failures.join("\n"));
     }
+    check_inter_node_connectivity(&items).await?;
     tracing::info!("所有节点预检查通过");
     Ok(())
 }
@@ -171,17 +335,23 @@ mod tests {
         .into_bytes()
     }
 
+    fn mem_output_kb(kb: u64) -> Vec<u8> {
+        format!("MemTotal:       {} kB\n", kb).into_bytes()
+    }
+
     #[tokio::test]
     async fn test_check_node_all_pass() {
-        let df_out = df_output_with_available(10 * 1024 * 1024 * 1024);
+        let df_out = df_output_with_available(25 * 1024 * 1024 * 1024);
         let runner = MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, mem_output_kb(8 * 1024 * 1024)),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 1, vec![]),
             ("df -B1 /opt".to_string(), 0, df_out),
         ]);
         let node = make_node();
         let result = check_node(&node, &make_dminit(), &runner).await;
-        assert!(result.is_ok(), "三项全通过应返回 Ok: {:?}", result.err());
+        assert!(result.is_ok(), "五项全通过应返回 Ok: {:?}", result.err());
     }
 
     #[tokio::test]
@@ -201,6 +371,8 @@ mod tests {
     async fn test_check_node_port_occupied() {
         let runner = MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, mem_output_kb(8 * 1024 * 1024)),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             (
                 "ss -tlnp | grep ':5236'".to_string(),
                 0,
@@ -219,6 +391,8 @@ mod tests {
         let df_out = df_output_with_available(1_000_000);
         let runner = MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, mem_output_kb(8 * 1024 * 1024)),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 1, vec![]),
             ("df -B1 /opt".to_string(), 0, df_out),
         ]);
@@ -227,14 +401,190 @@ mod tests {
         assert!(result.is_err(), "磁盘不足应返回 Err");
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("磁盘空间不足"), "应含磁盘错误: {msg}");
-        assert!(msg.contains("5 GB"), "应含 5 GB 字样: {msg}");
+        assert!(msg.contains("20 GB"), "应含 20 GB 字样: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_check_memory_insufficient() {
+        let runner = MockRunner::new(vec![
+            ("grep '^MemTotal:'".to_string(), 0, mem_output_kb(2 * 1024 * 1024)),
+        ]);
+        let result = check_memory(&runner).await;
+        assert!(result.is_err(), "内存不足应返回 Err");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("内存不足"), "应含 '内存不足': {msg}");
+        assert!(msg.contains("4 GB"), "应含 '4 GB': {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_check_cpu_cores_insufficient() {
+        let runner = MockRunner::new(vec![
+            ("nproc".to_string(), 0, b"0\n".to_vec()),
+        ]);
+        let result = check_cpu_cores(&runner).await;
+        assert!(result.is_err(), "0 核应返回 Err");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("CPU 核心数不足"), "应含 'CPU 核心数不足': {msg}");
+    }
+
+    #[test]
+    fn test_parse_memtotal_kb_normal() {
+        let input = b"MemTotal:       8388608 kB\n";
+        let result = parse_memtotal_kb(input).unwrap();
+        assert_eq!(result, 8_388_608);
+    }
+
+    #[tokio::test]
+    async fn test_check_time_sync_synchronized() {
+        let runner = MockRunner::new(vec![
+            ("timedatectl show --property=NTPSynchronized --value".to_string(), 0, b"yes\n".to_vec()),
+        ]);
+        let result = check_time_sync(&runner).await;
+        assert!(result.is_ok(), "NTP 已同步应返回 Ok: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_check_time_sync_not_synchronized() {
+        let runner = MockRunner::new(vec![
+            ("timedatectl show --property=NTPSynchronized --value".to_string(), 0, b"no\n".to_vec()),
+        ]);
+        let result = check_time_sync(&runner).await;
+        assert!(result.is_err(), "NTP 未同步应返回 Err");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("NTP 时钟未同步"), "应含时钟错误，实际: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_check_time_sync_timedatectl_unavailable() {
+        let runner = MockRunner::new_strict(vec![]);
+        let result = check_time_sync(&runner).await;
+        assert!(result.is_ok(), "timedatectl 不可用应跳过（返回 Ok）: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_check_inter_node_connectivity_single_node_skipped() {
+        let runner = Arc::new(MockRunner::new_strict(vec![])) as Arc<dyn CommandRunner>;
+        let node = make_node();
+        let items = vec![(node, runner)];
+        let result = check_inter_node_connectivity(&items).await;
+        assert!(result.is_ok(), "单节点应跳过互通检查: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_check_inter_node_connectivity_pass() {
+        let mut node_a = make_node();
+        node_a.host = "192.168.1.10".to_string();
+        let mut node_b = make_node();
+        node_b.host = "192.168.1.11".to_string();
+        node_b.mal_port = 5237;
+
+        let runner_a = Arc::new(MockRunner::new(vec![
+            (
+                format!("bash -c 'echo > /dev/tcp/{}/{}", node_b.host, node_b.mal_port),
+                0,
+                vec![],
+            ),
+        ])) as Arc<dyn CommandRunner>;
+        let runner_b = Arc::new(MockRunner::new(vec![
+            (
+                format!("bash -c 'echo > /dev/tcp/{}/{}", node_a.host, node_a.mal_port),
+                0,
+                vec![],
+            ),
+        ])) as Arc<dyn CommandRunner>;
+        let items = vec![(node_a, runner_a), (node_b, runner_b)];
+        let result = check_inter_node_connectivity(&items).await;
+        assert!(result.is_ok(), "双节点互通应返回 Ok: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_check_inter_node_connectivity_fail() {
+        let mut node_a = make_node();
+        node_a.host = "192.168.1.10".to_string();
+        let mut node_b = make_node();
+        node_b.host = "192.168.1.11".to_string();
+        node_b.mal_port = 5237;
+
+        // node_a 无法连通 node_b
+        let runner_a = Arc::new(MockRunner::new(vec![
+            (
+                format!("bash -c 'echo > /dev/tcp/{}/{}", node_b.host, node_b.mal_port),
+                1,
+                vec![],
+            ),
+        ])) as Arc<dyn CommandRunner>;
+        let runner_b = Arc::new(MockRunner::new(vec![
+            (
+                format!("bash -c 'echo > /dev/tcp/{}/{}", node_a.host, node_a.mal_port),
+                0,
+                vec![],
+            ),
+        ])) as Arc<dyn CommandRunner>;
+        let items = vec![(node_a, runner_a), (node_b, runner_b)];
+        let result = check_inter_node_connectivity(&items).await;
+        assert!(result.is_err(), "连通失败应返回 Err");
+        let msg = format!("{:#}", result.unwrap_err());
+        assert!(msg.contains("192.168.1.10"), "应含源节点 IP: {msg}");
+        assert!(msg.contains("192.168.1.11"), "应含目标节点 IP: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_check_ulimits_low_nofile_returns_ok() {
+        // nofile 偏低时应 warn 但不 bail
+        let runner = MockRunner::new(vec![
+            ("awk".to_string(), 0, b"512\n65536\n".to_vec()),
+        ]);
+        let result = check_ulimits(&runner).await;
+        assert!(result.is_ok(), "ulimit 偏低应返回 Ok（warn 但不阻断）: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_check_ulimits_all_sufficient_returns_ok() {
+        let runner = MockRunner::new(vec![
+            ("awk".to_string(), 0, b"65536\n65536\n".to_vec()),
+        ]);
+        assert!(check_ulimits(&runner).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_ulimits_unlimited_returns_ok() {
+        let runner = MockRunner::new(vec![
+            ("awk".to_string(), 0, b"unlimited\nunlimited\n".to_vec()),
+        ]);
+        assert!(check_ulimits(&runner).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_selinux_enforcing_returns_ok() {
+        let runner = MockRunner::new(vec![
+            ("getenforce".to_string(), 0, b"Enforcing\n".to_vec()),
+        ]);
+        let result = check_selinux(&runner).await;
+        assert!(result.is_ok(), "SELinux Enforcing 应 warn 但返回 Ok: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_check_selinux_permissive_returns_ok() {
+        let runner = MockRunner::new(vec![
+            ("getenforce".to_string(), 0, b"Permissive\n".to_vec()),
+        ]);
+        assert!(check_selinux(&runner).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_selinux_unavailable_returns_ok() {
+        // strict 模式下 getenforce 不可用 → 应跳过并返回 Ok
+        let runner = MockRunner::new_strict(vec![]);
+        assert!(check_selinux(&runner).await.is_ok(), "getenforce 不可用应跳过");
     }
 
     #[tokio::test]
     async fn test_preflight_all_nodes_mixed() {
-        let df_out = df_output_with_available(10 * 1024 * 1024 * 1024);
+        let df_out = df_output_with_available(25 * 1024 * 1024 * 1024);
         let runner_ok = Arc::new(MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, mem_output_kb(8 * 1024 * 1024)),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 1, vec![]),
             ("df -B1 /opt".to_string(), 0, df_out),
         ])) as Arc<dyn CommandRunner>;

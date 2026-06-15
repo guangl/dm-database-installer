@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::config::InstallConfig;
 
@@ -75,6 +76,122 @@ pub fn write_dmarch_ini(config: &InstallConfig) -> Result<()> {
     std::fs::write(&dmarch_path, &content)
         .with_context(|| format!("写入 dmarch.ini 失败: {}", dmarch_path.display()))?;
     tracing::info!("dmarch.ini 写入完成: {}", dmarch_path.display());
+    Ok(())
+}
+
+/// 轮询直到本地 disql 能成功连接，最多等待 60 秒。
+fn wait_for_db_ready(disql_bin: &str, conn_str: &str) -> Result<()> {
+    for attempt in 1..=30u32 {
+        let ready = Command::new(disql_bin)
+            .arg(conn_str)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .and_then(|mut child| {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(b"exit;\n");
+                }
+                child.wait()
+            })
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ready {
+            return Ok(());
+        }
+        if attempt < 30 {
+            tracing::debug!("等待数据库就绪 ({}/30)...", attempt);
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+    }
+    anyhow::bail!("数据库未在 60 秒内就绪，请检查服务状态")
+}
+
+/// 查询 V$DM_ARCH_INI，路径/文件大小/空间上限全部一致才返回 true。
+fn is_arch_config_consistent(
+    disql_bin: &str,
+    conn_str: &str,
+    arch_path: &str,
+    file_size: u32,
+    space_limit: u32,
+) -> bool {
+    let sql = format!(
+        "SELECT ARCH_DEST FROM V$DM_ARCH_INI \
+         WHERE ARCH_TYPE='LOCAL' AND ARCH_DEST='{arch_path}' \
+         AND ARCH_FILE_SIZE={file_size} AND ARCH_SPACE_LIMIT={space_limit};\nexit;\n"
+    );
+    let mut child = match Command::new(disql_bin)
+        .arg(conn_str)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(sql.as_bytes());
+    }
+    child
+        .wait_with_output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(arch_path))
+        .unwrap_or(false)
+}
+
+/// 通过本地 disql 开启归档模式（mount → archivelog → add dest → open）。
+/// 数据库必须已通过 systemd 服务启动并处于 open 状态。
+pub fn enable_archivelog(config: &InstallConfig, sysdba_pwd: &str) -> Result<()> {
+    let disql_bin = format!("{}/bin/disql", config.install_path);
+    let conn_str = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
+
+    let arch_path = crate::config::resolve_arch_path(&config.archive, &config.data_path);
+
+    wait_for_db_ready(&disql_bin, &conn_str)?;
+
+    if is_arch_config_consistent(
+        &disql_bin,
+        &conn_str,
+        &arch_path,
+        config.archive.file_size,
+        config.archive.space_limit,
+    ) {
+        tracing::info!("归档配置已一致，跳过重复开启");
+        return Ok(());
+    }
+
+    let sql = format!(
+        "alter database mount;\n\
+         alter database archivelog;\n\
+         alter database add archivelog 'TYPE=LOCAL,DEST={arch_path},FILE_SIZE={file_size},SPACE_LIMIT={space_limit}';\n\
+         alter database open;\n\
+         exit;\n",
+        arch_path = arch_path,
+        file_size = config.archive.file_size,
+        space_limit = config.archive.space_limit,
+    );
+
+    let mut child = Command::new(&disql_bin)
+        .arg(&conn_str)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("启动 disql 失败: {}", disql_bin))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(sql.as_bytes()).context("写入 disql stdin 失败")?;
+    }
+
+    let output = child.wait_with_output().context("等待 disql 完成失败")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "开启归档模式失败 (exit {:?}):\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    tracing::info!("归档模式已开启: {}", arch_path);
     Ok(())
 }
 

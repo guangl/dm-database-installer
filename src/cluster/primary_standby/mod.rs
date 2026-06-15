@@ -117,12 +117,20 @@ mod tests {
     }
 
     fn df_output() -> Vec<u8> {
-        b"Filesystem  1B-blocks  Used  Available  Use%  Mounted on\n/dev/sda1  100000000000  50000000000  10737418240  50%  /opt\n".to_vec()
+        // 25 GB available (> 20 GB minimum)
+        b"Filesystem  1B-blocks  Used  Available  Use%  Mounted on\n/dev/sda1  100000000000  50000000000  26843545600  50%  /opt\n".to_vec()
+    }
+
+    fn mem_output() -> Vec<u8> {
+        // 8 GB in kB
+        b"MemTotal:       8388608 kB\n".to_vec()
     }
 
     fn make_full_runner() -> Arc<MockRunner> {
         Arc::new(MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, mem_output()),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 1, vec![]),
             ("df -B1 /opt".to_string(), 0, df_output()),
         ]))
@@ -178,6 +186,8 @@ mod tests {
         let common = make_common(Some(tmp_pkg.path().to_path_buf()));
         let primary_runner = Arc::new(MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, mem_output()),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 1, vec![]),
             ("df -B1 /opt".to_string(), 0, df_output()),
             (
@@ -188,6 +198,8 @@ mod tests {
         ]));
         let standby_runner = Arc::new(MockRunner::new(vec![
             ("sudo -n true".to_string(), 0, vec![]),
+            ("grep '^MemTotal:'".to_string(), 0, mem_output()),
+            ("nproc".to_string(), 0, b"4\n".to_vec()),
             ("ss -tlnp | grep ':5236'".to_string(), 1, vec![]),
             ("df -B1 /opt".to_string(), 0, df_output()),
             (
