@@ -150,7 +150,7 @@ where
 // ─── 私有 helper 函数 ─────────────────────────────────────────────────────────
 
 /// 返回 runners 中第一个 role == Primary 的下标，否则返回错误。
-async fn first_node_index(runners: &phases::Runners) -> Result<usize> {
+fn first_node_index(runners: &phases::Runners) -> Result<usize> {
     runners
         .iter()
         .position(|(n, _)| n.role == NodeRole::Primary)
@@ -283,7 +283,7 @@ async fn run_asm_init_first_node(
     dminit: &DminitConfig,
     storage: &DscStorageConfig,
 ) -> Result<()> {
-    let first_idx = first_node_index(runners).await?;
+    let first_idx = first_node_index(runners)?;
     let (first_node, first_runner) = &runners[first_idx];
     tracing::info!("[node:{}] dmasmcmd 初始化磁盘", first_node.host);
     let dsc_conf_dir = format!("{}/dsc_conf", dminit.install_path);
@@ -301,7 +301,7 @@ async fn run_dminit_shared_first_node(
     oguid: u32,
     storage: &DscStorageConfig,
 ) -> Result<()> {
-    let first_idx = first_node_index(runners).await?;
+    let first_idx = first_node_index(runners)?;
     let (first_node, first_runner) = &runners[first_idx];
     tracing::info!("[node:{}] 共享存储 dminit", first_node.host);
     deploy::run_dminit_shared(first_node, all_nodes, dminit, oguid, storage, first_runner.as_ref()).await
@@ -312,7 +312,7 @@ async fn run_distribute_config_dirs(
     runners: &phases::Runners,
     dminit: &DminitConfig,
 ) -> Result<()> {
-    let first_idx = first_node_index(runners).await?;
+    let first_idx = first_node_index(runners)?;
     let (_, first_runner) = &runners[first_idx];
 
     for (other_idx, (other_node, other_runner)) in runners.iter().enumerate() {
@@ -342,7 +342,7 @@ where
         + Send
         + Sync,
 {
-    let first_idx = first_node_index(runners).await?;
+    let first_idx = first_node_index(runners)?;
     let dmdcr_ini_path = format!("{}/dsc_conf/dmdcr.ini", dminit.install_path);
 
     // 先在 first_node 启动 dmserver
