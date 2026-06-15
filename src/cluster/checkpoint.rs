@@ -16,6 +16,24 @@ pub struct ClusterCheckpoint {
     pub backup_done: bool,
     #[serde(default)]
     pub standby_restore_done: bool,
+    /// DSC 专有：配置文件（dmdcr_cfg/dmasvrmal/dmdcr）已推送到所有节点
+    #[serde(default)]
+    pub dsc_config_distributed: bool,
+    /// DSC 专有：所有节点 DMCSS + DMASM 服务已启动
+    #[serde(default)]
+    pub css_asm_started: bool,
+    /// DSC 专有：first_node 上 dmasmcmd/dmasmtool 已完成磁盘+磁盘组初始化
+    #[serde(default)]
+    pub asm_diskgroup_created: bool,
+    /// DSC 专有：first_node 在共享存储路径上执行了 dminit
+    #[serde(default)]
+    pub dminit_shared_done: bool,
+    /// DSC 专有：first_node 生成的 dscN_config 目录已分发到其余节点
+    #[serde(default)]
+    pub config_dir_distributed: bool,
+    /// DSC 专有：所有节点 dmserver 服务已启动并验证
+    #[serde(default)]
+    pub dmserver_started: bool,
 }
 
 impl ClusterCheckpoint {
@@ -85,6 +103,12 @@ mod tests {
             primary_init_done: false,
             backup_done: true,
             standby_restore_done: false,
+            dsc_config_distributed: false,
+            css_asm_started: false,
+            asm_diskgroup_created: false,
+            dminit_shared_done: false,
+            config_dir_distributed: false,
+            dmserver_started: false,
         };
         cp.save_to(dir.path()).unwrap();
 
@@ -119,5 +143,47 @@ mod tests {
         std::fs::write(dir.path().join("dm_cluster_checkpoint.json"), "not json").unwrap();
         let result = ClusterCheckpoint::load_from(dir.path()).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_dsc_checkpoint_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let cp = ClusterCheckpoint {
+            dsc_config_distributed: true,
+            css_asm_started: true,
+            asm_diskgroup_created: true,
+            dminit_shared_done: false,
+            config_dir_distributed: false,
+            dmserver_started: false,
+            ..Default::default()
+        };
+        cp.save_to(dir.path()).unwrap();
+        let loaded = ClusterCheckpoint::load_from(dir.path()).unwrap().unwrap();
+        assert!(loaded.dsc_config_distributed, "dsc_config_distributed 应为 true");
+        assert!(loaded.css_asm_started, "css_asm_started 应为 true");
+        assert!(loaded.asm_diskgroup_created, "asm_diskgroup_created 应为 true");
+        assert!(!loaded.dminit_shared_done, "dminit_shared_done 应为 false");
+        assert!(!loaded.config_dir_distributed, "config_dir_distributed 应为 false");
+        assert!(!loaded.dmserver_started, "dmserver_started 应为 false");
+    }
+
+    #[test]
+    fn test_old_checkpoint_file_still_loads() {
+        let dir = TempDir::new().unwrap();
+        // 旧版 JSON 仅包含 5 个字段，无 DSC 字段
+        let old_json = r#"{"preflight_done":true,"install_done":true,"primary_init_done":false,"backup_done":false,"standby_restore_done":false}"#;
+        std::fs::write(dir.path().join("dm_cluster_checkpoint.json"), old_json).unwrap();
+        let cp = ClusterCheckpoint::load_from(dir.path()).unwrap().unwrap();
+        // 旧字段应保留
+        assert!(cp.preflight_done, "preflight_done 应为 true");
+        assert!(cp.install_done, "install_done 应为 true");
+        assert!(!cp.primary_init_done, "primary_init_done 应为 false");
+        // DSC 字段应默认 false（#[serde(default)] 生效）
+        assert!(!cp.dsc_config_distributed, "dsc_config_distributed 应默认 false");
+        assert!(!cp.css_asm_started, "css_asm_started 应默认 false");
+        assert!(!cp.asm_diskgroup_created, "asm_diskgroup_created 应默认 false");
+        assert!(!cp.dminit_shared_done, "dminit_shared_done 应默认 false");
+        assert!(!cp.config_dir_distributed, "config_dir_distributed 应默认 false");
+        assert!(!cp.dmserver_started, "dmserver_started 应默认 false");
     }
 }

@@ -96,6 +96,7 @@ mod tests {
         ClusterSpecificConfig {
             oguid: 453331,
             nodes,
+            dsc_storage: None,
             shared_storage: None,
             dminit: make_dminit(),
             dm_ini: DmIniConfig::default(),

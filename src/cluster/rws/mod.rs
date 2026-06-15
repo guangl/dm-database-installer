@@ -125,6 +125,12 @@ mod tests {
             primary_init_done: true,
             backup_done: false,
             standby_restore_done: false,
+            dsc_config_distributed: false,
+            css_asm_started: false,
+            asm_diskgroup_created: false,
+            dminit_shared_done: false,
+            config_dir_distributed: false,
+            dmserver_started: false,
         };
         cp.save_to(dir.path()).unwrap();
         let loaded = crate::cluster::checkpoint::ClusterCheckpoint::load_from(dir.path())
