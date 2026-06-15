@@ -321,7 +321,6 @@ async fn run_distribute_config_dirs(
         }
         tracing::info!("[node:{}] 接收 config 目录 (来自 first_node)", other_node.host);
         deploy::distribute_config_dir(
-            first_idx,
             other_idx,
             dminit,
             first_runner.as_ref(),

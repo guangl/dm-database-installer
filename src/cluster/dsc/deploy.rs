@@ -310,7 +310,6 @@ pub async fn run_dminit_shared(
 ///
 /// 步骤：first_node tar 打包 → sftp_read 下载 → sftp_write 上传到 other_node → other_node tar 解压。
 pub async fn distribute_config_dir(
-    first_node_index: usize,
     other_node_index: usize,
     dminit: &DminitConfig,
     first_runner: &dyn CommandRunner,
@@ -380,8 +379,6 @@ pub async fn distribute_config_dir(
         String::from_utf8_lossy(&stdout)
     );
 
-    // suppress unused variable warning for first_node_index (保留对称性)
-    let _ = first_node_index;
     Ok(())
 }
 
@@ -777,7 +774,7 @@ mod tests {
         let other_runner = MockRunner::new(vec![]);
         // 预设 first_runner 的 sftp_read 返回模拟 tarball 内容
         first_runner.set_sftp_read("/tmp/dsc1_config.tar.gz", b"fake-tarball".to_vec());
-        distribute_config_dir(0, 1, &dminit, &first_runner, &other_runner)
+        distribute_config_dir(1, &dminit, &first_runner, &other_runner)
             .await
             .unwrap();
         let first_exec = first_runner.exec_log();
