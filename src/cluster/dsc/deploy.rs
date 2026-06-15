@@ -300,6 +300,13 @@ pub async fn run_dminit_shared(
         exit_code,
         String::from_utf8_lossy(&stdout)
     );
+    // dminit 执行成功后清理含明文密码的 ini 文件（IN-02 安全措施）
+    if let Err(e) = runner
+        .exec(&format!("rm -f {}", shell_quote(&dminit_ini_path)))
+        .await
+    {
+        tracing::warn!("清理 dminit.ini 失败（含明文密码），请手动删除 {}: {}", dminit_ini_path, e);
+    }
     Ok(())
 }
 
