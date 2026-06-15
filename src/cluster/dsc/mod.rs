@@ -360,7 +360,9 @@ where
         first_runner.as_ref(),
     )
     .await?;
-    health_check_fn(first_node.host.clone(), dminit.port, 60).await?;
+    // first_node 的实际端口按其在数组中的下标（first_idx）计算，与 dminit.ini PORT_NUM 保持一致
+    let first_node_port = dminit.port.saturating_add(first_idx as u16);
+    health_check_fn(first_node.host.clone(), first_node_port, 60).await?;
 
     // 再依次启动其他节点 dmserver
     for (node_idx, (node, runner)) in runners.iter().enumerate() {
