@@ -17,6 +17,8 @@ DM_ARCH_PATH="$DM_DATA_PATH/arch"
 DM_ARCH_FILE_SIZE=128
 DM_ARCH_SPACE_LIMIT=0
 
+# GitHub 版本用此 URL；Gitee 发布时 CI/CD 替换为：
+# https://raw.giteeusercontent.com/guangluo/dm-database-installer/raw/main/versions.txt
 VERSIONS_URL="https://raw.githubusercontent.com/guangl/dm-database-installer/main/versions.txt"
 
 # ── 颜色输出 ─────────────────────────────────────────────────────────────────────
