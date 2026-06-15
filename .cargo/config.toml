@@ -1,0 +1,5 @@
+# aarch64 交叉编译链接器配置（D-05 更新后方案：apt + linker）
+# 需要 CI 安装 apt 包：gcc-aarch64-linux-gnu
+# 对应 [workspace.metadata.dist.dependencies.apt] 中的 gcc-aarch64-linux-gnu
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"

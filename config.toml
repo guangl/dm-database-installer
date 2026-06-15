@@ -1,0 +1,17 @@
+# 达梦数据库主备集群 — 通用配置
+# 使用方式: dm-installer install
+
+type = "dw"
+
+# ─── 安装包来源（二选一，集群必须指定）──────────────────────
+# 本地文件路径（控制机准备好后推送到各节点）
+installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
+# 自定义下载链接（控制机下载后推送到各节点）
+# installer_url = "https://download.example.com/dm8.zip"
+
+# ─── 日志配置 ────────────────────────────────────────────────
+[logging]
+level = "info"
+# file = "/var/log/dm-installer/install.log"
+# rotation = "daily"
+# max_files = 7
