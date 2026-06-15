@@ -389,16 +389,18 @@ pub async fn distribute_config_dir(
 ///
 /// DSC 节点 MODE$ 期望为 NORMAL（不强制断言，部分 DM 版本输出 OPEN/PRIMARY）。
 /// 核心断言：STATUS$ = OPEN（大小写不敏感）。
+/// `node_port` 按节点索引计算（`dminit.port + node_index`），避免所有节点都连到 index 0 的端口。
 pub async fn verify_dsc_node(
     node: &NodeConfig,
     dminit: &DminitConfig,
+    node_port: u16,
     runner: &dyn CommandRunner,
 ) -> Result<()> {
     let cmd = format!(
         "echo 'SELECT STATUS$, MODE$ FROM V$INSTANCE;' | {}/bin/disql SYSDBA/{}@localhost:{}",
         shell_quote(&dminit.install_path),
         shell_quote(&dminit.sysdba_password),
-        dminit.port,
+        node_port,
     );
     let (stdout, exit_code) = runner
         .exec(&cmd)
@@ -820,7 +822,7 @@ mod tests {
             0,
             disql_output,
         )]);
-        let result = verify_dsc_node(&node, &dminit, &runner).await;
+        let result = verify_dsc_node(&node, &dminit, dminit.port, &runner).await;
         assert!(result.is_ok(), "OPEN 状态应验证通过，实际: {:?}", result);
     }
 
@@ -835,7 +837,7 @@ mod tests {
             0,
             disql_output,
         )]);
-        let result = verify_dsc_node(&node, &dminit, &runner).await;
+        let result = verify_dsc_node(&node, &dminit, dminit.port, &runner).await;
         assert!(result.is_err(), "MOUNT 状态应验证失败");
         let err_msg = result.unwrap_err().to_string();
         assert!(

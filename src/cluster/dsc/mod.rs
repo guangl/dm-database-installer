@@ -379,14 +379,16 @@ where
         health_check_fn(node.host.clone(), port, 60).await?;
     }
 
-    // 最后并行验证所有节点
+    // 最后并行验证所有节点（每个节点按其数组下标计算实际端口）
     let verify_futs: Vec<_> = runners
         .iter()
-        .map(|(node, runner)| {
+        .enumerate()
+        .map(|(node_idx, (node, runner))| {
             let node = node.clone();
             let runner = Arc::clone(runner);
             let dminit = dminit.clone();
-            async move { deploy::verify_dsc_node(&node, &dminit, runner.as_ref()).await }
+            let node_port = dminit.port.saturating_add(node_idx as u16);
+            async move { deploy::verify_dsc_node(&node, &dminit, node_port, runner.as_ref()).await }
         })
         .collect();
     try_join_all(verify_futs).await?;
