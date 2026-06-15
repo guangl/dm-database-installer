@@ -30,49 +30,71 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 ## Phase Details
 
 ### Phase 5: RWS 读写分离集群
+
 **Goal**: `dm-installer install rws` 端到端可走通，备库自动配置只读模式
 **Depends on**: Phase 4 (v1.0)
 **Requirements**: RWS-01, RWS-02
 **Success Criteria** (what must be TRUE):
+
   1. 用户执行 `dm-installer install rws` 后主库与只读备库全部启动，无需手动操作
   2. 备节点启动后通过 SQL 自动设置 READ_ONLY 标志，客户端连接只读端口不可执行写操作
   3. 安装中断后重跑可从检查点恢复，不重复已完成步骤
+
 **Plans**: 3 plans
 
 Plans:
+
 - [x] 05-01-PLAN.md — ClusterCheckpoint 实现（新建 src/cluster/checkpoint.rs，声明模块）
 - [x] 05-02-PLAN.md — run_read_routing_phase + wait_for_standby_open（追加到 src/cluster/phases.rs）
 - [x] 05-03-PLAN.md — RWS checkpoint gate 集成 + 替换 TODO:50（修改 src/cluster/rws/mod.rs）
 
 ### Phase 6: status 命令
+
 **Goal**: `dm-installer status` 命令查询本地及所有远程节点的进程/端口/角色状态，输出对齐表格
 **Depends on**: Phase 5
 **Requirements**: STAT-01, STAT-02, STAT-03
 **Success Criteria** (what must be TRUE):
+
   1. 用户执行 `dm-installer status` 后在终端看到本地 DM 实例的进程状态与端口监听
   2. 若当前目录存在 config.toml，命令自动通过 SSH 查询配置中所有远程节点状态
   3. 输出表格包含每节点的进程状态（running/stopped）、端口是否监听、数据库角色（PRIMARY/STANDBY/OPEN）
   4. 某节点 SSH 连接失败时，该行显示错误原因，其余节点正常输出
+
 **Plans**: 1 plan
 
 Plans:
+
 - [x] 06-01-PLAN.md — Status 子命令骨架 + 本地检测 + 远程并发 SSH 查询 + 对齐表格输出
 
 ### Phase 7: DSC 共享存储集群
+
 **Goal**: `dm-installer install dsc` 完成 DSC 共享存储集群完整部署，含 ASM 初始化
 **Depends on**: Phase 6
 **Requirements**: DSC-01, DSC-02, DSC-03
 **Success Criteria** (what must be TRUE):
+
   1. 用户执行 `dm-installer install dsc` 后所有节点完成安装并连接至共享存储，无需手动操作
   2. 安装流程在每个节点上自动调用 dmasmtool 初始化 ASM 磁盘组，日志可见各节点 ASM 初始化结果
   3. 第一节点执行 dminit（路径指向共享存储），其余节点直接挂载共享存储并启动，不重复 dminit
   4. 所有节点启动后 V\$INSTANCE 角色查询返回预期值，集群可对外提供服务
+
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 07-01-PLAN.md — 扩展 DscStorageConfig + ClusterCheckpoint 新增 6 个 DSC 字段（基础数据契约）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 07-02-PLAN.md — DSC 模板生成（dmdcr_cfg.ini / dmasvrmal.ini / dmdcr.ini / dminit.ini）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 07-03-PLAN.md — DSC 部署原语（install_only / 配置分发 / DMCSS+DMASM+dmserver 注册 / dmasmcmd+dmasmtool / 共享 dminit / config 目录分发 / V$INSTANCE 验证）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 07-04-PLAN.md — DSC 入口编排（run / run_with_runners / 8 个 checkpoint gate）+ 人工验证
 
 ## Progress
