@@ -16,6 +16,24 @@ pub struct ClusterCheckpoint {
     pub backup_done: bool,
     #[serde(default)]
     pub standby_restore_done: bool,
+    /// DSC 专有：配置文件（dmdcr_cfg/dmasvrmal/dmdcr）已推送到所有节点
+    #[serde(default)]
+    pub dsc_config_distributed: bool,
+    /// DSC 专有：所有节点 DMCSS + DMASM 服务已启动
+    #[serde(default)]
+    pub css_asm_started: bool,
+    /// DSC 专有：first_node 上 dmasmcmd/dmasmtool 已完成磁盘+磁盘组初始化
+    #[serde(default)]
+    pub asm_diskgroup_created: bool,
+    /// DSC 专有：first_node 在共享存储路径上执行了 dminit
+    #[serde(default)]
+    pub dminit_shared_done: bool,
+    /// DSC 专有：first_node 生成的 dscN_config 目录已分发到其余节点
+    #[serde(default)]
+    pub config_dir_distributed: bool,
+    /// DSC 专有：所有节点 dmserver 服务已启动并验证
+    #[serde(default)]
+    pub dmserver_started: bool,
 }
 
 impl ClusterCheckpoint {
@@ -85,6 +103,12 @@ mod tests {
             primary_init_done: false,
             backup_done: true,
             standby_restore_done: false,
+            dsc_config_distributed: false,
+            css_asm_started: false,
+            asm_diskgroup_created: false,
+            dminit_shared_done: false,
+            config_dir_distributed: false,
+            dmserver_started: false,
         };
         cp.save_to(dir.path()).unwrap();
 
