@@ -1,6 +1,3 @@
-// Plan 03 (dsc/deploy.rs) 将引用这些函数；暂时允许 dead_code 警告
-#![allow(dead_code)]
-
 use crate::config::cluster::{DminitConfig, DscStorageConfig, NodeConfig};
 
 /// 生成 dmdcr_cfg.ini 内容（所有节点相同）。

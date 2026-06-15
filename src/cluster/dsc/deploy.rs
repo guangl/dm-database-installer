@@ -1,6 +1,3 @@
-// Plan 04 (dsc/mod.rs run 入口) 将引用这些函数；暂时允许 dead_code 警告
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use std::path::Path;
 
