@@ -1,4 +1,5 @@
 pub mod templates;
+pub mod deploy;
 
 use anyhow::Result;
 use crate::config::CommonConfig;
