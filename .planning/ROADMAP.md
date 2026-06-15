@@ -24,7 +24,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 **Milestone Goal:** 补全 RWS 读写分离集群端到端可用、DSC 共享存储集群完整实现（含 ASM 初始化）、status 命令查询所有节点运行状态。
 
 - [x] **Phase 5: RWS 读写分离集群** — 补全 run_read_routing_phase，使 dm-installer install rws 端到端可走通 (3 plans) (completed 2026-06-14)
-- [ ] **Phase 6: status 命令** — 新增 dm-installer status 子命令，查询本地与所有远程节点状态
+- [x] **Phase 6: status 命令** — 新增 dm-installer status 子命令，查询本地与所有远程节点状态 (completed 2026-06-15)
 - [ ] **Phase 7: DSC 共享存储集群** — 完整实现 DSC 部署：ASM 初始化 + 共享存储 dminit + 多节点启动
 
 ## Phase Details
@@ -53,7 +53,10 @@ Plans:
   2. 若当前目录存在 config.toml，命令自动通过 SSH 查询配置中所有远程节点状态
   3. 输出表格包含每节点的进程状态（running/stopped）、端口是否监听、数据库角色（PRIMARY/STANDBY/OPEN）
   4. 某节点 SSH 连接失败时，该行显示错误原因，其余节点正常输出
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [x] 06-01-PLAN.md — Status 子命令骨架 + 本地检测 + 远程并发 SSH 查询 + 对齐表格输出
 
 ### Phase 7: DSC 共享存储集群
 **Goal**: `dm-installer install dsc` 完成 DSC 共享存储集群完整部署，含 ASM 初始化
@@ -77,5 +80,5 @@ Plans:
 | 3. 主备集群 | v1.0 | 3/3 | Complete | 2026-06-12 |
 | 4. 发布流水线 | v1.0 | 3/3 | Complete | 2026-06-14 |
 | 5. RWS 读写分离集群 | v1.1 | 3/3 | Complete   | 2026-06-14 |
-| 6. status 命令 | v1.1 | 0/TBD | Not started | - |
+| 6. status 命令 | v1.1 | 1/1 | Complete   | 2026-06-15 |
 | 7. DSC 共享存储集群 | v1.1 | 0/TBD | Not started | - |

@@ -416,17 +416,19 @@ pub struct StatusArgs {
 | A3 | 动态列宽（按最长 host 计算）是 Claude's Discretion 范围的推荐实现 | Pattern 5 | 若选固定列宽，对长 host 名可能对齐错位——影响观感但不影响功能 |
 | A4 | SSH 连接超时建议 5 秒，disql 查询超时建议 5 秒 | Common Pitfalls 3 | 若网络较慢，5s 可能不够——但用户无感知，可后续调整 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **no-config 本地模式下的 disql 路径**
+1. **no-config 本地模式下的 disql 路径** — **RESOLVED (2026-06-15)**
    - What we know: 无 config 时没有 `install_path`；D-08 说"若失败则显示 unknown"
-   - What's unclear: 是否尝试多个候选路径，还是直接显示 unknown？
-   - Recommendation: 尝试 `/opt/dmdbms/bin/disql`（DminitConfig 默认值），找不到直接 unknown，简单可靠
+   - What's unclear (历史问题): 是否尝试多个候选路径，还是直接显示 unknown？
+   - **Resolution:** 采用单一固定路径 `/opt/dmdbms/bin/disql`（DminitConfig 默认值）。如果该路径下 disql 不存在或执行失败（exit_code 127 或非 0），Role 列直接显示 `"unknown"`，不尝试其他候选路径。理由：简单可靠；DBA 通常使用官方推荐路径；no-config 模式本身就是"开发者临时查询"场景，对边缘路径覆盖率要求低。
+   - **Impact on plan:** Task 1 的 `query_local_role` 在 no-config 分支硬编码 `install_path = "/opt/dmdbms"`，无需多路径探测逻辑。
 
-2. **`ss` 命令不可用的处理级别**
+2. **`ss` 命令不可用的处理级别** — **RESOLVED (2026-06-15)**
    - What we know: ss 不在所有环境中存在；preflight.rs 未处理此边界
-   - What's unclear: 是否要做 `ss` + `netstat` 双路回退
-   - Recommendation: 先用 `ss`，`exit_code 127` 时改用 `netstat -tlnp | grep ':{PORT}'`；若两者都失败，port 显示 `unknown`
+   - What's unclear (历史问题): 是否要做 `ss` + `netstat` 双路回退
+   - **Resolution:** 不做 `netstat` 回退。当 `ss` 命令返回 exit_code 127（command not found）时，将 port 列设为 `"unknown"`、role 列因端口状态不确定也设为 `"unknown"`（不再尝试 disql 查询）。理由：(a) 实现简单（单一代码路径）；(b) 现代 Linux 发行版 ss 几乎都可用，回退收益低；(c) `netstat` 在不同发行版输出格式也有差异，再加一层解析风险更高；(d) 用户可见 "unknown" 比错误的 "closed" 更安全。
+   - **Impact on plan:** Task 2 的 `check_remote_port` 对 `SshError::ExecFailed { exit_code: 127, .. }` 显式返回 `"unknown"`（已在 Task 2 action 与 test_check_remote_port_ss_missing_exit127 测试中体现），不引入 netstat 备用命令。
 
 ## Environment Availability
 
@@ -434,7 +436,7 @@ pub struct StatusArgs {
 |------------|------------|-----------|---------|----------|
 | Rust / cargo | 构建 | ✓ | 1.96.0 | — |
 | `ps` | 本地进程检测 | ✓（macOS/Linux 标准） | — | — |
-| `ss` (iproute2) | 远程端口检测 | 目标 Linux 通常有 | — | `netstat -tlnp` |
+| `ss` (iproute2) | 远程端口检测 | 目标 Linux 通常有 | — | 无回退（按 Open Q2 决议，exit 127 → "unknown"） |
 | `disql` | 角色查询 | 运行时（DM 安装后） | — | Role 显示 unknown |
 | tokio::net::TcpStream | 本地端口检测 | ✓（tokio 已引入） | — | — |
 | `SshSession` | 远程节点连接 | ✓（russh 已引入） | — | — |
@@ -442,7 +444,8 @@ pub struct StatusArgs {
 **Missing dependencies with no fallback:** 无阻塞项。
 
 **Missing dependencies with fallback:**
-- `ss` 命令不存在时回退 `netstat`；DM 未安装时 Role 显示 `unknown`
+- DM 未安装时 Role 显示 `unknown`（per Open Q1 决议，no-config 模式无路径探测）
+- `ss` 不存在时 port/role 均显示 `unknown`（per Open Q2 决议）
 
 ## Validation Architecture
 
@@ -458,12 +461,12 @@ pub struct StatusArgs {
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| STAT-01 | 本地进程检测返回 running/stopped | unit | `cargo test status::tests::test_detect_local_process` | ❌ Wave 0 |
-| STAT-01 | 本地端口检测返回 listening/closed | unit | `cargo test status::tests::test_detect_local_port` | ❌ Wave 0 |
-| STAT-02 | 远程节点 SSH 失败时显示 ERROR 不中止 | unit (MockRunner) | `cargo test status::tests::test_query_remote_ssh_failure` | ❌ Wave 0 |
-| STAT-02 | 多节点并发查询（MockRunner）| unit | `cargo test status::tests::test_query_all_nodes_concurrent` | ❌ Wave 0 |
-| STAT-03 | disql 输出解析 PRIMARY/STANDBY/OPEN | unit | `cargo test status::tests::test_parse_role` | ❌ Wave 0 |
-| STAT-03 | 表格格式化输出对齐 | unit | `cargo test status::tests::test_format_table` | ❌ Wave 0 |
+| STAT-01 | 本地进程检测返回 running/stopped | unit | `cargo test status::tests::test_detect_local_process` | ✅ inline (Task 1) |
+| STAT-01 | 本地端口检测返回 listening/closed | unit | `cargo test status::tests::test_check_local_port_closed` | ✅ inline (Task 1) |
+| STAT-02 | 远程节点 SSH 失败时显示 ERROR 不中止 | unit (MockRunner) | `cargo test status::tests::test_query_remote_node_with_runner_error_isolation` | ✅ inline (Task 2) |
+| STAT-02 | 多节点错误隔离（MockRunner）| unit | `cargo test status::tests::test_query_remote_node_with_runner_error_isolation` | ✅ inline (Task 2) |
+| STAT-03 | disql 输出解析 PRIMARY/STANDBY/OPEN | unit | `cargo test status::tests::test_parse_role_from_disql_*` | ✅ inline (Task 1) |
+| STAT-03 | 表格格式化输出对齐 | unit | `cargo test status::tests::test_format_table_*` | ✅ inline (Task 3) |
 
 ### Sampling Rate
 - **Per task commit:** `cargo test -p dm-database-installer status`
@@ -471,9 +474,9 @@ pub struct StatusArgs {
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
-- [ ] `src/status/mod.rs` — 包含所有 status 功能 + `#[cfg(test)] mod tests`，覆盖 STAT-01/02/03
+- [x] `src/status/mod.rs` — 包含所有 status 功能 + `#[cfg(test)] mod tests`，覆盖 STAT-01/02/03 — **inline in Task 1 via TDD**
 
-*(现有测试基础设施（MockRunner、tracing-test）已完备，Wave 0 只需创建 `src/status/mod.rs` 文件并在其中写测试)*
+*(现有测试基础设施（MockRunner、tracing-test）已完备，Wave 0 在 Task 1 中通过 TDD 内联完成：Task 1 先写 7 个失败测试再写实现)*
 
 ## Security Domain
 
@@ -525,4 +528,5 @@ pub struct StatusArgs {
 - 测试架构: HIGH — MockRunner 和测试基础设施已完备
 
 **Research date:** 2026-06-14
+**Last updated:** 2026-06-15 (Open Questions resolved)
 **Valid until:** 2026-07-14（依赖版本稳定，codebase 模式可能随 Phase 7 演化）
