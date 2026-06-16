@@ -18,6 +18,16 @@
 curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash
 ```
 
+所有安装参数均可通过同名环境变量覆盖，无需修改脚本：
+
+```sh
+# 自定义安装目录和端口
+DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c \
+  "$(curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh)"
+```
+
+完整环境变量列表见[配置参考 → 环境变量](configuration.md#环境变量)。
+
 脚本完成后会打印凭证卡片，例如：
 
 ```

@@ -30,6 +30,26 @@
 curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash
 ```
 
+所有安装参数均可通过同名环境变量覆盖，无需修改脚本：
+
+```sh
+# 自定义安装目录和端口
+DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c \
+  "$(curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh)"
+```
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DM_INSTALL_PATH` | `/home/dmdba/dmdbms` | 程序安装目录 |
+| `DM_DATA_PATH` | `$DM_INSTALL_PATH/data` | 数据文件目录 |
+| `DM_PORT` | `5236` | 监听端口 |
+| `DM_INSTANCE` | `DMSERVER` | 实例名称 |
+| `DM_DB_NAME` | `DAMENG` | 数据库名称 |
+| `DM_PAGE_SIZE` | `32` | 页大小（KB）：4 / 8 / 16 / 32 |
+| `DM_EXTENT_SIZE` | `32` | 区段大小（页数）：16 / 32 |
+| `DM_CHARSET` | `0` | 字符集：0=GB18030  1=UTF-8  2=EUC-KR |
+| `DM_CASE_SENSITIVE` | `Y` | SQL 标识符大小写敏感：Y / N |
+
 > 仅支持 Linux（x86_64 / aarch64）。需要 root 权限或具有 sudo 权限的普通用户。安装完成后会输出随机生成的 SYSDBA / SYSAUDITOR 密码，请妥善保存。
 
 ### 方式二：安装 dm-installer 管理工具（DBA / 生产环境推荐）

@@ -182,6 +182,40 @@ identity_file = "~/.ssh/id_rsa"
 
 ## 环境变量
 
+### install.sh 快速安装脚本
+
+`curl | bash` 脚本的所有参数均可通过同名环境变量覆盖：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DM_INSTALL_PATH` | `/home/dmdba/dmdbms` | 程序安装目录 |
+| `DM_DATA_PATH` | `$DM_INSTALL_PATH/data` | 数据文件目录（默认跟随安装目录） |
+| `DM_PORT` | `5236` | 监听端口 |
+| `DM_INSTANCE` | `DMSERVER` | 实例名称 |
+| `DM_DB_NAME` | `DAMENG` | 数据库名称 |
+| `DM_PAGE_SIZE` | `32` | 页大小（KB）：4 / 8 / 16 / 32 |
+| `DM_EXTENT_SIZE` | `32` | 区段大小（页数）：16 / 32 |
+| `DM_CHARSET` | `0` | 字符集：0=GB18030  1=UTF-8  2=EUC-KR |
+| `DM_CASE_SENSITIVE` | `Y` | SQL 标识符大小写敏感：Y / N |
+
+用法示例：
+
+```sh
+# 只改安装目录（数据目录自动变为 /opt/dmdbms/data）
+DM_INSTALL_PATH=/opt/dmdbms bash -c \
+  "$(curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh)"
+
+# 同时指定多个参数
+DM_INSTALL_PATH=/opt/dmdbms DM_DATA_PATH=/data/dm DM_PORT=5237 bash -c \
+  "$(curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh)"
+
+# export 后 pipe 方式
+export DM_INSTALL_PATH=/opt/dmdbms
+curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash
+```
+
+### dm-installer 工具
+
 | 变量 | 说明 |
 |------|------|
 | `RUST_LOG` | 覆盖日志级别，例如 `RUST_LOG=debug dm-installer install` |

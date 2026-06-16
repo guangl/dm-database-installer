@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # 达梦数据库单机静默安装
 # 用法: curl -fsSL https://raw.githubusercontent.com/.../install.sh | bash
+#
+# 所有参数均可通过同名环境变量覆盖，例如：
+#   DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c "$(curl -fsSL <url>)"
 set -eEuo pipefail
 
-# ── 安装参数 ─────────────────────────────────────────────────────────────────────
-DM_INSTALL_PATH="/home/dmdba/dmdbms"
-DM_DATA_PATH="/home/dmdba/dmdbms/data"
-DM_PORT=5236
-DM_INSTANCE="DMSERVER"
-DM_DB_NAME="DAMENG"
-DM_PAGE_SIZE=32
-DM_EXTENT_SIZE=32
-DM_CHARSET=0
-DM_CASE_SENSITIVE=Y
+# ── 安装参数（环境变量可覆盖）───────────────────────────────────────────────────
+DM_INSTALL_PATH="${DM_INSTALL_PATH:-/home/dmdba/dmdbms}"
+DM_DATA_PATH="${DM_DATA_PATH:-${DM_INSTALL_PATH}/data}"
+DM_PORT="${DM_PORT:-5236}"
+DM_INSTANCE="${DM_INSTANCE:-DMSERVER}"
+DM_DB_NAME="${DM_DB_NAME:-DAMENG}"
+DM_PAGE_SIZE="${DM_PAGE_SIZE:-32}"
+DM_EXTENT_SIZE="${DM_EXTENT_SIZE:-32}"
+DM_CHARSET="${DM_CHARSET:-0}"
+DM_CASE_SENSITIVE="${DM_CASE_SENSITIVE:-Y}"
 DM_VERSION=""
 
 _VERSIONS_URL_GITHUB="https://raw.githubusercontent.com/guangl/dm-database-installer/main/versions.txt"

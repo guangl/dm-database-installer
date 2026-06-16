@@ -10,7 +10,14 @@ curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/i
 
 脚本自动检测系统架构与发行版，下载并静默安装 DM8，注册 systemd 服务，安装完成后打印 SYSDBA / SYSAUDITOR 密码。
 
-> 仅支持 Linux（x86_64 / aarch64）。需要自定义参数或生产部署，使用路径二。
+需要自定义安装目录或端口时，通过环境变量传入即可：
+
+```sh
+DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c \
+  "$(curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh)"
+```
+
+> 仅支持 Linux（x86_64 / aarch64）。需要集群部署或更多精细配置，使用路径二。
 
 ---
 
