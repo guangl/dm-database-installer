@@ -77,34 +77,83 @@ pub fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
 }
 
 /// 从 zip 中提取 `.iso`（优先）或 `DMInstall.bin`，写入 `extract_dir`，返回其路径。
+/// 若 zip 内含 sha256 校验文件，自动校验提取结果。
 pub fn extract_zip_installer(zip_path: &Path, extract_dir: &Path) -> Result<PathBuf> {
     let file = std::fs::File::open(zip_path)
         .with_context(|| format!("无法打开 zip: {}", zip_path.display()))?;
     let mut archive = zip::ZipArchive::new(file).context("zip 格式无效")?;
 
-    let target = find_installer_entry(&mut archive)?;
-    let dest = extract_entry(&mut archive, &target, extract_dir)?;
+    let contents = scan_zip_entries(&mut archive)?;
+    let dest = extract_entry(&mut archive, &contents.installer_name, extract_dir)?;
+
+    if let Some(sha256_entry) = contents.sha256_name {
+        let raw = read_zip_text(&mut archive, &sha256_entry)?;
+        let file_name = Path::new(&contents.installer_name)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| contents.installer_name.clone());
+        if let Some(expected) = parse_sha256_for(&raw, &file_name) {
+            crate::ui::log_info("校验 zip 内嵌 SHA-256...");
+            verify_sha256(&dest, &expected)?;
+            crate::ui::log_ok("zip 内嵌 SHA-256 校验通过");
+        }
+    }
+
     Ok(dest)
 }
 
-fn find_installer_entry(archive: &mut zip::ZipArchive<std::fs::File>) -> Result<String> {
+struct ZipContents {
+    installer_name: String,
+    sha256_name: Option<String>,
+}
+
+fn scan_zip_entries(archive: &mut zip::ZipArchive<std::fs::File>) -> Result<ZipContents> {
     let mut iso_name: Option<String> = None;
     let mut bin_name: Option<String> = None;
+    let mut sha256_name: Option<String> = None;
     for i in 0..archive.len() {
         let name = archive
             .by_index(i)
             .with_context(|| format!("读取 zip 条目 {} 失败", i))?
             .name()
             .to_string();
-        if name.to_lowercase().ends_with(".iso") {
+        let lower = name.to_lowercase();
+        if lower.ends_with(".iso") {
             iso_name = Some(name);
         } else if name.ends_with("DMInstall.bin") {
             bin_name = Some(name);
+        } else if lower.ends_with("_sha256.txt") {
+            sha256_name = Some(name);
         }
     }
-    iso_name
+    let installer_name = iso_name
         .or(bin_name)
-        .ok_or_else(|| anyhow::anyhow!("zip 中未找到 .iso 或 DMInstall.bin"))
+        .ok_or_else(|| anyhow::anyhow!("zip 中未找到 .iso 或 DMInstall.bin"))?;
+    Ok(ZipContents {
+        installer_name,
+        sha256_name,
+    })
+}
+
+/// 从 zip 中读取文本条目内容。
+fn read_zip_text(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<String> {
+    use std::io::Read;
+    let mut entry = archive
+        .by_name(name)
+        .with_context(|| format!("zip 中找不到: {}", name))?;
+    let mut buf = String::new();
+    entry.read_to_string(&mut buf).context("读取 sha256 文件失败")?;
+    Ok(buf)
+}
+
+/// 从 `文件名_SHA256.txt` 第二行提取 SHA-256 十六进制串（64位）。
+fn parse_sha256_for(content: &str, _file_name: &str) -> Option<String> {
+    let line = content.lines().nth(1)?.trim();
+    if line.len() == 64 && line.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(line.to_lowercase())
+    } else {
+        None
+    }
 }
 
 fn extract_entry(

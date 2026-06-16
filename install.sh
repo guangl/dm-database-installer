@@ -633,6 +633,33 @@ choose_work_dir() {
 }
 
 # ── 下载并解压 ────────────────────────────────────────────────────────────────────
+
+# 从 zip 解压目录中找到 *_SHA256.txt，取第二行校验目标文件。
+_verify_embedded_sha256() {
+    local extract_dir="$1" target_file="$2"
+    local sha256_file
+    sha256_file=$(find "$extract_dir" -maxdepth 2 -iname "*_sha256.txt" -type f | head -1)
+    [ -z "$sha256_file" ] && return 0
+
+    local expected
+    expected=$(awk 'NR==2{print $0}' "$sha256_file" | tr -d '[:space:]')
+    if [ "${#expected}" -ne 64 ] || ! printf '%s' "$expected" | grep -qE '^[0-9a-fA-F]+$'; then
+        log_warn "SHA-256 文件格式异常，跳过校验: $(basename "$sha256_file")"
+        return 0
+    fi
+
+    log_info "校验 zip 内嵌 SHA-256..."
+    local actual
+    actual=$(sha256sum "$target_file" | awk '{print $1}')
+    if [ "$actual" != "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ]; then
+        log_err "SHA-256 校验失败"
+        log_err "  期望: $expected"
+        log_err "  实际: $actual"
+        exit 1
+    fi
+    log_ok "SHA-256 校验通过"
+}
+
 download_and_extract() {
     local base_dir
     base_dir=$(choose_work_dir)
@@ -659,6 +686,7 @@ download_and_extract() {
     local iso_file
     iso_file=$(find "$extract_dir" -name "*.iso" -type f | head -1)
     if [ -n "$iso_file" ]; then
+        _verify_embedded_sha256 "$extract_dir" "$iso_file"
         log_info "检测到 ISO，挂载中..."
         local iso_dir="$TMPDIR_WORK/dm8_iso"
         mkdir -p "$iso_dir"
