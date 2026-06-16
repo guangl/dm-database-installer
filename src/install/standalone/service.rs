@@ -1,7 +1,7 @@
-use anyhow::{Context, Result};
-use std::{path::Path, process::Command};
+use anyhow::Result;
 
 use crate::config::InstallConfig;
+use crate::ssh::{CommandRunner, shell_quote};
 
 /// DM 约定：dminit 以 DB_NAME=DAMENG 初始化，实例数据在 {data_path}/DAMENG/ 下。
 pub fn dm_ini_path(config: &InstallConfig) -> String {
@@ -16,144 +16,165 @@ pub fn service_name(config: &InstallConfig) -> String {
     format!("DmService{}", config.instance_name)
 }
 
-/// 按顺序注册并启动两个服务：先 DMAP（辅助进程），再 dmserver（数据库）。
-/// 服务注册需要 root 权限，非 root 时提前报清晰错误。
-pub fn register_and_start(config: &InstallConfig) -> Result<()> {
-    ensure_root()?;
-    register_and_start_dmap(config)?;
-    register_and_start_dmserver(config)
-}
-
-fn register_and_start_dmap(config: &InstallConfig) -> Result<()> {
-    let name = DMAP_SERVICE_NAME;
-    if is_service_active(name) {
-        crate::ui::log_info(&format!("[续] DMAP 服务 {} 已在运行，跳过注册", name));
-        return Ok(());
-    }
-    if !is_service_registered(name) {
-        crate::ui::log_info("注册 DMAP 辅助进程服务...");
-        run_service_installer(config, &["-t", "dmap"])?;
-    } else {
-        crate::ui::log_info(&format!("[续] DMAP 服务 {} 已注册，跳过注册步骤", name));
-    }
-    start_and_enable_service(name)
-}
-
-fn register_and_start_dmserver(config: &InstallConfig) -> Result<()> {
-    let name = service_name(config);
-    let dm_ini = dm_ini_path(config);
-    if is_service_active(&name) {
-        crate::ui::log_info(&format!("[续] 数据库服务 {} 已在运行，跳过注册", name));
-        return Ok(());
-    }
-    if !is_service_registered(&name) {
-        crate::ui::log_info("注册 dmserver 数据库服务...");
-        run_service_installer(config, &["-t", "dmserver", "-p", &dm_ini, "-m", "auto"])?;
-    } else {
-        crate::ui::log_info(&format!("[续] 数据库服务 {} 已注册，跳过注册步骤", name));
-    }
-    start_and_enable_service(&name)
-}
-
-/// 服务注册脚本必须以 root 运行；非 root 时提前报清晰错误，避免脚本内部报错让用户困惑。
-fn ensure_root() -> Result<()> {
-    // 通过 id -u 获取有效 UID；返回 "0" 即为 root。
-    let output = Command::new("id")
-        .arg("-u")
-        .output()
-        .context("执行 id -u 失败")?;
-    let uid = String::from_utf8_lossy(&output.stdout);
+/// 注册并启动 DMAP 和 dmserver 服务，最后修正数据目录权限。
+pub async fn register_and_start(runner: &dyn CommandRunner, config: &InstallConfig) -> Result<()> {
+    let (uid_out, _) = runner.exec("id -u").await.unwrap_or_default();
+    let uid = String::from_utf8_lossy(&uid_out).trim().to_string();
     anyhow::ensure!(
-        uid.trim() == "0",
+        uid == "0",
         "服务注册需要 root 权限（当前 UID: {}）。\n\
          请以 root 身份运行，或在命令前加 sudo：\n\
          sudo dm-installer install",
-        uid.trim()
+        uid
     );
+
+    register_dmap(runner, config).await?;
+    register_dmserver(runner, config).await?;
+
+    crate::ui::log_info("修正数据目录权限...");
+    runner
+        .exec(&format!(
+            "chown -R dmdba:dinstall {}",
+            shell_quote(&config.data_path)
+        ))
+        .await
+        .map_err(|e| anyhow::anyhow!("修正数据目录权限失败: {e}"))?;
+
     Ok(())
 }
 
-fn is_service_active(name: &str) -> bool {
-    Command::new("systemctl")
-        .args(["is-active", "--quiet", name])
-        .status()
-        .map(|s| s.success())
+async fn register_dmap(runner: &dyn CommandRunner, config: &InstallConfig) -> Result<()> {
+    let name = DMAP_SERVICE_NAME;
+    if is_active(runner, name).await {
+        crate::ui::log_info(&format!("[续] DMAP 服务 {} 已在运行，跳过注册", name));
+        return Ok(());
+    }
+    if !is_registered(runner, name).await {
+        crate::ui::log_info("注册 DMAP 辅助进程服务...");
+        run_installer(runner, config, &["-t", "dmap"]).await?;
+    } else {
+        crate::ui::log_info(&format!("[续] DMAP 服务 {} 已注册，跳过注册步骤", name));
+    }
+    start_service(runner, name).await
+}
+
+async fn register_dmserver(runner: &dyn CommandRunner, config: &InstallConfig) -> Result<()> {
+    let name = service_name(config);
+    let dm_ini = dm_ini_path(config);
+    let service_bin = format!("{}/bin/{}", config.install_path, &name);
+
+    if is_active(runner, &name).await {
+        crate::ui::log_info(&format!("[续] 数据库服务 {} 已在运行，跳过注册", name));
+        return Ok(());
+    }
+
+    let check_cmd = format!(
+        "test -f /etc/systemd/system/{s}.service \
+         || test -f /etc/init.d/{s} \
+         || test -f {bin} \
+         && echo registered || echo unregistered",
+        s = &name,
+        bin = shell_quote(&service_bin),
+    );
+    let (check_out, _) = runner.exec(&check_cmd).await.unwrap_or_default();
+    if String::from_utf8_lossy(&check_out).trim() != "registered" {
+        crate::ui::log_info("注册 dmserver 数据库服务...");
+        run_installer(
+            runner,
+            config,
+            &[
+                "-t",
+                "dmserver",
+                "-p",
+                &config.instance_name,
+                "-dm_ini",
+                &dm_ini,
+            ],
+        )
+        .await?;
+    } else {
+        crate::ui::log_info(&format!("[续] 数据库服务 {} 已注册，跳过注册步骤", name));
+    }
+
+    crate::ui::log_info(&format!("启动 dmserver 服务 {}...", &name));
+    let start_cmd = format!(
+        "su - dmdba -c {} 2>&1 || systemctl start {} 2>&1",
+        shell_quote(&format!("{} start", service_bin)),
+        shell_quote(&name),
+    );
+    runner
+        .exec(&start_cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("启动达梦数据库服务失败: {e}"))?;
+    crate::ui::log_ok(&format!("数据库服务已启动: {}", name));
+    Ok(())
+}
+
+async fn is_active(runner: &dyn CommandRunner, name: &str) -> bool {
+    let cmd = format!(
+        "systemctl is-active --quiet {} && echo yes || echo no",
+        name
+    );
+    runner
+        .exec(&cmd)
+        .await
+        .map(|(out, _)| String::from_utf8_lossy(&out).trim() == "yes")
         .unwrap_or(false)
 }
 
-fn is_service_registered(name: &str) -> bool {
-    Path::new(&format!("/etc/systemd/system/{}.service", name)).exists()
-        || Path::new(&format!("/etc/rc.d/init.d/{}", name)).exists()
-        || Path::new(&format!("/etc/init.d/{}", name)).exists()
+async fn is_registered(runner: &dyn CommandRunner, name: &str) -> bool {
+    let cmd = format!(
+        "test -f /etc/systemd/system/{s}.service || test -f /etc/init.d/{s} && echo yes || echo no",
+        s = name,
+    );
+    runner
+        .exec(&cmd)
+        .await
+        .map(|(out, _)| String::from_utf8_lossy(&out).trim() == "yes")
+        .unwrap_or(false)
 }
 
-fn run_service_installer(config: &InstallConfig, args: &[&str]) -> Result<()> {
-    let script = format!("{}/script/root/dm_service_installer.sh", config.install_path);
-
-    anyhow::ensure!(
-        Path::new(&script).exists(),
-        "服务注册脚本不存在: {}（请确认 dmdbms 已正确安装）",
-        script
+async fn run_installer(
+    runner: &dyn CommandRunner,
+    config: &InstallConfig,
+    args: &[&str],
+) -> Result<()> {
+    let script = format!(
+        "{}/script/root/dm_service_installer.sh",
+        config.install_path
     );
-
-    let _ = Command::new("chmod").arg("+x").arg(&script).status();
-
-    let status = Command::new("bash")
-        .arg(&script)
-        .args(args)
-        .status()
-        .with_context(|| format!("执行服务注册脚本失败: {}", script))?;
-
-    anyhow::ensure!(
-        status.success(),
-        "服务注册脚本返回非零退出码: {:?}",
-        status.code()
+    let args_str = args
+        .iter()
+        .map(|a| shell_quote(a))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let cmd = format!(
+        "chmod +x {s} && bash {s} {args}",
+        s = shell_quote(&script),
+        args = args_str
     );
+    runner
+        .exec(&cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("服务注册脚本执行失败: {e}"))?;
     Ok(())
 }
 
-fn start_and_enable_service(name: &str) -> Result<()> {
-    let has_systemctl = Command::new("systemctl")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if has_systemctl {
-        Command::new("systemctl")
-            .args(["start", name])
-            .status()
-            .with_context(|| format!("systemctl start {} 失败", name))?;
-
-        // enable 失败不致命（容器环境可能不支持）
-        if !Command::new("systemctl")
-            .args(["enable", name])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            tracing::warn!("systemctl enable {} 失败（容器/非 systemd 环境？），服务已启动但未设置开机自启", name);
-            crate::ui::log_warn(&format!("服务 {} 已启动（注意：开机自启设置失败，可能为容器环境）", name));
-            return Ok(());
-        }
-    } else {
-        // 降级：init.d 脚本
-        let init_script = format!("/etc/init.d/{}", name);
-        if Path::new(&init_script).exists() {
-            Command::new(&init_script)
-                .arg("start")
-                .status()
-                .with_context(|| format!("启动服务 {} 失败", name))?;
-        } else {
-            Command::new("service")
-                .args([name, "start"])
-                .status()
-                .with_context(|| format!("service {} start 失败", name))?;
-        }
-    }
-
+async fn start_service(runner: &dyn CommandRunner, name: &str) -> Result<()> {
+    runner
+        .exec(&format!(
+            "systemctl start {n} 2>/dev/null || service {n} start 2>/dev/null || true",
+            n = shell_quote(name)
+        ))
+        .await
+        .map_err(|e| anyhow::anyhow!("启动服务 {} 失败: {e}", name))?;
+    runner
+        .exec(&format!(
+            "systemctl enable {} 2>/dev/null || true",
+            shell_quote(name)
+        ))
+        .await
+        .unwrap_or_default();
     crate::ui::log_ok(&format!("服务注册完成: {}", name));
     Ok(())
 }

@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
-use std::{io::Write, path::Path, process::Command};
-use tempfile::{NamedTempFile, TempDir};
-use crate::config::InstallConfig;
+use std::{path::Path, process::Command};
+use tempfile::TempDir;
 
 /// 将 DMInstall.bin (ZIP格式) 解压，把 dmdbms 目录复制到 install_path。
 pub fn install_from_bin(bin_path: &Path, install_path: &str) -> Result<()> {
@@ -40,49 +39,7 @@ pub fn install_from_bin(bin_path: &Path, install_path: &str) -> Result<()> {
         anyhow::ensure!(status.success(), "cp -r 返回非零退出码");
     }
 
-    tracing::info!("dmdbms 已安装到: {}", install_path);
     Ok(())
-}
-
-/// 生成 DM 安装 XML 响应文件（供集群部署使用）。
-/// `language`：`"ZH"` 或 `"EN"`，由调用方通过 SSH 检测远端 $LANG 确定。
-pub fn generate_install_xml(config: &InstallConfig, language: &str) -> Result<NamedTempFile> {
-    let xml = format!(
-        r#"<?xml version="1.0"?>
-<DATABASE>
-  <LANGUAGE>{language}</LANGUAGE>
-  <INSTALL_PATH>{install_path}</INSTALL_PATH>
-  <INIT_DB>Y</INIT_DB>
-  <DB_PARAMS>
-    <PATH>{data_path}</PATH>
-    <DB_NAME>DAMENG</DB_NAME>
-    <INSTANCE_NAME>{instance_name}</INSTANCE_NAME>
-    <PORT_NUM>{port}</PORT_NUM>
-    <PAGE_SIZE>{page_size}</PAGE_SIZE>
-    <CHARSET>{charset}</CHARSET>
-    <CASE_SENSITIVE>{case_sensitive}</CASE_SENSITIVE>
-    <EXTENT_SIZE>{extent_size}</EXTENT_SIZE>
-    <CREATE_DB_SERVICE>N</CREATE_DB_SERVICE>
-    <STARTUP_DB_SERVICE>N</STARTUP_DB_SERVICE>
-  </DB_PARAMS>
-</DATABASE>"#,
-        install_path = xml_escape(&config.install_path),
-        data_path = xml_escape(&config.data_path),
-        instance_name = xml_escape(&config.instance_name),
-        port = config.port,
-        page_size = config.page_size,
-        charset = config.charset,
-        case_sensitive = if config.case_sensitive { "Y" } else { "N" },
-        extent_size = config.extent_size,
-    );
-    let mut file = NamedTempFile::new().context("创建 XML 临时文件失败")?;
-    file.write_all(xml.as_bytes())?;
-    Ok(file)
-}
-
-fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-     .replace('"', "&quot;").replace('\'', "&apos;")
 }
 
 #[cfg(test)]
@@ -102,7 +59,8 @@ mod tests {
         // 写一个不含 dmdbms 的 ZIP
         let file = std::fs::File::create(&zip_path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
-        zip.add_directory("other/", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.add_directory("other/", zip::write::SimpleFileOptions::default())
+            .unwrap();
         zip.finish().unwrap();
 
         let install_dir = tmp.path().join("install");

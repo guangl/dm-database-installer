@@ -28,10 +28,12 @@ pub fn parse_versions() -> Vec<VersionEntry> {
 fn parse_line(line: &str) -> Option<VersionEntry> {
     let mut cols = line.splitn(4, '\t');
     let arch = cols.next()?.trim().to_string();
-    let cpu  = cols.next()?.trim().to_string();
-    let os   = cols.next()?.trim().to_string();
-    let url  = cols.next()?.trim().to_string();
-    if url.is_empty() { return None; }
+    let cpu = cols.next()?.trim().to_string();
+    let os = cols.next()?.trim().to_string();
+    let url = cols.next()?.trim().to_string();
+    if url.is_empty() {
+        return None;
+    }
     Some(VersionEntry { arch, cpu, os, url })
 }
 
@@ -79,7 +81,11 @@ mod tests {
     #[test]
     fn test_parse_versions_all_have_url() {
         for entry in parse_versions() {
-            assert!(entry.url.starts_with("https://"), "URL 应以 https:// 开头: {}", entry.url);
+            assert!(
+                entry.url.starts_with("https://"),
+                "URL 应以 https:// 开头: {}",
+                entry.url
+            );
         }
     }
 
@@ -146,7 +152,10 @@ mod tests {
         let entries = parse_versions();
         // 降级到 "kylin10" 前缀后，x86_64 可命中 kylin10_sp3
         let matched = filter_entries_os_prefix(&entries, "x86_64", Some("x86"), "kylin10");
-        assert!(!matched.is_empty(), "kylin10 前缀应命中 x86_64 上的 kylin10_sp3");
+        assert!(
+            !matched.is_empty(),
+            "kylin10 前缀应命中 x86_64 上的 kylin10_sp3"
+        );
         assert!(matched.iter().all(|e| e.os.starts_with("kylin10")));
     }
 

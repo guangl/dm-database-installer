@@ -28,11 +28,11 @@ pub fn detect_platform_from_raw(uname_m: &str, cpuinfo: &str, os_release: &str) 
 
 fn map_arch(rust_arch: &str) -> String {
     match rust_arch {
-        "x86_64"     => "x86_64".into(),
-        "aarch64"    => "aarch64".into(),
-        "mips64"     => "mips64el".into(),
-        "loongarch64"=> "loongarch64".into(),
-        other        => other.into(),
+        "x86_64" => "x86_64".into(),
+        "aarch64" => "aarch64".into(),
+        "mips64" => "mips64el".into(),
+        "loongarch64" => "loongarch64".into(),
+        other => other.into(),
     }
 }
 
@@ -131,7 +131,6 @@ fn detect_os_from_release_file() -> Option<String> {
     paths.sort(); // 排序保证行为确定
     for path in &paths {
         if let Some(os) = parse_release_file(path.to_str().unwrap_or("")) {
-            tracing::debug!("OS 检测来源: {} -> {}", path.display(), os);
             return Some(os);
         }
     }
@@ -171,25 +170,39 @@ fn map_os_key(id: &str, version_id: Option<&str>) -> Option<String> {
     let ver = version_id.unwrap_or("");
     match id {
         "rhel" | "redhat" => {
-            if ver.starts_with('7') { Some("rhel7".into()) }
-            else if ver.starts_with('6') { Some("rhel6".into()) }
-            else { None }
+            if ver.starts_with('7') {
+                Some("rhel7".into())
+            } else if ver.starts_with('6') {
+                Some("rhel6".into())
+            } else {
+                None
+            }
         }
         "centos" => {
-            if ver.starts_with('7') { Some("centos7".into()) }
-            else { None }
+            if ver.starts_with('7') {
+                Some("centos7".into())
+            } else {
+                None
+            }
         }
         "kylin" => {
             let upper = ver.to_uppercase();
-            if upper.contains("SP3") { Some("kylin10_sp3".into()) }
-            else if upper.contains("SP1") { Some("kylin10_sp1".into()) }
-            else { Some("kylin10".into()) }
+            if upper.contains("SP3") {
+                Some("kylin10_sp3".into())
+            } else if upper.contains("SP1") {
+                Some("kylin10_sp1".into())
+            } else {
+                Some("kylin10".into())
+            }
         }
         "ubuntu" => {
-            if ver.starts_with("22.") { Some("ubuntu22".into()) }
-            else { None }
+            if ver.starts_with("22.") {
+                Some("ubuntu22".into())
+            } else {
+                None
+            }
         }
-        "uos"  => Some("uos20".into()),
+        "uos" => Some("uos20".into()),
         "nfsc" => Some("nfsc".into()),
         _ => None,
     }
@@ -229,12 +242,18 @@ mod tests {
 
     #[test]
     fn test_map_os_kylin_sp3() {
-        assert_eq!(map_os_key("kylin", Some("V10SP3")), Some("kylin10_sp3".into()));
+        assert_eq!(
+            map_os_key("kylin", Some("V10SP3")),
+            Some("kylin10_sp3".into())
+        );
     }
 
     #[test]
     fn test_map_os_kylin_sp1() {
-        assert_eq!(map_os_key("kylin", Some("V10 SP1")), Some("kylin10_sp1".into()));
+        assert_eq!(
+            map_os_key("kylin", Some("V10 SP1")),
+            Some("kylin10_sp1".into())
+        );
     }
 
     #[test]
@@ -286,7 +305,11 @@ mod tests {
         )
         .unwrap();
         let result = parse_release_file(tmp.path().to_str().unwrap());
-        assert_eq!(result, Some("kylin10_sp1".into()), "Lance 是 Kylin V10 SP1 代号");
+        assert_eq!(
+            result,
+            Some("kylin10_sp1".into()),
+            "Lance 是 Kylin V10 SP1 代号"
+        );
     }
 
     #[test]

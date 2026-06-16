@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: shipped
-stopped_at: context exhaustion at 75% (2026-06-15)
-last_updated: "2026-06-15T13:43:58.852Z"
+stopped_at: context exhaustion at 75% (2026-06-16)
+last_updated: "2026-06-16T01:49:03.557Z"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -54,6 +54,6 @@ Key decisions from v1.1:
 
 ## Session Continuity
 
-Last session: 2026-06-15T13:43:58.849Z
-Stopped at: context exhaustion at 75% (2026-06-15)
+Last session: 2026-06-16T01:49:03.553Z
+Stopped at: context exhaustion at 75% (2026-06-16)
 Next: `/gsd-new-milestone` 规划 v1.2

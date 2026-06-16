@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
-use russh::{client, ChannelMsg};
+use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
+use russh::{ChannelMsg, client};
 use russh_sftp::client::SftpSession;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::config::ssh::SshCredentials;
 
@@ -25,11 +25,6 @@ impl client::Handler for TofuHandler {
         &mut self,
         server_public_key: &russh::keys::PublicKey,
     ) -> Result<bool, russh::Error> {
-        let fingerprint = server_public_key.fingerprint(Default::default());
-        tracing::warn!(
-            "[ssh][TOFU] 接受服务器公钥（未验证）: {} — 生产环境请配置 host_key_fingerprint",
-            fingerprint
-        );
         match self.accepted_keys.lock() {
             Ok(mut keys) => keys.push(server_public_key.clone()),
             Err(poisoned) => poisoned.into_inner().push(server_public_key.clone()),
@@ -46,17 +41,23 @@ pub struct SshSession {
 impl SshSession {
     /// 建立 SSH 连接，优先使用私钥，其次密码。`user` 从 `creds.user` 读取。
     pub async fn connect(host: &str, port: u16, creds: &SshCredentials) -> Result<Self, SshError> {
-        tracing::debug!("[ssh] 正在连接 {}@{}:{}", creds.user, host, port);
         let config = Arc::new(client::Config::default());
-        let handler = TofuHandler { accepted_keys: std::sync::Mutex::new(Vec::new()) };
+        let handler = TofuHandler {
+            accepted_keys: std::sync::Mutex::new(Vec::new()),
+        };
         let addr = format!("{}:{}", host, port);
         let mut handle = client::connect(config, &addr, handler)
             .await
-            .map_err(|source| SshError::Connect { host: host.to_string(), source })?;
+            .map_err(|source| SshError::Connect {
+                host: host.to_string(),
+                source,
+            })?;
         try_auth(&mut handle, creds)
             .await
-            .map_err(|source| SshError::Connect { host: host.to_string(), source })?;
-        tracing::debug!("[ssh] 认证成功: {}@{}:{}", creds.user, host, port);
+            .map_err(|source| SshError::Connect {
+                host: host.to_string(),
+                source,
+            })?;
         Ok(Self { handle })
     }
 }
@@ -64,37 +65,62 @@ impl SshSession {
 #[async_trait]
 impl CommandRunner for SshSession {
     async fn exec(&self, command: &str) -> Result<(Vec<u8>, u32), SshError> {
-        let mut channel = self
-            .handle
-            .channel_open_session()
-            .await
-            .map_err(|e| SshError::Connect { host: "session".to_string(), source: e })?;
+        let mut channel =
+            self.handle
+                .channel_open_session()
+                .await
+                .map_err(|e| SshError::Connect {
+                    host: "session".to_string(),
+                    source: e,
+                })?;
         channel
             .exec(true, command)
             .await
-            .map_err(|e| SshError::Connect { host: "exec".to_string(), source: e })?;
+            .map_err(|e| SshError::Connect {
+                host: "exec".to_string(),
+                source: e,
+            })?;
         collect_exec_output(&mut channel, command).await
     }
 
     async fn sftp_write(&self, remote_path: &str, bytes: &[u8]) -> Result<(), SshError> {
-        self.sftp_write_with_progress(remote_path, bytes, &|_| {}).await
+        self.sftp_write_with_progress(remote_path, bytes, &|_| {})
+            .await
     }
 
-    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
-        let channel = self.handle.channel_open_session().await
-            .map_err(|e| SshError::Connect { host: "sftp".to_string(), source: e })?;
-        channel.request_subsystem(true, "sftp").await
-            .map_err(|e| SshError::Connect { host: "sftp-subsystem".to_string(), source: e })?;
-        let sftp = SftpSession::new(channel.into_stream()).await
-            .map_err(|source| SshError::SftpDownload { remote_path: remote_path.to_string(), source })?;
-        let mut file = sftp.open(remote_path).await
-            .map_err(|source| SshError::SftpDownload { remote_path: remote_path.to_string(), source })?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).await.map_err(|e| SshError::SftpDownload {
-            remote_path: remote_path.to_string(),
-            source: russh_sftp::client::error::Error::UnexpectedBehavior(e.to_string()),
-        })?;
-        Ok(buf)
+    async fn sftp_set_permissions(&self, remote_path: &str, mode: u32) -> Result<(), SshError> {
+        use russh_sftp::protocol::FileAttributes;
+        let channel = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(|e| SshError::Connect {
+                host: "sftp".to_string(),
+                source: e,
+            })?;
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            .map_err(|e| SshError::Connect {
+                host: "sftp-subsystem".to_string(),
+                source: e,
+            })?;
+        let sftp = SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|source| SshError::SftpUpload {
+                remote_path: remote_path.to_string(),
+                source,
+            })?;
+        let attrs = FileAttributes {
+            permissions: Some(mode),
+            ..FileAttributes::empty()
+        };
+        sftp.set_metadata(remote_path, attrs)
+            .await
+            .map_err(|source| SshError::SftpUpload {
+                remote_path: remote_path.to_string(),
+                source,
+            })
     }
 
     async fn sftp_write_with_progress(
@@ -104,31 +130,55 @@ impl CommandRunner for SshSession {
         on_chunk: &(dyn Fn(u64) + Send + Sync),
     ) -> Result<(), SshError> {
         const CHUNK: usize = 64 * 1024;
-        tracing::debug!("[sftp] 上传 {} bytes -> {}", bytes.len(), remote_path);
         let channel = self
             .handle
             .channel_open_session()
             .await
-            .map_err(|e| SshError::Connect { host: "sftp".to_string(), source: e })?;
+            .map_err(|e| SshError::Connect {
+                host: "sftp".to_string(),
+                source: e,
+            })?;
         channel
             .request_subsystem(true, "sftp")
             .await
-            .map_err(|e| SshError::Connect { host: "sftp-subsystem".to_string(), source: e })?;
+            .map_err(|e| SshError::Connect {
+                host: "sftp-subsystem".to_string(),
+                source: e,
+            })?;
         let sftp = SftpSession::new(channel.into_stream())
             .await
-            .map_err(|source| SshError::SftpUpload { remote_path: remote_path.to_string(), source })?;
-        let mut remote_file = sftp
-            .create(remote_path)
-            .await
-            .map_err(|source| SshError::SftpUpload { remote_path: remote_path.to_string(), source })?;
+            .map_err(|source| SshError::SftpUpload {
+                remote_path: remote_path.to_string(),
+                source,
+            })?;
+        let mut remote_file =
+            sftp.create(remote_path)
+                .await
+                .map_err(|source| SshError::SftpUpload {
+                    remote_path: remote_path.to_string(),
+                    source,
+                })?;
         for chunk in bytes.chunks(CHUNK) {
-            remote_file.write_all(chunk).await.map_err(|io_err| SshError::SftpUpload {
+            remote_file
+                .write_all(chunk)
+                .await
+                .map_err(|io_err| SshError::SftpUpload {
+                    remote_path: remote_path.to_string(),
+                    source: russh_sftp::client::error::Error::UnexpectedBehavior(
+                        io_err.to_string(),
+                    ),
+                })?;
+            on_chunk(chunk.len() as u64);
+        }
+        // shutdown() 排空所有 WRITE ACK 后发 CLOSE 并等待服务端确认。
+        // drop() 调 close_nowait（fire-and-forget），大文件会被截断。
+        remote_file
+            .shutdown()
+            .await
+            .map_err(|io_err| SshError::SftpUpload {
                 remote_path: remote_path.to_string(),
                 source: russh_sftp::client::error::Error::UnexpectedBehavior(io_err.to_string()),
             })?;
-            on_chunk(chunk.len() as u64);
-        }
-        tracing::debug!("[sftp] 上传完成: {}", remote_path);
         Ok(())
     }
 }
@@ -138,19 +188,18 @@ async fn try_auth(
     handle: &mut client::Handle<TofuHandler>,
     creds: &SshCredentials,
 ) -> Result<(), russh::Error> {
-    if let Some(identity_file) = &creds.identity_file {
-        tracing::debug!("[ssh] 尝试私钥认证: {}", identity_file.display());
-        if try_key_auth(handle, &creds.user, identity_file).await.is_ok() {
-            tracing::debug!("[ssh] 私钥认证成功");
-            return Ok(());
-        }
-        tracing::debug!("[ssh] 私钥认证失败，回退到密码认证");
+    if let Some(identity_file) = &creds.identity_file
+        && try_key_auth(handle, &creds.user, identity_file)
+            .await
+            .is_ok()
+    {
+        return Ok(());
     }
     if let Some(_password) = &creds.password {
-        tracing::debug!("[ssh] 尝试密码认证");
-        let result = handle.authenticate_password(&creds.user, _password.clone()).await?;
+        let result = handle
+            .authenticate_password(&creds.user, _password.clone())
+            .await?;
         if result.success() {
-            tracing::debug!("[ssh] 密码认证成功");
             return Ok(());
         }
     }
@@ -168,34 +217,45 @@ async fn try_key_auth(
     let rsa_hash = handle.best_supported_rsa_hash().await?.flatten();
     let key = PrivateKeyWithHashAlg::new(Arc::new(key_pair), rsa_hash);
     let result = handle.authenticate_publickey(user, key).await?;
-    if result.success() { Ok(()) } else { Err(russh::Error::NotAuthenticated) }
+    if result.success() {
+        Ok(())
+    } else {
+        Err(russh::Error::NotAuthenticated)
+    }
 }
 
 /// 从 SSH channel 收集命令输出和退出码。
+/// 同时收集 stdout（Data）和 stderr（ExtendedData），直到 channel 关闭（None）。
+/// 不在 Eof 时 break，因为部分 SSH server 在 Eof 之后才发 ExitStatus。
 async fn collect_exec_output(
     channel: &mut russh::Channel<client::Msg>,
     command: &str,
 ) -> Result<(Vec<u8>, u32), SshError> {
-    tracing::debug!("[ssh] 执行远端命令: {}", command);
     let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
     let mut exit_code = 0u32;
     loop {
         match channel.wait().await {
             Some(ChannelMsg::Data { ref data }) => stdout.extend_from_slice(data),
+            Some(ChannelMsg::ExtendedData { ref data, .. }) => stderr.extend_from_slice(data),
             Some(ChannelMsg::ExitStatus { exit_status }) => exit_code = exit_status,
-            Some(ChannelMsg::Eof) | None => break,
+            None => break,
             _ => {}
         }
     }
-    tracing::debug!(
-        "[ssh] 命令完成: exit_code={}, stdout={} bytes",
-        exit_code,
-        stdout.len()
-    );
     if exit_code != 0 {
-        let output = String::from_utf8_lossy(&stdout).trim().to_string();
-        tracing::warn!("[ssh] 命令失败 (exit {}): {}", exit_code, output);
-        return Err(SshError::ExecFailed { command: command.to_string(), exit_code, output });
+        let out = String::from_utf8_lossy(&stdout).trim().to_string();
+        let err = String::from_utf8_lossy(&stderr).trim().to_string();
+        let output = match (out.is_empty(), err.is_empty()) {
+            (false, false) => format!("{}\n{}", out, err),
+            (true, _) => err,
+            (_, true) => out,
+        };
+        return Err(SshError::ExecFailed {
+            command: command.to_string(),
+            exit_code,
+            output,
+        });
     }
     Ok((stdout, exit_code))
 }
@@ -227,8 +287,8 @@ fn expand_tilde_with_home(path: &Path, home: Option<&std::ffi::OsStr>) -> PathBu
 
 #[cfg(test)]
 mod tests {
-    use russh::client::Handler;
     use super::*;
+    use russh::client::Handler;
 
     fn home(s: &str) -> Option<&std::ffi::OsStr> {
         Some(std::ffi::OsStr::new(s))
@@ -236,7 +296,8 @@ mod tests {
 
     #[test]
     fn test_expand_tilde_replaces_home() {
-        let expanded = expand_tilde_with_home(&PathBuf::from("~/.ssh/id_rsa"), home("/home/testuser"));
+        let expanded =
+            expand_tilde_with_home(&PathBuf::from("~/.ssh/id_rsa"), home("/home/testuser"));
         assert_eq!(expanded, PathBuf::from("/home/testuser/.ssh/id_rsa"));
     }
 
@@ -263,12 +324,14 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_tofu_logs_fingerprint() {
+    async fn test_tofu_accepts_server_key() {
         const TEST_PUBKEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti test@example";
         let public_key = russh::keys::PublicKey::from_openssh(TEST_PUBKEY).expect("解析公钥");
-        let mut handler = TofuHandler { accepted_keys: std::sync::Mutex::new(Vec::new()) };
-        handler.check_server_key(&public_key).await.unwrap();
-        assert!(logs_contain("[ssh][TOFU]"));
+        let mut handler = TofuHandler {
+            accepted_keys: std::sync::Mutex::new(Vec::new()),
+        };
+        let accepted = handler.check_server_key(&public_key).await.unwrap();
+        assert!(accepted);
+        assert_eq!(handler.accepted_keys.lock().unwrap().len(), 1);
     }
 }

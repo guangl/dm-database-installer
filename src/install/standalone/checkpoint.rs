@@ -13,7 +13,13 @@ pub struct Checkpoint {
     pub package_cache: Option<String>,
     #[serde(default)]
     pub uploaded: bool,
+    #[serde(default)]
+    pub env_setup_done: bool,
     pub installed: bool,
+    #[serde(default)]
+    pub db_inited: bool,
+    #[serde(default)]
+    pub services_done: bool,
 }
 
 impl Checkpoint {
@@ -24,7 +30,10 @@ impl Checkpoint {
             sysauditor_pwd,
             package_cache: None,
             uploaded: false,
+            env_setup_done: false,
             installed: false,
+            db_inited: false,
+            services_done: false,
         }
     }
 
@@ -40,7 +49,6 @@ impl Checkpoint {
         let path = dir.join(FILE_NAME);
         let content = serde_json::to_string_pretty(self)?;
         std::fs::write(&path, content)?;
-        tracing::debug!("检查点已保存: {}", path.display());
         Ok(())
     }
 
@@ -48,7 +56,6 @@ impl Checkpoint {
         let path = dir.join(FILE_NAME);
         if path.exists() {
             std::fs::remove_file(&path)?;
-            tracing::debug!("检查点已删除");
         }
         Ok(())
     }
@@ -67,17 +74,9 @@ pub(crate) fn load_from(dir: &Path, install_path: &str) -> Result<Option<Checkpo
     let content = std::fs::read_to_string(&path)?;
     let cp: Checkpoint = match serde_json::from_str(&content) {
         Ok(c) => c,
-        Err(e) => {
-            tracing::warn!("检查点文件格式错误，忽略: {}", e);
-            return Ok(None);
-        }
+        Err(_) => return Ok(None),
     };
     if cp.install_path != install_path {
-        tracing::warn!(
-            "检查点 install_path 不匹配（{} vs {}），忽略",
-            cp.install_path,
-            install_path
-        );
         return Ok(None);
     }
     println!("[续] 检测到检查点，从上次进度继续安装");

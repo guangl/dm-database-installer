@@ -1,12 +1,15 @@
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::ssh::{CommandRunner, SshError};
 use crate::ui;
 
+pub fn is_already_installed(install_path: &str) -> bool {
+    Path::new(install_path).join("bin/dmserver").exists()
+}
+
 pub async fn check_port_available(runner: &dyn CommandRunner, port: u16) -> Result<()> {
-    tracing::debug!("[预检查] 检测端口 {} 是否空闲", port);
     let cmd = format!("ss -tlnp | grep ':{port}'");
     match runner.exec(&cmd).await {
         Ok((stdout, _)) if !stdout.is_empty() => {
@@ -28,12 +31,8 @@ pub async fn check_disk_space(runner: &dyn CommandRunner, install_path: &str) ->
     let parent = Path::new(install_path)
         .parent()
         .unwrap_or_else(|| Path::new("/"));
-    tracing::debug!("[预检查] 检测磁盘空间: {}", parent.display());
     let cmd = format!("df -B1 {}", parent.display());
-    let (stdout, _) = runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let (stdout, _) = runner.exec(&cmd).await.map_err(|e| anyhow::anyhow!(e))?;
     let available = parse_df_available(&stdout)?;
     let min_bytes: u64 = 20 * 1024 * 1024 * 1024;
     if available < min_bytes {
@@ -48,7 +47,6 @@ pub async fn check_disk_space(runner: &dyn CommandRunner, install_path: &str) ->
 }
 
 pub async fn check_memory(runner: &dyn CommandRunner) -> Result<()> {
-    tracing::debug!("[预检查] 检测内存大小");
     let (stdout, _) = runner
         .exec("grep '^MemTotal:' /proc/meminfo")
         .await
@@ -74,14 +72,9 @@ fn parse_memtotal_kb(stdout: &[u8]) -> Result<u64> {
 }
 
 pub async fn check_cpu_cores(runner: &dyn CommandRunner) -> Result<()> {
-    tracing::debug!("[预检查] 检测 CPU 核心数");
-    let (stdout, _) = runner
-        .exec("nproc")
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let (stdout, _) = runner.exec("nproc").await.map_err(|e| anyhow::anyhow!(e))?;
     let text = std::str::from_utf8(&stdout).context("nproc 输出不是有效 UTF-8")?;
     let cores: u64 = text.trim().parse().context("nproc 输出无法解析为整数")?;
-    tracing::debug!("[预检查] CPU 核心数: {}", cores);
     if cores < 1 {
         bail!("[预检查] CPU 核心数不足: {} 核，需要 >= 1 核", cores);
     }
@@ -104,16 +97,15 @@ fn parse_df_available(stdout: &[u8]) -> Result<u64> {
 }
 
 pub async fn check_ulimits(runner: &dyn CommandRunner) -> Result<()> {
-    tracing::debug!("[预检查] 检测 ulimit (nofile/nproc)");
     let cmd = "awk '/^Max open files/{print $4} /^Max processes/{print $3}' /proc/self/limits";
     let (out, _) = runner.exec(cmd).await.map_err(|e| anyhow::anyhow!(e))?;
     let text = std::str::from_utf8(&out).unwrap_or("").trim().to_string();
     let mut lines = text.lines();
     let nofile = lines.next().unwrap_or("unlimited").trim().to_string();
-    let nproc  = lines.next().unwrap_or("unlimited").trim().to_string();
+    let nproc = lines.next().unwrap_or("unlimited").trim().to_string();
 
     let nofile_low = is_ulimit_low(&nofile);
-    let nproc_low  = is_ulimit_low(&nproc);
+    let nproc_low = is_ulimit_low(&nproc);
 
     if nofile_low || nproc_low {
         if nofile_low {
@@ -137,13 +129,9 @@ fn is_ulimit_low(val_str: &str) -> bool {
 }
 
 pub async fn check_selinux(runner: &dyn CommandRunner) -> Result<()> {
-    tracing::debug!("[预检查] 检测 SELinux 状态");
     let (out, _) = match runner.exec("getenforce 2>/dev/null || echo absent").await {
         Ok(r) => r,
-        Err(_) => {
-            tracing::debug!("[预检查] getenforce 不可用，跳过 SELinux 检测");
-            return Ok(());
-        }
+        Err(_) => return Ok(()),
     };
     let mode = std::str::from_utf8(&out).unwrap_or("").trim();
     match mode {
@@ -179,9 +167,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_memory_insufficient() {
-        let runner = MockRunner::new(vec![
-            ("grep '^MemTotal:'".to_string(), 0, mem_output_kb(2 * 1024 * 1024)),
-        ]);
+        let runner = MockRunner::new(vec![(
+            "grep '^MemTotal:'".to_string(),
+            0,
+            mem_output_kb(2 * 1024 * 1024),
+        )]);
         let result = check_memory(&runner).await;
         assert!(result.is_err(), "内存不足应返回 Err");
         let msg = result.unwrap_err().to_string();
@@ -191,13 +181,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_cpu_cores_insufficient() {
-        let runner = MockRunner::new(vec![
-            ("nproc".to_string(), 0, b"0\n".to_vec()),
-        ]);
+        let runner = MockRunner::new(vec![("nproc".to_string(), 0, b"0\n".to_vec())]);
         let result = check_cpu_cores(&runner).await;
         assert!(result.is_err(), "0 核应返回 Err");
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("CPU 核心数不足"), "应含 'CPU 核心数不足': {msg}");
+        assert!(
+            msg.contains("CPU 核心数不足"),
+            "应含 'CPU 核心数不足': {msg}"
+        );
     }
 
     #[test]
@@ -209,49 +200,58 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_ulimits_low_nofile_returns_ok() {
-        let runner = MockRunner::new(vec![
-            ("awk".to_string(), 0, b"512\n65536\n".to_vec()),
-        ]);
+        let runner = MockRunner::new(vec![("awk".to_string(), 0, b"512\n65536\n".to_vec())]);
         let result = check_ulimits(&runner).await;
-        assert!(result.is_ok(), "ulimit 偏低应返回 Ok（warn 但不阻断）: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ulimit 偏低应返回 Ok（warn 但不阻断）: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
     async fn test_check_ulimits_all_sufficient_returns_ok() {
-        let runner = MockRunner::new(vec![
-            ("awk".to_string(), 0, b"65536\n65536\n".to_vec()),
-        ]);
+        let runner = MockRunner::new(vec![("awk".to_string(), 0, b"65536\n65536\n".to_vec())]);
         assert!(check_ulimits(&runner).await.is_ok());
     }
 
     #[tokio::test]
     async fn test_check_ulimits_unlimited_returns_ok() {
-        let runner = MockRunner::new(vec![
-            ("awk".to_string(), 0, b"unlimited\nunlimited\n".to_vec()),
-        ]);
+        let runner = MockRunner::new(vec![(
+            "awk".to_string(),
+            0,
+            b"unlimited\nunlimited\n".to_vec(),
+        )]);
         assert!(check_ulimits(&runner).await.is_ok());
     }
 
     #[tokio::test]
     async fn test_check_selinux_enforcing_returns_ok() {
-        let runner = MockRunner::new(vec![
-            ("getenforce".to_string(), 0, b"Enforcing\n".to_vec()),
-        ]);
+        let runner = MockRunner::new(vec![("getenforce".to_string(), 0, b"Enforcing\n".to_vec())]);
         let result = check_selinux(&runner).await;
-        assert!(result.is_ok(), "SELinux Enforcing 应 warn 但返回 Ok: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "SELinux Enforcing 应 warn 但返回 Ok: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
     async fn test_check_selinux_permissive_returns_ok() {
-        let runner = MockRunner::new(vec![
-            ("getenforce".to_string(), 0, b"Permissive\n".to_vec()),
-        ]);
+        let runner = MockRunner::new(vec![(
+            "getenforce".to_string(),
+            0,
+            b"Permissive\n".to_vec(),
+        )]);
         assert!(check_selinux(&runner).await.is_ok());
     }
 
     #[tokio::test]
     async fn test_check_selinux_unavailable_returns_ok() {
         let runner = MockRunner::new_strict(vec![]);
-        assert!(check_selinux(&runner).await.is_ok(), "getenforce 不可用应跳过");
+        assert!(
+            check_selinux(&runner).await.is_ok(),
+            "getenforce 不可用应跳过"
+        );
     }
 }

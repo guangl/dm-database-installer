@@ -5,7 +5,7 @@ use super::runner::CommandRunner;
 
 /// 本地命令执行器，实现 CommandRunner trait。
 /// exec 通过 sh -c 执行命令，非零退出码返回 SshError::ExecFailed（与 SSH 行为一致）。
-/// sftp_write/sftp_read 对应本地文件系统读写。
+/// sftp_write 对应本地文件系统写入。
 pub struct LocalRunner;
 
 #[async_trait]
@@ -37,16 +37,21 @@ impl CommandRunner for LocalRunner {
     }
 
     async fn sftp_write(&self, remote_path: &str, bytes: &[u8]) -> Result<(), SshError> {
-        tokio::fs::write(remote_path, bytes).await.map_err(|e| SshError::Io {
-            path: remote_path.to_string(),
-            source: e,
-        })
+        tokio::fs::write(remote_path, bytes)
+            .await
+            .map_err(|e| SshError::Io {
+                path: remote_path.to_string(),
+                source: e,
+            })
     }
 
-    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
-        tokio::fs::read(remote_path).await.map_err(|e| SshError::Io {
-            path: remote_path.to_string(),
-            source: e,
+    async fn sftp_set_permissions(&self, remote_path: &str, mode: u32) -> Result<(), SshError> {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(remote_path, std::fs::Permissions::from_mode(mode)).map_err(|e| {
+            SshError::Io {
+                path: remote_path.to_string(),
+                source: e,
+            }
         })
     }
 }

@@ -2,9 +2,9 @@ use anyhow::Result;
 use std::path::Path;
 
 use crate::cli::ValidateArgs;
-use crate::ssh::{CommandRunner, SshSession};
 use crate::config::ssh::{SshCredentials, SshTarget};
-use crate::config::{ArchiveConfig, CommonConfig, InstallerSource, InstallConfig};
+use crate::config::{ArchiveConfig, CommonConfig, InstallConfig, InstallerSource};
+use crate::ssh::{CommandRunner, SshSession};
 
 pub async fn run(args: &ValidateArgs) -> Result<()> {
     let config_path = resolve_common_config_path(args.config.as_deref());
@@ -38,7 +38,10 @@ fn resolve_common_config_path(input: Option<&Path>) -> std::path::PathBuf {
     {
         let dir = path.parent().unwrap_or(Path::new("."));
         let common = dir.join(crate::config::CONFIG_FILE);
-        println!("提示: standalone.toml 是特有配置文件，自动切换到 {} 进行验证", common.display());
+        println!(
+            "提示: standalone.toml 是特有配置文件，自动切换到 {} 进行验证",
+            common.display()
+        );
         return common;
     }
     path.to_path_buf()
@@ -58,7 +61,11 @@ fn print_standalone_summary(path: &Path, common: &CommonConfig, cfg: &InstallCon
     println!("  实例名称:   {}", cfg.instance_name);
     println!("  端口:       {}", cfg.port);
     println!("  页大小:     {} KB", cfg.page_size);
-    println!("  字符集:     {} ({})", charset_name(cfg.charset), cfg.charset);
+    println!(
+        "  字符集:     {} ({})",
+        charset_name(cfg.charset),
+        cfg.charset
+    );
     println!("  区分大小写: {}", yn(cfg.case_sensitive));
     println!("  簇大小:     {}", cfg.extent_size);
     print_standalone_archive_section(cfg);
@@ -76,7 +83,11 @@ fn print_ssh_target_section(target: &SshTarget) {
     println!("\n[SSH 远程目标]");
     println!("  主机: {}:{}", target.host, target.ssh_port);
     println!("  用户: {}", target.user);
-    let auth = if target.password.is_some() { "密码（已配置）" } else { "密码（安装时将提示输入）" };
+    let auth = if target.password.is_some() {
+        "密码（已配置）"
+    } else {
+        "密码（安装时将提示输入）"
+    };
     println!("  认证: {}", auth);
 }
 
@@ -99,7 +110,9 @@ fn print_archive_section(arch: &ArchiveConfig, default_path: &str) {
 fn check_package(source: &InstallerSource, issues: &mut Vec<String>) {
     match source {
         InstallerSource::Auto => println!("  ✓ 安装包: 自动检测下载"),
-        InstallerSource::LocalFile(p) if p.exists() => println!("  ✓ 安装包路径存在: {}", p.display()),
+        InstallerSource::LocalFile(p) if p.exists() => {
+            println!("  ✓ 安装包路径存在: {}", p.display())
+        }
         InstallerSource::LocalFile(p) => {
             println!("  ✗ 安装包路径不存在: {}", p.display());
             println!("    建议: 检查 installer_package 路径是否正确");
@@ -146,7 +159,9 @@ fn check_standalone_archive(cfg: &InstallConfig, issues: &mut Vec<String>) {
 }
 
 async fn check_standalone_ssh(specific: &InstallConfig, issues: &mut Vec<String>) {
-    let Some(target) = &specific.ssh_target else { return; };
+    let Some(target) = &specific.ssh_target else {
+        return;
+    };
     if target.password.is_none() {
         println!(
             "  ~ SSH 目标 {}@{}:{}: 密码未配置，安装时将提示输入，跳过连通性检查",
@@ -158,23 +173,35 @@ async fn check_standalone_ssh(specific: &InstallConfig, issues: &mut Vec<String>
         user: target.user.clone(),
         identity_file: None,
         password: target.password.clone(),
-        port: target.ssh_port,
     };
     match SshSession::connect(&target.host, target.ssh_port, &creds).await {
         Ok(session) => {
-            println!("  ✓ SSH 目标可连通: {}@{}:{}", target.user, target.host, target.ssh_port);
+            println!(
+                "  ✓ SSH 目标可连通: {}@{}:{}",
+                target.user, target.host, target.ssh_port
+            );
             check_remote_install(&specific.install_path, &session, issues).await;
         }
         Err(e) => {
-            println!("  ✗ SSH 目标无法连接 {}@{}:{}: {e}", target.user, target.host, target.ssh_port);
+            println!(
+                "  ✗ SSH 目标无法连接 {}@{}:{}: {e}",
+                target.user, target.host, target.ssh_port
+            );
             println!("    建议: 检查 ssh_target.host、ssh_port 和 password 配置");
             issues.push(format!("SSH 无法连接: {}:{}", target.host, target.ssh_port));
         }
     }
 }
 
-async fn check_remote_install(install_path: &str, session: &dyn CommandRunner, issues: &mut Vec<String>) {
-    let cmd = format!("test -f '{}/bin/dmserver' && echo exists || echo absent", install_path);
+async fn check_remote_install(
+    install_path: &str,
+    session: &dyn CommandRunner,
+    issues: &mut Vec<String>,
+) {
+    let cmd = format!(
+        "test -f '{}/bin/dmserver' && echo exists || echo absent",
+        install_path
+    );
     match session.exec(&cmd).await {
         Ok((out, _)) if String::from_utf8_lossy(&out).trim() == "exists" => {
             println!("    ✗ 已检测到达梦安装: {}/bin/dmserver", install_path);
@@ -187,7 +214,12 @@ async fn check_remote_install(install_path: &str, session: &dyn CommandRunner, i
 }
 
 fn charset_name(charset: u8) -> &'static str {
-    match charset { 0 => "GB18030", 1 => "UTF-8", 2 => "EUC-KR", _ => "未知" }
+    match charset {
+        0 => "GB18030",
+        1 => "UTF-8",
+        2 => "EUC-KR",
+        _ => "未知",
+    }
 }
 
 fn yn(b: bool) -> &'static str {
@@ -209,7 +241,10 @@ mod tests {
     #[test]
     fn test_check_package_nonexistent_path() {
         let mut issues = Vec::new();
-        check_package(&InstallerSource::LocalFile(Path::new("/nonexistent/dm.iso").to_path_buf()), &mut issues);
+        check_package(
+            &InstallerSource::LocalFile(Path::new("/nonexistent/dm.iso").to_path_buf()),
+            &mut issues,
+        );
         assert_eq!(issues.len(), 1, "路径不存在应报错");
         assert!(issues[0].contains("不存在"), "错误信息应提及不存在");
     }
@@ -218,14 +253,20 @@ mod tests {
     fn test_check_package_existing_path() {
         let file = NamedTempFile::new().unwrap();
         let mut issues = Vec::new();
-        check_package(&InstallerSource::LocalFile(file.path().to_path_buf()), &mut issues);
+        check_package(
+            &InstallerSource::LocalFile(file.path().to_path_buf()),
+            &mut issues,
+        );
         assert!(issues.is_empty(), "路径存在应不报错");
     }
 
     #[test]
     fn test_check_package_url_always_ok() {
         let mut issues = Vec::new();
-        check_package(&InstallerSource::Url("https://example.com/dm8.zip".to_string()), &mut issues);
+        check_package(
+            &InstallerSource::Url("https://example.com/dm8.zip".to_string()),
+            &mut issues,
+        );
         assert!(issues.is_empty(), "URL 来源不应报错");
     }
 
@@ -259,7 +300,10 @@ mod tests {
     #[test]
     fn test_check_standalone_archive_zero_file_size_fails() {
         let cfg = InstallConfig {
-            archive: ArchiveConfig { file_size: 0, ..Default::default() },
+            archive: ArchiveConfig {
+                file_size: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut issues = Vec::new();

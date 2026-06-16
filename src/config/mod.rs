@@ -2,43 +2,6 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// 日志回滚策略。
-#[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum LogRotation {
-    #[default]
-    Never,
-    Daily,
-    Hourly,
-}
-
-/// 日志配置，对应 config.toml 的 [logging] section。
-#[derive(Debug, Deserialize)]
-pub struct LogConfig {
-    /// 日志级别：trace / debug / info / warn / error
-    #[serde(default = "default_log_level")]
-    pub level: String,
-    /// 日志文件路径，不填则只输出到终端
-    pub file: Option<PathBuf>,
-    /// 回滚策略，仅在 file 有值时生效
-    #[serde(default)]
-    pub rotation: LogRotation,
-    /// 最多保留的历史日志文件数，0 = 不自动删除
-    #[serde(default)]
-    pub max_files: usize,
-}
-
-impl Default for LogConfig {
-    fn default() -> Self {
-        Self {
-            level: default_log_level(),
-            file: None,
-            rotation: LogRotation::Never,
-            max_files: 0,
-        }
-    }
-}
-
 pub mod ssh;
 
 /// 约定通用配置文件名，安装时从当前目录自动读取。
@@ -86,26 +49,6 @@ impl TryFrom<CommonConfigRaw> for CommonConfig {
         };
         Ok(CommonConfig { installer })
     }
-}
-
-fn default_log_level() -> String {
-    "info".to_string()
-}
-
-/// 仅读取 config.toml 中的 [logging] section，容忍文件缺失（返回默认值）。
-/// 用于在完整配置加载前初始化日志系统。
-pub fn load_log_config() -> LogConfig {
-    #[derive(Deserialize, Default)]
-    struct LogOnly {
-        #[serde(default)]
-        logging: LogConfig,
-    }
-    let Ok(content) = std::fs::read_to_string(CONFIG_FILE) else {
-        return LogConfig::default();
-    };
-    toml::from_str::<LogOnly>(&content)
-        .map(|c| c.logging)
-        .unwrap_or_default()
 }
 
 /// 加载后的完整配置：通用配置 + 单机特有配置。
@@ -252,6 +195,7 @@ pub struct InstallConfig {
     pub data_path: String,
     pub instance_name: String,
     pub port: u16,
+    pub ap_port: u16,
     pub page_size: u8,
     pub charset: u8,
     pub case_sensitive: bool,
@@ -285,6 +229,8 @@ struct InstanceSection {
     instance_name: String,
     #[serde(default = "default_port")]
     port: u16,
+    #[serde(default = "default_ap_port")]
+    ap_port: u16,
     #[serde(default = "default_page_size")]
     page_size: u8,
     #[serde(default = "default_charset")]
@@ -300,6 +246,7 @@ impl Default for InstanceSection {
         Self {
             instance_name: default_instance_name(),
             port: default_port(),
+            ap_port: default_ap_port(),
             page_size: default_page_size(),
             charset: default_charset(),
             case_sensitive: default_case_sensitive(),
@@ -326,6 +273,7 @@ impl From<InstallConfigFile> for InstallConfig {
             data_path: f.install.data_path,
             instance_name: f.instance.instance_name,
             port: f.instance.port,
+            ap_port: f.instance.ap_port,
             page_size: f.instance.page_size,
             charset: f.instance.charset,
             case_sensitive: f.instance.case_sensitive,
@@ -348,6 +296,9 @@ fn default_instance_name() -> String {
 fn default_port() -> u16 {
     5236
 }
+fn default_ap_port() -> u16 {
+    4236
+}
 fn default_page_size() -> u8 {
     32
 }
@@ -368,6 +319,7 @@ impl Default for InstallConfig {
             data_path: default_data_path(),
             instance_name: default_instance_name(),
             port: default_port(),
+            ap_port: default_ap_port(),
             page_size: default_page_size(),
             charset: default_charset(),
             case_sensitive: default_case_sensitive(),
@@ -381,6 +333,9 @@ impl Default for InstallConfig {
 /// 验证 InstallConfig 字段语义合法性（枚举值域、范围约束）。
 pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
     validate_db_params("", cfg.port, cfg.page_size, cfg.charset, cfg.extent_size)?;
+    if cfg.ap_port == 0 {
+        bail!("配置验证失败: ap_port 无效: 0；有效范围为 1-65535");
+    }
     if let Some(target) = &cfg.ssh_target {
         if target.host.is_empty() {
             bail!("配置验证失败: ssh_target.host 不能为空");

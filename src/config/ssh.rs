@@ -8,9 +8,6 @@ pub struct SshCredentials {
     pub identity_file: Option<PathBuf>,
     #[serde(skip_serializing, default)]
     pub password: Option<String>,
-    /// SSH 端口，默认 22
-    #[serde(default = "default_ssh_port")]
-    pub port: u16,
 }
 
 /// 单机 SSH 远程安装目标（standalone.toml 可选 [ssh_target] 块）。
@@ -31,6 +28,12 @@ pub struct SshTarget {
     pub retry_interval_secs: u64,
 }
 
-fn default_ssh_port() -> u16 { 22 }
-fn default_ssh_max_retries() -> u32 { 3 }
-fn default_ssh_retry_interval_secs() -> u64 { 5 }
+fn default_ssh_port() -> u16 {
+    22
+}
+fn default_ssh_max_retries() -> u32 {
+    3
+}
+fn default_ssh_retry_interval_secs() -> u64 {
+    5
+}

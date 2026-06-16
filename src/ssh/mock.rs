@@ -12,8 +12,6 @@ pub struct MockRunner {
     pub sftp_writes: std::sync::Mutex<Vec<(String, Vec<u8>)>>,
     /// 记录所有 exec 调用的命令字符串
     pub exec_calls: std::sync::Mutex<Vec<String>>,
-    /// sftp_read 返回值：path -> bytes（未预设路径返回空 Vec）
-    pub sftp_read_data: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
     /// 严格模式：未匹配命令返回 exit 127 Err（默认 false）
     pub strict: bool,
 }
@@ -24,18 +22,15 @@ impl MockRunner {
             responses: std::sync::Mutex::new(responses),
             sftp_writes: std::sync::Mutex::new(Vec::new()),
             exec_calls: std::sync::Mutex::new(Vec::new()),
-            sftp_read_data: std::sync::Mutex::new(std::collections::HashMap::new()),
             strict: false,
         }
     }
 
     pub fn new_strict(responses: Vec<(String, u32, Vec<u8>)>) -> Self {
-        Self { strict: true, ..Self::new(responses) }
-    }
-
-    #[allow(dead_code)]
-    pub fn set_sftp_read(&self, path: &str, content: Vec<u8>) {
-        self.sftp_read_data.lock().unwrap().insert(path.to_string(), content);
+        Self {
+            strict: true,
+            ..Self::new(responses)
+        }
     }
 
     pub fn exec_log(&self) -> Vec<String> {
@@ -59,24 +54,30 @@ impl CommandRunner for MockRunner {
             let (_, exit_code, stdout) = responses.remove(idx);
             if exit_code != 0 {
                 let output = String::from_utf8_lossy(&stdout).trim().to_string();
-                return Err(SshError::ExecFailed { command: command.to_string(), exit_code, output });
+                return Err(SshError::ExecFailed {
+                    command: command.to_string(),
+                    exit_code,
+                    output,
+                });
             }
             Ok((stdout, exit_code))
         } else if self.strict {
-            Err(SshError::ExecFailed { command: command.to_string(), exit_code: 127, output: String::new() })
+            Err(SshError::ExecFailed {
+                command: command.to_string(),
+                exit_code: 127,
+                output: String::new(),
+            })
         } else {
             Ok((vec![], 0))
         }
     }
 
     async fn sftp_write(&self, remote_path: &str, bytes: &[u8]) -> Result<(), SshError> {
-        self.sftp_writes.lock().unwrap().push((remote_path.to_string(), bytes.to_vec()));
+        self.sftp_writes
+            .lock()
+            .unwrap()
+            .push((remote_path.to_string(), bytes.to_vec()));
         Ok(())
-    }
-
-    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
-        let map = self.sftp_read_data.lock().unwrap();
-        Ok(map.get(remote_path).cloned().unwrap_or_default())
     }
 }
 
@@ -86,7 +87,11 @@ mod tests {
 
     #[test]
     fn test_ssh_error_exec_failed_display() {
-        let err = SshError::ExecFailed { command: "sudo -n true".to_string(), exit_code: 1, output: "Permission denied".to_string() };
+        let err = SshError::ExecFailed {
+            command: "sudo -n true".to_string(),
+            exit_code: 1,
+            output: "Permission denied".to_string(),
+        };
         let msg = err.to_string();
         assert!(msg.contains("sudo -n true"));
         assert!(msg.contains("exit 1"));
@@ -100,7 +105,11 @@ mod tests {
             host: "192.168.1.10".to_string(),
             source: russh::Error::NotAuthenticated,
         };
-        let _e = SshError::ExecFailed { command: "ls".to_string(), exit_code: 2, output: String::new() };
+        let _e = SshError::ExecFailed {
+            command: "ls".to_string(),
+            exit_code: 2,
+            output: String::new(),
+        };
         let _s = SshError::SftpUpload {
             remote_path: "/opt/dm".to_string(),
             source: russh_sftp::client::error::Error::UnexpectedBehavior("test".to_string()),

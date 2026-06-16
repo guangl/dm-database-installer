@@ -1,19 +1,29 @@
 use std::io::IsTerminal;
 
-use crate::config::{resolve_arch_path, InstallConfig};
+use crate::config::{InstallConfig, resolve_arch_path};
 
 struct Colors {
-    green:  &'static str,
-    red:    &'static str,
+    green: &'static str,
+    red: &'static str,
     yellow: &'static str,
-    reset:  &'static str,
+    reset: &'static str,
 }
 
 fn colors() -> Colors {
     if std::io::stdout().is_terminal() {
-        Colors { green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m", reset: "\x1b[0m" }
+        Colors {
+            green: "\x1b[32m",
+            red: "\x1b[31m",
+            yellow: "\x1b[33m",
+            reset: "\x1b[0m",
+        }
     } else {
-        Colors { green: "", red: "", yellow: "", reset: "" }
+        Colors {
+            green: "",
+            red: "",
+            yellow: "",
+            reset: "",
+        }
     }
 }
 
@@ -33,12 +43,18 @@ pub fn log_info(msg: &str) {
 
 pub fn step_header(title: &str) {
     let c = colors();
-    println!("\n{}── {} ──────────────────────────────────────────────{}", c.yellow, title, c.reset);
+    println!(
+        "\n{}── {} ──────────────────────────────────────────────{}",
+        c.yellow, title, c.reset
+    );
 }
 
 pub fn step_footer() {
     let c = colors();
-    println!("{}──────────────────────────────────────────────────────────────{}", c.yellow, c.reset);
+    println!(
+        "{}──────────────────────────────────────────────────────────────{}",
+        c.yellow, c.reset
+    );
 }
 
 pub fn check_ok(label: &str, detail: &str) {
@@ -61,10 +77,22 @@ pub fn check_warn(label: &str, detail: &str) {
 
 pub fn print_banner() {
     let c = colors();
-    println!("{}╔══════════════════════════════════════════════════════════════╗{}", c.yellow, c.reset);
-    println!("{}║{}  ⚠  仅限开发 / 测试环境使用，严禁用于生产环境！            {}║{}", c.yellow, c.red, c.yellow, c.reset);
-    println!("{}║     此工具会修改内核参数、关闭 SELinux 和防火墙。            ║{}", c.yellow, c.reset);
-    println!("{}╚══════════════════════════════════════════════════════════════╝{}", c.yellow, c.reset);
+    println!(
+        "{}╔══════════════════════════════════════════════════════════════╗{}",
+        c.yellow, c.reset
+    );
+    println!(
+        "{}║{}  ⚠  仅限开发 / 测试环境使用，严禁用于生产环境！            {}║{}",
+        c.yellow, c.red, c.yellow, c.reset
+    );
+    println!(
+        "{}║     此工具会修改内核参数、关闭 SELinux 和防火墙。            ║{}",
+        c.yellow, c.reset
+    );
+    println!(
+        "{}╚══════════════════════════════════════════════════════════════╝{}",
+        c.yellow, c.reset
+    );
     println!();
 }
 
@@ -95,7 +123,10 @@ pub fn print_success(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &
     println!("  页大小      : {} KB", config.page_size);
     println!("  簇大小      : {} 页", config.extent_size);
     println!("  字符集      : {}", charset_name);
-    println!("  大小写敏感  : {}", if config.case_sensitive { "Y" } else { "N" });
+    println!(
+        "  大小写敏感  : {}",
+        if config.case_sensitive { "Y" } else { "N" }
+    );
     println!("  归档路径    : {}", arch_path);
     println!("  归档文件大小: {} MB", config.archive.file_size);
     println!("  归档空间上限: {}", arch_space);
@@ -113,6 +144,9 @@ pub fn print_success(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &
         "  连接测试  : {}/bin/disql SYSDBA/'{}'@localhost:{}",
         config.install_path, sysdba_pwd, config.port
     );
-    println!("  查看状态  : systemctl status DmService{}.service", config.instance_name);
+    println!(
+        "  查看状态  : systemctl status DmService{}.service",
+        config.instance_name
+    );
     println!();
 }

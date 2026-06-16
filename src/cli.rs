@@ -1,14 +1,10 @@
-use std::path::PathBuf;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 /// dm-installer 的顶层 CLI 入口
 #[derive(Parser)]
 #[command(name = "dm-installer", version, about = "达梦数据库安装器")]
 pub struct Cli {
-    /// 启用 verbose 日志输出
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
-
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -22,13 +18,6 @@ pub enum Commands {
     Validate(ValidateArgs),
     /// 生成配置文件模板
     Init(InitArgs),
-    /// 生成 shell 补全脚本
-    Completions {
-        /// 目标 shell 类型（bash/zsh/fish 等）
-        shell: clap_complete::Shell,
-    },
-    /// 查询本地及 config.toml 中所有远程节点的运行状态
-    Status(StatusArgs),
     /// 更新 dm-installer 到最新版本
     SelfUpdate(SelfUpdateArgs),
 }
@@ -43,10 +32,6 @@ pub struct InstallArgs {
     /// 自定义下载链接，覆盖 config.toml 中的 installer_url（仅单机）
     #[arg(long)]
     pub url: Option<String>,
-
-    /// 可选的 SHA-256 校验和（十六进制字符串）
-    #[arg(long)]
-    pub checksum: Option<String>,
 }
 
 /// validate 子命令参数
@@ -77,10 +62,6 @@ pub enum InitKind {
     Dpc,
 }
 
-/// status 子命令参数（无需额外参数，自动读取 config.toml）
-#[derive(clap::Args)]
-pub struct StatusArgs {}
-
 /// self-update 子命令参数
 #[derive(clap::Args)]
 pub struct SelfUpdateArgs {
@@ -109,35 +90,39 @@ mod tests {
     #[test]
     fn test_install_no_args_parses() {
         let cli = Cli::try_parse_from(["dm-installer", "install"]).unwrap();
-        let Commands::Install(args) = cli.command else { panic!("expected Install") };
+        let Commands::Install(args) = cli.command else {
+            panic!("expected Install")
+        };
         assert!(args.package.is_none());
-        assert!(args.checksum.is_none());
     }
 
     #[test]
     fn test_install_with_package() {
-        let cli = Cli::try_parse_from(["dm-installer", "install", "--package", "/tmp/x.iso"]).unwrap();
-        let Commands::Install(args) = cli.command else { panic!("expected Install") };
+        let cli =
+            Cli::try_parse_from(["dm-installer", "install", "--package", "/tmp/x.iso"]).unwrap();
+        let Commands::Install(args) = cli.command else {
+            panic!("expected Install")
+        };
         assert_eq!(args.package, Some(PathBuf::from("/tmp/x.iso")));
     }
 
     #[test]
     fn test_validate_defaults_to_no_path() {
         let cli = Cli::try_parse_from(["dm-installer", "validate"]).unwrap();
-        let Commands::Validate(args) = cli.command else { panic!("expected Validate") };
+        let Commands::Validate(args) = cli.command else {
+            panic!("expected Validate")
+        };
         assert!(args.config.is_none());
     }
 
     #[test]
     fn test_validate_with_explicit_config() {
         let cli = Cli::try_parse_from(["dm-installer", "validate", "/etc/dm.toml"]).unwrap();
-        let Commands::Validate(args) = cli.command else { panic!("expected Validate") };
+        let Commands::Validate(args) = cli.command else {
+            panic!("expected Validate")
+        };
         assert_eq!(args.config, Some(PathBuf::from("/etc/dm.toml")));
     }
 
-    #[test]
-    fn test_status_args_parses() {
-        let cli = Cli::try_parse_from(["dm-installer", "status"]).unwrap();
-        assert!(matches!(cli.command, Commands::Status(StatusArgs { .. })));
-    }
+
 }
