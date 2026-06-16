@@ -351,7 +351,10 @@ EOF
     systemctl is-active firewalld 2>/dev/null \
         > "$BACKUP_DIR/firewall.bak" || echo "inactive" > "$BACKUP_DIR/firewall.bak"
     getenforce 2>/dev/null > "$BACKUP_DIR/selinux_mode.bak" || true
-    timedatectl show --property=Timezone --value 2>/dev/null \
+    { timedatectl show --property=Timezone --value 2>/dev/null \
+        || timedatectl 2>/dev/null | awk '/Time zone/{print $3}' \
+        || cat /etc/timezone 2>/dev/null \
+        || readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||'; } \
         > "$BACKUP_DIR/timezone.bak" || true
 }
 
@@ -407,8 +410,12 @@ _env_timezone() {
         check_warn "时区" "设置失败，请手动执行: timedatectl set-timezone Asia/Shanghai"
         return
     }
-    timedatectl show --property=Timezone 2>/dev/null | grep -q 'Asia/Shanghai' \
-        || check_warn "时区" "验证失败，当前值: $(timedatectl show --property=Timezone 2>/dev/null)"
+    { timedatectl show --property=Timezone --value 2>/dev/null \
+        || timedatectl 2>/dev/null | awk '/Time zone/{print $3}' \
+        || cat /etc/timezone 2>/dev/null \
+        || readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||'; } \
+        | grep -q 'Asia/Shanghai' \
+        || check_warn "时区" "验证失败，请手动确认时区已设为 Asia/Shanghai"
     check_ok "时区" "Asia/Shanghai"
 }
 
