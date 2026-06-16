@@ -15,7 +15,8 @@ DM_CHARSET=0
 DM_CASE_SENSITIVE=Y
 DM_VERSION=""
 
-VERSIONS_URL="https://raw.giteeusercontent.com/guangluo/dm-database-installer/raw/main/versions.txt"
+_VERSIONS_URL_GITHUB="https://raw.githubusercontent.com/guangl/dm-database-installer/main/versions.txt"
+_VERSIONS_URL_GITEE="https://raw.giteeusercontent.com/guangluo/dm-database-installer/raw/main/versions.txt"
 
 # ── 颜色输出 ─────────────────────────────────────────────────────────────────────
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
@@ -572,11 +573,18 @@ detect_platform() {
 }
 
 # ── 从 versions.txt 匹配下载链接 ─────────────────────────────────────────────────
+
+# 先试 GitHub，超时/失败自动降级 Gitee（兼容国内网络环境）。
+_fetch_versions() {
+    curl -sf --max-time 10 "$_VERSIONS_URL_GITHUB" 2>/dev/null \
+        || curl -sf --max-time 15 "$_VERSIONS_URL_GITEE"
+}
+
 select_download_url() {
     log_info "获取下载链接列表..."
     local versions_data
-    versions_data=$(curl -sf --max-time 15 "$VERSIONS_URL") || {
-        log_err "无法获取 versions.txt: $VERSIONS_URL"
+    versions_data=$(_fetch_versions) || {
+        log_err "无法获取 versions.txt（已尝试 GitHub / Gitee）"
         exit 1
     }
 
