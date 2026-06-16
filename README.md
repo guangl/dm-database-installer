@@ -198,6 +198,10 @@ cargo clippy        # Lint 检查
 cargo run -- --help # 本地运行
 ```
 
+## 项目状态
+
+此仓库的最初需求（Phase 1 单机静默安装脚本）已基本完成。其余功能（SSH 远程安装、主备/读写分离/DSC 集群部署等）视情况更新，不排除不再继续开发的可能。
+
 ## License
 
 [Apache-2.0](LICENSE)
