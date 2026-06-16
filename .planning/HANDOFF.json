@@ -1,0 +1,98 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-06-12T07:30:00Z",
+  "phase": "01",
+  "phase_name": "curl-sh",
+  "phase_dir": ".planning/phases/01-curl-sh",
+  "plan": null,
+  "task": null,
+  "total_tasks": 9,
+  "status": "paused",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "重写 install.sh：无参数 curl|sh 风格",
+      "status": "done",
+      "commit": "52d22fa"
+    },
+    {
+      "id": 2,
+      "name": "写 scripts/update-versions.sh（API 方式，纯 shell）",
+      "status": "done",
+      "commit": "df6d708",
+      "notes": "eco.dameng.com API，纯 shell + TSV 格式"
+    },
+    {
+      "id": 3,
+      "name": "写 .github/workflows/update-versions.yml",
+      "status": "done",
+      "commit": "58deaaa",
+      "notes": "ubuntu-latest，eco.dameng.com 境外可达"
+    },
+    {
+      "id": 4,
+      "name": "发现完整 CPU/OS 平台列表（eco.dameng.com API）",
+      "status": "done",
+      "commit": "df6d708"
+    },
+    {
+      "id": 5,
+      "name": "install.sh 运行时检测 CPU/OS，精确匹配安装包",
+      "status": "done",
+      "commit": "df6d708"
+    },
+    {
+      "id": 6,
+      "name": "versions.txt：TSV 格式，15 个 cpu/os 组合",
+      "status": "done",
+      "commit": "df6d708"
+    },
+    {
+      "id": 7,
+      "name": "更新 install.sh 的 VERSIONS_URL",
+      "status": "done",
+      "commit": "fe72897",
+      "notes": "已更新为 guangl/dm-database-installer"
+    },
+    {
+      "id": 8,
+      "name": "验证麒麟 OS 的 /etc/os-release 字段格式",
+      "status": "done",
+      "commit": "68a51fb",
+      "notes": "实测 opstool/kylin:v10sp1：VERSION_ID='V10' 无 SP 标识，SP 信息在 VERSION codename（Tercel=SP1，Lance=SP3）。已修复检测逻辑，PASS。"
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 9,
+      "name": "端到端 smoke test",
+      "status": "waiting_environment",
+      "notes": "在 x86_64/RHEL7 兼容 Linux 环境完整跑一遍 install.sh（需要能实际下载达梦安装包的 Linux 机器）"
+    }
+  ],
+  "blockers": [],
+  "human_actions_pending": [
+    {
+      "action": "准备 x86_64 Linux 环境后运行端到端 smoke test",
+      "context": "curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "用 eco.dameng.com API 取下载 URL，不用文件探测",
+      "rationale": "API 直接返回真实 URL；境外可达，不需要 cn-runner"
+    },
+    {
+      "decision": "版本文件用 TSV 格式（arch<TAB>cpu<TAB>os<TAB>url）",
+      "rationale": "shell 里不用 Python/jq，awk 一行匹配"
+    },
+    {
+      "decision": "Kylin SP 检测：同时检查 VERSION_ID 和 VERSION codename",
+      "rationale": "实测 VERSION_ID='V10' 无 SP 标识，codename Tercel/Lance 才是区分依据"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "在 x86_64 Linux 机器上跑完整 smoke test：curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash",
+  "context_notes": "Phase 01 全部代码逻辑完成并推送。8/9 任务完成。唯一剩余是需要真实 Linux 环境的端到端验证，有 GitHub Actions 每日自动更新 versions.txt。"
+}

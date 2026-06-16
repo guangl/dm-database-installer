@@ -1,0 +1,58 @@
+[package]
+name = "dm-database-installer"
+version = "1.0.0"
+edition = "2024"
+description = "达梦数据库安装器 (dm-database-installer) — 单机/集群静默部署工具"
+license = "Apache-2.0"
+repository = "https://github.com/guangl/dm-database-installer"
+
+[[bin]]
+name = "dm-installer"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["full"] }
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
+anyhow = "1.0.102"
+thiserror = "2.0.18"
+sha2 = "0.11.0"
+indicatif = "0.18.4"
+tempfile = "3.27.0"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream", "json"] }
+clap_complete = "4.6.5"
+russh = { version = "0.61.2", default-features = false, features = ["async-trait", "ring"] }
+async-trait = "0.1"
+russh-sftp = "2.3.0"
+futures = "0.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1.1.9"
+tar = "0.4.46"
+rpassword = "7"
+rand = "0.8"
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[workspace.metadata.dist]
+cargo-dist-version = "0.32.0"
+ci = "github"
+installers = ["shell"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+allow-dirty = ["ci"]
+
+# Linux 两个 target 各用对应架构的原生 runner，避免跨架构编译带来的 ring 汇编问题
+[workspace.metadata.dist.github-custom-runners]
+x86_64-unknown-linux-gnu = "ubuntu-22.04"
+aarch64-unknown-linux-gnu = "ubuntu-22.04-arm"
