@@ -190,6 +190,9 @@ fn rollback_services(instance_name: &str, registered: bool) {
         }
     }
     let _ = Command::new("systemctl").arg("daemon-reload").status();
+    // 在非 systemd 环境（如容器）中进程可能未被 stop 命令终止，强制 kill
+    let _ = Command::new("pkill").args(["-u", "dmdba", "dmserver"]).status();
+    let _ = Command::new("pkill").args(["-u", "dmdba", "dmap"]).status();
 }
 
 fn rollback_dm_files(install_path: &str, data_path: &str, installed: bool, db_inited: bool) {

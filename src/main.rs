@@ -18,7 +18,11 @@ async fn main() -> Result<()> {
         cli::Commands::Install(args) => {
             let cfg = config::load_config().unwrap_or_else(|e| {
                 eprintln!("{e}");
-                cmd::guide::print_install();
+                if !std::path::Path::new(config::CONFIG_FILE).exists() {
+                    cmd::guide::print_install();
+                } else {
+                    eprintln!("\n请运行: dm-installer init standalone");
+                }
                 std::process::exit(1);
             });
             install::standalone::run(args, cfg.common, cfg.specific).await

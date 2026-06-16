@@ -3,6 +3,90 @@ use anyhow::Result;
 use crate::config::InstallConfig;
 use crate::ssh::{CommandRunner, shell_quote};
 
+/// 等待数据库就绪：轮询 disql 连接，最多 120 秒（60 次 × 2 秒）。
+pub async fn wait_ready(
+    runner: &dyn CommandRunner,
+    config: &InstallConfig,
+    sysdba_pwd: &str,
+) -> Result<()> {
+    let disql = format!("{}/bin/disql", config.install_path);
+    let log_file = format!(
+        "{}/DAMENG/dm_{}.log",
+        config.data_path, config.instance_name
+    );
+    let conn = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
+    let inner_cmd = format!(
+        "printf 'exit;\\n' | {} {} >/dev/null 2>&1",
+        shell_quote(&disql),
+        shell_quote(&conn),
+    );
+    let check_cmd = format!(
+        "su - dmdba -c {} && echo ok || echo fail",
+        shell_quote(&inner_cmd),
+    );
+    let alive_cmd =
+        "pgrep -u dmdba dmserver >/dev/null 2>&1 && echo alive || echo dead";
+
+    crate::ui::log_info("等待数据库就绪...");
+    for attempt in 1..=60u32 {
+        let alive = runner
+            .exec(alive_cmd)
+            .await
+            .map(|(out, _)| String::from_utf8_lossy(&out).trim() == "alive")
+            .unwrap_or(false);
+        if !alive {
+            anyhow::bail!("dmserver 进程已退出，请检查日志: {}", log_file);
+        }
+        let ready = runner
+            .exec(&check_cmd)
+            .await
+            .map(|(out, _)| String::from_utf8_lossy(&out).trim() == "ok")
+            .unwrap_or(false);
+        if ready {
+            return Ok(());
+        }
+        if attempt < 60 {
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        }
+    }
+    anyhow::bail!("数据库未在 120 秒内就绪，请检查日志: {}", log_file)
+}
+
+/// 查询达梦数据库版本号（执行 SELECT id_code）。
+pub async fn query_dm_version(
+    runner: &dyn CommandRunner,
+    config: &InstallConfig,
+    sysdba_pwd: &str,
+) -> Option<String> {
+    let disql = format!("{}/bin/disql", config.install_path);
+    let conn = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
+    let inner_cmd = format!(
+        "printf 'SELECT id_code;\\nexit;\\n' | {} {}",
+        shell_quote(&disql),
+        shell_quote(&conn),
+    );
+    let cmd = format!("su - dmdba -c {} 2>/dev/null", shell_quote(&inner_cmd));
+    let (out, _) = runner.exec(&cmd).await.ok()?;
+    parse_dm_version_local(&String::from_utf8_lossy(&out))
+}
+
+/// 从 disql SELECT id_code 输出中提取版本字符串。
+/// 格式：分隔线 "---" 之后第一个非空行的最后字段（与 install.sh awk 逻辑一致）。
+fn parse_dm_version_local(output: &str) -> Option<String> {
+    let mut past_sep = false;
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("---") {
+            past_sep = true;
+            continue;
+        }
+        if past_sep && !trimmed.is_empty() {
+            return trimmed.split_whitespace().last().map(str::to_string);
+        }
+    }
+    None
+}
+
 /// DM 约定：dminit 以 DB_NAME=DAMENG 初始化，实例数据在 {data_path}/DAMENG/ 下。
 pub fn dm_ini_path(config: &InstallConfig) -> String {
     format!("{}/DAMENG/dm.ini", config.data_path)

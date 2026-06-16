@@ -146,11 +146,13 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         cp.save()?;
     }
     rb.services_registered = true;
+    service::wait_ready(&runner, &specific, &sysdba_pwd).await?;
+    let dm_version = service::query_dm_version(&runner, &specific, &sysdba_pwd).await;
     let arch_path = crate::config::resolve_arch_path(&specific.archive, &specific.data_path);
     crate::ui::log_ok(&format!("归档模式已配置: {}", arch_path));
     crate::ui::step_footer();
 
-    crate::ui::print_success(&specific, &sysdba_pwd, &sysauditor_pwd);
+    crate::ui::print_success(&specific, &sysdba_pwd, &sysauditor_pwd, dm_version.as_deref());
     if let Some(cached) = &cp.package_cache {
         let _ = std::fs::remove_file(cached);
     }
@@ -177,14 +179,15 @@ fn generate_passwords() -> (String, String) {
     (generate_password(), generate_password())
 }
 
-/// 生成满足达梦密码策略的随机密码（16 位，含大写/小写/数字/特殊字符）。
+/// 生成满足达梦密码策略的随机密码（16 位，含大写/小写/数字，特殊字符仅用 _）。
+/// 特殊字符只用 _ 避免 disql 连接串解析歧义（# 被截断为注释，@ 是 host 分隔符）。
 pub(crate) fn generate_password() -> String {
     use rand::Rng;
     const UPPER: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
     const LOWER: &[u8] = b"abcdefghjkmnpqrstuvwxyz";
     const DIGITS: &[u8] = b"23456789";
-    const SPECIAL: &[u8] = b"@#$%&*!";
-    const ALL: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$%&*!";
+    const SPECIAL: &[u8] = b"_";
+    const ALL: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789_";
 
     let mut rng = rand::thread_rng();
     let mut pwd: Vec<u8> = vec![
@@ -364,5 +367,22 @@ mod tests {
     fn test_generate_password_is_ascii() {
         let pwd = generate_password();
         assert!(pwd.is_ascii(), "生成的密码应为纯 ASCII: {}", pwd);
+    }
+
+    #[test]
+    fn test_generate_password_only_safe_special_chars() {
+        for _ in 0..20 {
+            let pwd = generate_password();
+            let unsafe_chars: Vec<char> = pwd
+                .chars()
+                .filter(|&c| !c.is_alphanumeric() && c != '_')
+                .collect();
+            assert!(
+                unsafe_chars.is_empty(),
+                "密码只应含 _ 作为特殊字符，避免 disql 连接串解析问题: {:?} in {}",
+                unsafe_chars,
+                pwd
+            );
+        }
     }
 }

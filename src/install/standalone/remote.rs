@@ -169,20 +169,23 @@ pub async fn run(
 
     // [6/6] 注册服务
     crate::ui::step_header("[6/6] 注册服务");
-    if cp.services_done {
+    let dm_version = if cp.services_done {
         crate::ui::log_info("[续] 服务已注册，跳过");
+        query_version_from_cache_or_banner(specific, &session).await
     } else {
         service::register_and_start(&session, specific).await?;
-        if let Some(ver) = query_db_version_via_disql(specific, &sysdba_pwd, &session).await {
+        let ver = query_db_version_via_disql(specific, &sysdba_pwd, &session).await;
+        if let Some(ref v) = ver {
             let cache = format!("{}/.dm_version", specific.install_path);
-            let _ = session.sftp_write(&cache, ver.as_bytes()).await;
+            let _ = session.sftp_write(&cache, v.as_bytes()).await;
         }
         cp.services_done = true;
         cp.save()?;
-    }
+        ver
+    };
     crate::ui::step_footer();
 
-    crate::ui::print_success(specific, &sysdba_pwd, &sysauditor_pwd);
+    crate::ui::print_success(specific, &sysdba_pwd, &sysauditor_pwd, dm_version.as_deref());
     if let Some(cached) = &cp.package_cache {
         let _ = std::fs::remove_file(cached);
     }

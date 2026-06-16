@@ -28,11 +28,12 @@ pub fn run(kind: &InitKind) -> Result<()> {
             }
             Ok(())
         }
-        InitKind::PrimaryStandby | InitKind::Dsc | InitKind::Dpc => {
+        InitKind::Dw | InitKind::Rws | InitKind::Dsc | InitKind::Dpc => {
             let mode = match kind {
-                InitKind::PrimaryStandby => "主备集群（primary-standby）",
-                InitKind::Dsc => "DSC 共享存储集群",
-                InitKind::Dpc => "DPC 分布式集群",
+                InitKind::Dw => "主备集群（dw）",
+                InitKind::Rws => "读写分离集群（rws）",
+                InitKind::Dsc => "DSC 共享存储集群（dsc）",
+                InitKind::Dpc => "DPC 分布式集群（dpc）",
                 _ => unreachable!(),
             };
             println!("{} 配置模板即将支持，请关注后续版本。", mode);

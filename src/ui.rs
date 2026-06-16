@@ -96,7 +96,12 @@ pub fn print_banner() {
     println!();
 }
 
-pub fn print_success(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &str) {
+pub fn print_success(
+    config: &InstallConfig,
+    sysdba_pwd: &str,
+    sysauditor_pwd: &str,
+    dm_version: Option<&str>,
+) {
     let c = colors();
     let arch_path = resolve_arch_path(&config.archive, &config.data_path);
     let charset_name = match config.charset {
@@ -118,27 +123,35 @@ pub fn print_success(config: &InstallConfig, sysdba_pwd: &str, sysauditor_pwd: &
     println!("  数据路径    : {}/DAMENG", config.data_path);
     println!("  监听端口    : {}", config.port);
     println!();
-    println!("  数据库名    : DAMENG");
-    println!("  实例名      : {}", config.instance_name);
-    println!("  页大小      : {} KB", config.page_size);
-    println!("  簇大小      : {} 页", config.extent_size);
-    println!("  字符集      : {}", charset_name);
+    println!("╔═══════════════════════════════════════════════════╗");
+    println!("║            达梦数据库初始化参数                   ║");
+    println!("╠═══════════════════════════════════════════════════╣");
     println!(
-        "  大小写敏感  : {}",
+        "║  数据库版本: {:<37}║",
+        dm_version.unwrap_or("未知")
+    );
+    println!("║  数据库名  : {:<37}║", "DAMENG");
+    println!("║  实例名    : {:<37}║", config.instance_name);
+    println!("║  页大小    : {:<37}║", format!("{} KB", config.page_size));
+    println!("║  簇大小    : {:<37}║", config.extent_size);
+    println!("║  字符集    : {:<37}║", charset_name);
+    println!(
+        "║  大小写敏感: {:<37}║",
         if config.case_sensitive { "Y" } else { "N" }
     );
-    println!("  归档路径    : {}", arch_path);
-    println!("  归档文件大小: {} MB", config.archive.file_size);
-    println!("  归档空间上限: {}", arch_space);
-    println!();
-    println!("╔═══════════════════════════════════════════════════╗");
-    println!("║              达梦数据库初始凭证                   ║");
     println!("╠═══════════════════════════════════════════════════╣");
     println!("║  SYSDBA     密码: {:<32}║", sysdba_pwd);
     println!("║  SYSAUDITOR 密码: {:<32}║", sysauditor_pwd);
     println!("╠═══════════════════════════════════════════════════╣");
-    println!("║  首次登录后请立即修改密码                          ║");
+    println!("║  首次登录后请立即修改密码                         ║");
     println!("╚═══════════════════════════════════════════════════╝");
+    println!();
+    println!(
+        "  归档路径    : {}",
+        arch_path
+    );
+    println!("  归档文件大小: {} MB", config.archive.file_size);
+    println!("  归档空间上限: {}", arch_space);
     println!();
     println!(
         "  连接测试  : {}/bin/disql SYSDBA/'{}'@localhost:{}",
