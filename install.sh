@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 达梦数据库单机静默安装
 # 用法: curl -fsSL https://raw.githubusercontent.com/.../install.sh | bash
-set -euo pipefail
+set -eEuo pipefail
 
 # ── 安装参数 ─────────────────────────────────────────────────────────────────────
 DM_INSTALL_PATH="/home/dmdba/dmdbms"
@@ -42,11 +42,11 @@ check_fail() { printf "  %s✗%s  %s\n" "$RED"    "$RESET" "$1${2:+: $2}" >&2; }
 # 特殊字符仅用 _ 避免 disql 连接串解析歧义（# 会被截断为注释）
 generate_password() {
     local u l d body
-    u=$(LC_ALL=C tr -dc 'ABCDEFGHJKLMNPQRSTUVWXYZ' < /dev/urandom | head -c 1)
-    l=$(LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz'  < /dev/urandom | head -c 1)
-    d=$(LC_ALL=C tr -dc '23456789'                   < /dev/urandom | head -c 1)
+    u=$(LC_ALL=C tr -dc 'ABCDEFGHJKLMNPQRSTUVWXYZ' < /dev/urandom | head -c 1 || true)
+    l=$(LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz'  < /dev/urandom | head -c 1 || true)
+    d=$(LC_ALL=C tr -dc '23456789'                   < /dev/urandom | head -c 1 || true)
     body=$(LC_ALL=C tr -dc 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789' \
-           < /dev/urandom | head -c 12)
+           < /dev/urandom | head -c 12 || true)
     printf '%s' "${u}${l}${d}_${body}"
 }
 
@@ -61,6 +61,8 @@ _DM_SUCCESS=0
 _DM_INSTALLED=0
 _DM_DB_INITED=0
 _DM_SERVER_REGISTERED=0
+_DM_USER_CREATED=0
+_DM_GROUP_CREATED=0
 
 _restore_file() {
     local src="$1" dst="$2"
@@ -134,11 +136,15 @@ _rollback_system_config() {
 }
 
 _rollback_users() {
-    if $SUDO userdel -r dmdba 2>/dev/null; then
-        log_info "已回退: dmdba 用户"
+    if [ "$_DM_USER_CREATED" -eq 1 ]; then
+        if $SUDO userdel -r dmdba 2>/dev/null; then
+            log_info "已回退: dmdba 用户"
+        fi
     fi
-    if $SUDO groupdel dinstall 2>/dev/null; then
-        log_info "已回退: dinstall 用户组"
+    if [ "$_DM_GROUP_CREATED" -eq 1 ]; then
+        if $SUDO groupdel dinstall 2>/dev/null; then
+            log_info "已回退: dinstall 用户组"
+        fi
     fi
 }
 
@@ -158,13 +164,18 @@ _on_interrupt() {
 
 cleanup() {
     local exit_code=$?         # 必须最先捕获 — trap builtin 本身会重置 $?
-    trap '' INT TERM  # 防止回退过程中再次被中断
+    trap '' ERR INT TERM  # 防止回退过程中再次触发错误处理或被中断
     [ -n "${_SUDO_KEEPALIVE_PID:-}" ] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true
     [ "$_DM_SUCCESS" -eq 0 ] && [ "$exit_code" -ne 0 ] && rollback
     [ -n "$_ISO_MOUNT_DIR" ] && $SUDO umount "$_ISO_MOUNT_DIR" 2>/dev/null || true
     [ -n "$TMPDIR_WORK" ] && rm -rf "$TMPDIR_WORK"
     [ -n "$BACKUP_DIR"  ] && rm -rf "$BACKUP_DIR"
+    tput cnorm 2>/dev/null || true   # 还原光标（disql/DMInstall.bin 可能隐藏了光标）
 }
+_on_error() {
+    log_err "第 $1 行执行失败: $2"
+}
+trap '_on_error $LINENO "$BASH_COMMAND"' ERR
 trap _on_interrupt INT TERM
 trap cleanup EXIT
 
@@ -290,6 +301,7 @@ check_selinux() {
 create_dmdba_user() {
     getent group dinstall >/dev/null 2>&1 || {
         $SUDO groupadd -g 1002 dinstall || { log_err "创建用户组 dinstall 失败"; exit 1; }
+        _DM_GROUP_CREATED=1
     }
     if id dmdba >/dev/null 2>&1; then
         log_info "系统用户 dmdba 已存在，跳过创建"
@@ -299,6 +311,7 @@ create_dmdba_user() {
             log_err "创建用户 dmdba 失败"
             exit 1
         }
+        _DM_USER_CREATED=1
     fi
     echo 'dmdba:dmdba' | $SUDO chpasswd || {
         log_err "设置 dmdba 密码失败"
@@ -629,11 +642,12 @@ download_and_extract() {
     mkdir -p "$extract_dir"
 
     log_info "下载安装包（临时目录: $TMPDIR_WORK）..."
-    curl -L -# -o "$zip_file" \
+    curl -L -# --fail -o "$zip_file" \
         --max-time 1800 --retry 3 \
         "$DOWNLOAD_URL" || {
         log_err "下载失败: $DOWNLOAD_URL"
-        log_err "如网络正常但仍报错，请检查 $base_dir 磁盘可用空间"
+        log_err "可能原因：服务器拒绝访问（403）、网络超时或磁盘空间不足（$base_dir）"
+        log_err "如遇 403，可设置镜像地址重试: DM_MIRROR_BASE_URL=<url> bash install.sh"
         exit 1
     }
     log_ok "下载完成"
@@ -769,7 +783,8 @@ register_service() {
     local service_bin="$DM_INSTALL_PATH/bin/${service_name}"
     log_info "以 dmdba 用户启动数据库服务..."
     $SUDO su - dmdba -c "${service_bin} start" || {
-        log_err "数据库服务启动失败，请检查: $DM_DATA_PATH/$DM_DB_NAME/dm_${DM_INSTANCE}.log"
+        log_err "数据库服务启动失败"
+        _dm_print_log
         exit 1
     }
     log_info "等待数据库就绪..."
@@ -778,14 +793,31 @@ register_service() {
     log_ok "服务注册完成: ${service_name}"
 }
 
+# ── 查找 dm 日志文件（文件名带 YYYYMM 后缀）────────────────────────────────────────
+_dm_log_file() {
+    $SUDO find "$DM_DATA_PATH/$DM_DB_NAME" -maxdepth 1 \
+        -name "dm_${DM_INSTANCE}_*.log" 2>/dev/null | sort | tail -1
+}
+
+_dm_print_log() {
+    local log_file
+    log_file=$(_dm_log_file)
+    if [ -n "$log_file" ]; then
+        log_warn "数据库日志 $(basename "$log_file")（最后 40 行）:"
+        $SUDO tail -40 "$log_file" | while IFS= read -r line; do log_info "$line"; done
+    else
+        log_warn "未找到数据库日志文件: $DM_DATA_PATH/$DM_DB_NAME/dm_${DM_INSTANCE}_*.log"
+    fi
+}
+
 # ── 等待数据库就绪 ────────────────────────────────────────────────────────────────
 _dm_wait_ready() {
     local disql_bin="$DM_INSTALL_PATH/bin/disql"
-    local log_file="$DM_DATA_PATH/$DM_DB_NAME/dm_${DM_INSTANCE}.log"
     local attempt=1
     while [ "$attempt" -le 60 ]; do
         if ! pgrep -u dmdba dmserver >/dev/null 2>&1; then
-            log_err "dmserver 进程已退出，请检查日志: $log_file"
+            log_err "dmserver 进程已退出"
+            _dm_print_log
             exit 1
         fi
         if _dmdba_sh <<EOF >/dev/null 2>&1
@@ -797,7 +829,8 @@ EOF
         attempt=$((attempt + 1))
         sleep 2
     done
-    log_err "数据库未在 120 秒内就绪，请检查日志: $log_file"
+    log_err "数据库未在 120 秒内就绪"
+    _dm_print_log
     exit 1
 }
 
