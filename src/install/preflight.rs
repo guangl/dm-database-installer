@@ -153,14 +153,6 @@ mod tests {
     use super::*;
     use crate::ssh::MockRunner;
 
-    fn df_output_with_available(available_bytes: u64) -> Vec<u8> {
-        format!(
-            "Filesystem  1B-blocks  Used  Available  Use%  Mounted on\n/dev/sda1  100000000000  50000000000  {}  50%  /opt\n",
-            available_bytes
-        )
-        .into_bytes()
-    }
-
     fn mem_output_kb(kb: u64) -> Vec<u8> {
         format!("MemTotal:       {} kB\n", kb).into_bytes()
     }

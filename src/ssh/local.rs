@@ -45,6 +45,7 @@ impl CommandRunner for LocalRunner {
             })
     }
 
+    #[cfg(unix)]
     async fn sftp_set_permissions(&self, remote_path: &str, mode: u32) -> Result<(), SshError> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(remote_path, std::fs::Permissions::from_mode(mode)).map_err(|e| {
