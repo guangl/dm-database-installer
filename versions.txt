@@ -1,18 +1,19 @@
 # DM8 安装包下载地址（由 scripts/update-versions.sh 自动生成）
 # updated: 2026-06-12T06:52:18Z
-# 格式: arch<TAB>cpu<TAB>os<TAB>url
-x86_64	x86	rhel7	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_x86_rh7_64.zip
-x86_64	x86	rhel6	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260417_x86_rh6_64.zip
-x86_64	x86	centos7	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_x86_CentOS7_64.zip
-x86_64	x86	kylin10_sp3	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_x86_kylin10_sp3_64.zip
-x86_64	x86	ubuntu22	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_x86_Ubuntu22_64.zip
-x86_64	hygon	nfsc	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260417_HG_nfs_64.zip
-x86_64	hygon	kylin10	https://download.dameng.com/eco/adapter/DM8/202604/dm8_20260417_HG_kylin10_64.zip
-x86_64	hygon	uos20	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_HG_uos20_64.zip
-aarch64	ft2000	kylin10_sp1	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_FTarm2000_kylin10_sp1_64.zip
-aarch64	kunpeng	kylin10_sp1	https://download.dameng.com/eco/adapter/DM8/202604/dm8_20260417_HWarm920_kylin10_sp1_64.zip
-aarch64	kunpeng	uos20	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_HWarm920_uos20_64.zip
-mips64el	ls4000	kylin10	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_loongson4000_kylin10_64.zip
-loongarch64	ls5000	kylin10	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_loongarch5000_kylin10_64.zip
-loongarch64	ls5000	uos20	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_loongarch5000_uos20_64.zip
-sw_64	sw3231	kylin10	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260506_sw3231_kylin10_sp1_64.zip
+# 格式: arch<TAB>cpu<TAB>os<TAB>url<TAB>sha256
+# sha256 为 '-' 表示暂无校验和
+x86_64	x86	rhel7	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_x86_rh7_64.zip	-
+x86_64	x86	rhel6	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260417_x86_rh6_64.zip	-
+x86_64	x86	centos7	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_x86_CentOS7_64.zip	-
+x86_64	x86	kylin10_sp3	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_x86_kylin10_sp3_64.zip	-
+x86_64	x86	ubuntu22	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_x86_Ubuntu22_64.zip	-
+x86_64	hygon	nfsc	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260417_HG_nfs_64.zip	-
+x86_64	hygon	kylin10	https://download.dameng.com/eco/adapter/DM8/202604/dm8_20260417_HG_kylin10_64.zip	-
+x86_64	hygon	uos20	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_HG_uos20_64.zip	-
+aarch64	ft2000	kylin10_sp1	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260427_FTarm2000_kylin10_sp1_64.zip	-
+aarch64	kunpeng	kylin10_sp1	https://download.dameng.com/eco/adapter/DM8/202604/dm8_20260417_HWarm920_kylin10_sp1_64.zip	-
+aarch64	kunpeng	uos20	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_HWarm920_uos20_64.zip	-
+mips64el	ls4000	kylin10	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_loongson4000_kylin10_64.zip	-
+loongarch64	ls5000	kylin10	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_loongarch5000_kylin10_64.zip	-
+loongarch64	ls5000	uos20	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260428_loongarch5000_uos20_64.zip	-
+sw_64	sw3231	kylin10	https://download.dameng.com/eco/adapter/DM8/202605/dm8_20260506_sw3231_kylin10_sp1_64.zip	-

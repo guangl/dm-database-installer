@@ -7,6 +7,8 @@ pub struct VersionEntry {
     pub cpu: String,
     pub os: String,
     pub url: String,
+    /// SHA-256 十六进制字符串；`-` 或缺失时为 `None`。
+    pub sha256: Option<String>,
 }
 
 impl VersionEntry {
@@ -26,7 +28,7 @@ pub fn parse_versions() -> Vec<VersionEntry> {
 }
 
 fn parse_line(line: &str) -> Option<VersionEntry> {
-    let mut cols = line.splitn(4, '\t');
+    let mut cols = line.splitn(5, '\t');
     let arch = cols.next()?.trim().to_string();
     let cpu = cols.next()?.trim().to_string();
     let os = cols.next()?.trim().to_string();
@@ -34,7 +36,17 @@ fn parse_line(line: &str) -> Option<VersionEntry> {
     if url.is_empty() {
         return None;
     }
-    Some(VersionEntry { arch, cpu, os, url })
+    let sha256 = cols
+        .next()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s != "-");
+    Some(VersionEntry {
+        arch,
+        cpu,
+        os,
+        url,
+        sha256,
+    })
 }
 
 /// 按 arch/cpu/os 过滤条目。`None` 表示该维度不限制。
@@ -166,6 +178,7 @@ mod tests {
             cpu: "x86".into(),
             os: "rhel7".into(),
             url: "https://example.com/dm8_20260427_x86_rh7_64.zip".into(),
+            sha256: None,
         };
         assert_eq!(entry.file_name(), "dm8_20260427_x86_rh7_64.zip");
     }

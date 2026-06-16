@@ -24,7 +24,9 @@ impl PackageHandle {
 }
 
 /// 从指定 URL 下载安装包（支持 .zip 自动解压，.iso/.bin 直接使用）。
-pub async fn fetch_from_url(url: &str) -> Result<PackageHandle> {
+///
+/// `sha256` 非 `None` 时在解压前校验文件完整性。
+pub async fn fetch_from_url(url: &str, sha256: Option<&str>) -> Result<PackageHandle> {
     let file_name = url.split('/').next_back().unwrap_or("dm_installer");
     crate::ui::log_info(&format!("下载安装包: {}", file_name));
 
@@ -33,6 +35,12 @@ pub async fn fetch_from_url(url: &str) -> Result<PackageHandle> {
 
     http::download_with_progress(url, &dest).await?;
     crate::ui::log_ok("下载完成");
+
+    if let Some(expected) = sha256 {
+        crate::ui::log_info("校验 SHA-256...");
+        http::verify_sha256(&dest, expected)?;
+        crate::ui::log_ok("SHA-256 校验通过");
+    }
 
     let installer = if file_name.to_lowercase().ends_with(".zip") {
         crate::ui::log_info("解压安装包...");
@@ -92,7 +100,7 @@ pub async fn fetch_dm_installer_for(platform: &Platform) -> Result<PackageHandle
 
     let entry = select::select_version(&all, &matches, &platform.arch)?;
     crate::ui::log_ok(&format!("匹配安装包: {}", entry.file_name()));
-    fetch_from_url(&entry.url).await
+    fetch_from_url(&entry.url, entry.sha256.as_deref()).await
 }
 
 /// 构建 OS 前缀回退链：先精确前缀，再去掉 _sp* 后缀降级。

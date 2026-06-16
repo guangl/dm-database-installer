@@ -18,7 +18,7 @@
 - **主备集群部署**：一条命令完成主备节点批量部署与配置同步
 - **断点续传**：安装中断后重跑自动从检查点恢复，不重复已完成步骤
 - **配置驱动**：TOML 配置文件，所有参数有明确默认值，最少填两行即可运行
-- **兼容性**：Linux 运行时要求 glibc ≥ 2.23（Ubuntu 16.04 / CentOS 7 / Debian 8 以上）；同时提供 macOS 原生二进制
+- **兼容性**：Linux 二进制采用 musl 静态链接，无 glibc 版本依赖，可在任意 Linux 发行版运行；同时提供 macOS Apple Silicon 原生二进制
 
 ## 安装
 
@@ -39,11 +39,6 @@ curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/i
 **Linux / macOS**
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/guangl/dm-database-installer/releases/latest/download/dm-database-installer-installer.sh | sh
-```
-
-**Windows（PowerShell）**
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/guangl/dm-database-installer/releases/latest/download/dm-database-installer-installer.ps1 | iex"
 ```
 
 ### 方式三：从 crates.io 安装
@@ -164,7 +159,6 @@ dm-installer init dw                    生成主备（DW）集群配置模板
 dm-installer init rws                   生成读写分离（RWS）集群配置模板
 dm-installer init dsc                   生成共享存储（DSC）集群配置模板
 dm-installer status                     查询本地及远程节点运行状态
-dm-installer completions bash           输出 shell 补全脚本
 dm-installer --help                     查看帮助
 ```
 
@@ -172,11 +166,9 @@ dm-installer --help                     查看帮助
 
 | 平台 | 架构 | 备注 |
 |------|------|------|
-| Linux | x86_64 | glibc ≥ 2.23 |
-| Linux | aarch64 | glibc ≥ 2.23 |
-| macOS | x86_64 | 10.12+ |
+| Linux | x86_64 | musl 静态链接，无 glibc 依赖 |
+| Linux | aarch64 | musl 静态链接，无 glibc 依赖 |
 | macOS | Apple Silicon | 11.0+ |
-| Windows | x86_64 | — |
 
 ## 开发
 

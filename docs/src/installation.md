@@ -2,13 +2,11 @@
 
 ## 系统要求
 
-| 平台 | 架构 | 最低版本 |
-|------|------|----------|
-| Linux | x86_64 | glibc ≥ 2.23（Ubuntu 16.04 / CentOS 7 / Debian 8 及以上） |
-| Linux | aarch64 | glibc ≥ 2.23 |
-| macOS | x86_64 | 10.12+ |
+| 平台 | 架构 | 备注 |
+|------|------|------|
+| Linux | x86_64 | musl 静态链接，无 glibc 依赖 |
+| Linux | aarch64 | musl 静态链接，无 glibc 依赖 |
 | macOS | Apple Silicon | 11.0+ |
-| Windows | x86_64 | Windows 10 / Server 2016+ |
 
 ---
 
@@ -36,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/i
 
 **请立即保存密码**，脚本不会再次显示。
 
-> 仅支持 Linux（x86_64 / aarch64）。macOS / Windows 用户请使用方式二或三安装 `dm-installer` 工具。
+> 仅支持 Linux（x86_64 / aarch64）。macOS 用户请使用方式二或三安装 `dm-installer` 工具。
 
 ---
 
@@ -63,19 +61,6 @@ source ~/.cargo/env
 dm-installer --version
 ```
 
-### Windows（PowerShell）
-
-```powershell
-powershell -ExecutionPolicy Bypass -c `
-  "irm https://github.com/guangl/dm-database-installer/releases/latest/download/dm-database-installer-installer.ps1 | iex"
-```
-
-重新打开 PowerShell 后验证：
-
-```powershell
-dm-installer --version
-```
-
 ---
 
 ## 方式三：从 GitHub Releases 手动下载
@@ -84,13 +69,11 @@ dm-installer --version
 
 | 文件名 | 平台 |
 |--------|------|
-| `dm-installer-x86_64-unknown-linux-gnu.tar.gz` | Linux x86_64 |
-| `dm-installer-aarch64-unknown-linux-gnu.tar.gz` | Linux ARM64 |
-| `dm-installer-x86_64-apple-darwin.tar.gz` | macOS Intel |
+| `dm-installer-x86_64-unknown-linux-musl.tar.gz` | Linux x86_64 |
+| `dm-installer-aarch64-unknown-linux-musl.tar.gz` | Linux ARM64 |
 | `dm-installer-aarch64-apple-darwin.tar.gz` | macOS Apple Silicon |
-| `dm-installer-x86_64-pc-windows-msvc.zip` | Windows x86_64 |
 
-解压后将 `dm-installer`（Windows 为 `dm-installer.exe`）放入 `$PATH` 中的任意目录。
+解压后将 `dm-installer` 放入 `$PATH` 中的任意目录。
 
 ---
 
@@ -113,19 +96,3 @@ cargo build --release
 # 二进制位于 target/release/dm-installer
 ```
 
----
-
-## Shell 补全（可选）
-
-安装 `dm-installer` 后可生成 shell 补全脚本：
-
-```sh
-# Bash
-dm-installer completions bash >> ~/.bash_completion
-
-# Zsh（将 ~/.zfunc 加入 fpath 后执行 compinit）
-dm-installer completions zsh > ~/.zfunc/_dm-installer
-
-# Fish
-dm-installer completions fish > ~/.config/fish/completions/dm-installer.fish
-```

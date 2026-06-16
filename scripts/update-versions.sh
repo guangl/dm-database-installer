@@ -53,7 +53,8 @@ failed=0
 {
     printf "# DM8 安装包下载地址（由 scripts/update-versions.sh 自动生成）\n"
     printf "# updated: %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    printf "# 格式: arch<TAB>cpu<TAB>os<TAB>url\n"
+    printf "# 格式: arch<TAB>cpu<TAB>os<TAB>url<TAB>sha256\n"
+    printf "# sha256 为 '-' 表示暂无校验和，填入 64 位十六进制字符串后自动启用下载校验\n"
 
     for entry in "${PLATFORMS[@]}"; do
         cpu_id=$(awk '{print $1}' <<< "$entry")
@@ -82,7 +83,7 @@ failed=0
 
         full_url="${CDN_BASE}${rel_url}"
         log "    => $(basename "$rel_url")"
-        printf "%s\t%s\t%s\t%s\n" "$arch" "$cpu_key" "$os_key" "$full_url"
+        printf "%s\t%s\t%s\t%s\t-\n" "$arch" "$cpu_key" "$os_key" "$full_url"
         found=$((found + 1))
     done
 } >"${OUT_FILE}"

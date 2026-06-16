@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest]
+        os: [ubuntu-22.04, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -24,11 +24,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - name: Install NASM (Windows)
-        if: runner.os == 'Windows'
-        run: choco install nasm -y && echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
-        shell: pwsh
 
       - name: Install musl toolchain (Linux)
         if: runner.os == 'Linux'

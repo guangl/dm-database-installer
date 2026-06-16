@@ -215,7 +215,7 @@ async fn resolve_package(
     }
     if let Some(url) = &args.url {
         crate::ui::log_info(&format!("下载安装包 (CLI --url): {}", url));
-        let handle = crate::download::fetch_from_url(url).await?;
+        let handle = crate::download::fetch_from_url(url, None).await?;
         let cached = cache_package(&handle.path)?;
         cp.package_cache = Some(cached.to_string_lossy().into_owned());
         cp.save()?;
@@ -240,7 +240,7 @@ async fn resolve_package(
                 ));
                 return Ok(cached.to_path_buf());
             }
-            let handle = crate::download::fetch_from_url(url).await?;
+            let handle = crate::download::fetch_from_url(url, None).await?;
             let cached = cache_package(&handle.path)?;
             cp.package_cache = Some(cached.to_string_lossy().into_owned());
             cp.save()?;

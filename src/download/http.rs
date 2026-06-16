@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
@@ -56,6 +57,27 @@ fn build_progress_bar(total: Option<u64>) -> ProgressBar {
             pb
         }
     }
+}
+
+/// 计算文件 SHA-256 并与期望值对比；不匹配时返回错误。
+pub fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("无法打开: {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).context("读取文件失败")?;
+    let actual = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
+    if actual != expected.to_lowercase() {
+        bail!(
+            "SHA-256 校验失败\n  期望: {}\n  实际: {}",
+            expected,
+            actual
+        );
+    }
+    Ok(())
 }
 
 /// 从 zip 中提取 `.iso`（优先）或 `DMInstall.bin`，写入 `extract_dir`，返回其路径。

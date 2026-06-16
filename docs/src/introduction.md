@@ -33,8 +33,7 @@ dm-installer install           # 按模板安装
 | 断点续传 | 安装中断后重跑，自动从检查点恢复，已完成步骤不重复 |
 | 配置驱动 | TOML 文件，`dm-installer init` 生成带注释的完整模板 |
 | 配置校验 | `dm-installer validate` 在安装前检查所有语义约束 |
-| Shell 补全 | 支持 bash / zsh / fish |
-| 跨平台二进制 | Linux x86_64 / aarch64、macOS x86_64 / Apple Silicon、Windows x86_64 |
+| 跨平台二进制 | Linux x86_64 / aarch64（musl 静态链接）、macOS Apple Silicon |
 
 ## 源码
 
