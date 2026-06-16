@@ -71,11 +71,7 @@ pub fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
         .map(|b| format!("{:02x}", b))
         .collect::<String>();
     if actual != expected.to_lowercase() {
-        bail!(
-            "SHA-256 校验失败\n  期望: {}\n  实际: {}",
-            expected,
-            actual
-        );
+        bail!("SHA-256 校验失败\n  期望: {}\n  实际: {}", expected, actual);
     }
     Ok(())
 }

@@ -80,11 +80,10 @@ async fn fetch_latest_release(client: &Client) -> Result<GithubRelease> {
 
 fn detect_target() -> Result<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
-        ("linux", "aarch64") => Ok("aarch64-unknown-linux-gnu"),
+        ("linux", "x86_64") => Ok("x86_64-unknown-linux-musl"),
+        ("linux", "aarch64") => Ok("aarch64-unknown-linux-musl"),
         ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
         ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
-        ("windows", "x86_64") => Ok("x86_64-pc-windows-msvc"),
         (os, arch) => bail!("不支持的平台: {os}/{arch}"),
     }
 }
@@ -127,8 +126,6 @@ async fn download_with_progress(client: &Client, asset: &GithubAsset) -> Result<
 fn extract_binary(bytes: &[u8], asset_name: &str) -> Result<Vec<u8>> {
     if asset_name.ends_with(".tar.gz") {
         extract_from_tar_gz(bytes)
-    } else if asset_name.ends_with(".zip") {
-        extract_from_zip(bytes)
     } else {
         bail!("不支持的压缩格式: {asset_name}")
     }
@@ -145,31 +142,13 @@ fn extract_from_tar_gz(bytes: &[u8]) -> Result<Vec<u8>> {
         let mut entry = entry?;
         let path = entry.path()?;
         let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-        if file_name == "dm-installer" || file_name == "dm-installer.exe" {
+        if file_name == "dm-installer" {
             let mut binary = Vec::new();
             entry.read_to_end(&mut binary)?;
             return Ok(binary);
         }
     }
     bail!("压缩包中找不到 dm-installer 可执行文件")
-}
-
-fn extract_from_zip(bytes: &[u8]) -> Result<Vec<u8>> {
-    use std::io::Cursor;
-    use zip::ZipArchive;
-
-    let cursor = Cursor::new(bytes);
-    let mut archive = ZipArchive::new(cursor)?;
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)?;
-        let name = file.name().to_string();
-        if name == "dm-installer.exe" || name == "dm-installer" {
-            let mut binary = Vec::new();
-            file.read_to_end(&mut binary)?;
-            return Ok(binary);
-        }
-    }
-    bail!("ZIP 包中找不到 dm-installer 可执行文件")
 }
 
 fn replace_binary(exe_path: &std::path::Path, binary: &[u8]) -> Result<()> {

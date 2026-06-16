@@ -4,3 +4,4 @@
 dm_installer_checkpoint.json
 .dm_cache_*.iso
 .dm_cache_*.zip
+.DS_Store

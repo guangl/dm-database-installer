@@ -113,9 +113,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
     steps:
-      - name: enable windows longpaths
-        run: |
-          git config --global core.longpaths true
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -136,10 +133,6 @@ jobs:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
-      - name: Install NASM (Windows)
-        if: runner.os == 'Windows'
-        run: choco install nasm -y && echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
-        shell: pwsh
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}

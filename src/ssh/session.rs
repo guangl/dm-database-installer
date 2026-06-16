@@ -261,9 +261,8 @@ async fn collect_exec_output(
 }
 
 /// Rust PathBuf 不会自动展开 `~`，需要手动处理。
-/// Windows 用 USERPROFILE，Unix 用 HOME；两种路径分隔符均支持。
 fn expand_tilde(path: &Path) -> PathBuf {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    let home = std::env::var_os("HOME");
     expand_tilde_with_home(path, home.as_deref())
 }
 
@@ -272,12 +271,9 @@ fn expand_tilde_with_home(path: &Path, home: Option<&std::ffi::OsStr>) -> PathBu
         Some(s) => s,
         None => return path.to_path_buf(),
     };
-    let rest = if let Some(r) = s.strip_prefix("~/") {
-        r
-    } else if let Some(r) = s.strip_prefix("~\\") {
-        r
-    } else {
-        return path.to_path_buf();
+    let rest = match s.strip_prefix("~/") {
+        Some(r) => r,
+        None => return path.to_path_buf(),
     };
     match home {
         Some(h) => PathBuf::from(h).join(rest),
@@ -311,16 +307,6 @@ mod tests {
     fn test_expand_tilde_missing_home_returns_input() {
         let path = PathBuf::from("~/foo");
         assert_eq!(expand_tilde_with_home(&path, None), path);
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn test_expand_tilde_backslash_windows() {
-        let expanded = expand_tilde_with_home(
-            &PathBuf::from("~\\.ssh\\id_rsa"),
-            home("C:\\Users\\testuser"),
-        );
-        assert_eq!(expanded, PathBuf::from("C:\\Users\\testuser\\.ssh\\id_rsa"));
     }
 
     #[tokio::test]

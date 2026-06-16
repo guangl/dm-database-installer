@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 use crate::cli::{InitKind, InitOutputArgs};
@@ -7,16 +7,25 @@ pub fn run(kind: &InitKind) -> Result<()> {
     match kind {
         InitKind::Standalone(args) => {
             let dir = output_dir(args);
-            write_template(&dir.join("config.toml"), args.force, STANDALONE_COMMON)?;
-            write_template(
+            let wrote_common =
+                write_template(&dir.join("config.toml"), args.force, STANDALONE_COMMON)?;
+            let wrote_specific = write_template(
                 &dir.join("standalone.toml"),
                 args.force,
                 STANDALONE_SPECIFIC,
             )?;
-            println!("已生成单机配置模板:");
-            println!("  config.toml      — 通用配置（type、安装包路径等）");
-            println!("  standalone.toml  — 单机特有配置（端口、路径、字符集等）");
-            println!("编辑后使用: dm-installer install");
+            if wrote_common || wrote_specific {
+                println!("已生成单机配置模板:");
+                if wrote_common {
+                    println!("  config.toml      — 通用配置（type、安装包路径等）");
+                }
+                if wrote_specific {
+                    println!("  standalone.toml  — 单机特有配置（端口、路径、字符集等）");
+                }
+                println!("编辑后使用: dm-installer install");
+            } else {
+                println!("配置文件已存在，无需覆盖。使用 --force 强制重新生成。");
+            }
             Ok(())
         }
         InitKind::PrimaryStandby | InitKind::Dsc | InitKind::Dpc => {
@@ -37,12 +46,15 @@ fn output_dir(args: &InitOutputArgs) -> PathBuf {
     args.output.clone().unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn write_template(path: &Path, force: bool, content: &str) -> Result<()> {
+/// 返回 true 表示实际写入了文件，false 表示跳过（已存在且未 force）
+fn write_template(path: &Path, force: bool, content: &str) -> Result<bool> {
     if path.exists() && !force {
-        bail!("文件已存在: {}；使用 --force 强制覆盖", path.display());
+        println!("跳过已存在的文件: {}", path.display());
+        return Ok(false);
     }
     std::fs::write(path, content)
-        .map_err(|e| anyhow::anyhow!("无法写入配置文件 {}: {}", path.display(), e))
+        .map_err(|e| anyhow::anyhow!("无法写入配置文件 {}: {}", path.display(), e))?;
+    Ok(true)
 }
 
 const STANDALONE_COMMON: &str = r#"# 达梦数据库单机安装 — 通用配置
@@ -153,11 +165,24 @@ mod tests {
     }
 
     #[test]
-    fn test_refuses_to_overwrite_without_force() {
+    fn test_skips_existing_files_without_force() {
         let dir = TempDir::new().unwrap();
         run(&InitKind::Standalone(output_args_in(&dir, false))).unwrap();
-        let err = run(&InitKind::Standalone(output_args_in(&dir, false))).unwrap_err();
-        assert!(format!("{err}").contains("文件已存在"));
+        // 第二次运行不报错，只跳过已存在文件
+        run(&InitKind::Standalone(output_args_in(&dir, false))).unwrap();
+    }
+
+    #[test]
+    fn test_partial_init_creates_missing_file() {
+        let dir = TempDir::new().unwrap();
+        // 只预先创建 config.toml
+        std::fs::write(dir.path().join("config.toml"), "type = \"standalone\"\n").unwrap();
+        run(&InitKind::Standalone(output_args_in(&dir, false))).unwrap();
+        // standalone.toml 应该被创建
+        assert!(
+            dir.path().join("standalone.toml").exists(),
+            "standalone.toml 应被创建"
+        );
     }
 
     #[test]

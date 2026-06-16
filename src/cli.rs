@@ -123,6 +123,4 @@ mod tests {
         };
         assert_eq!(args.config, Some(PathBuf::from("/etc/dm.toml")));
     }
-
-
 }
