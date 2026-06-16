@@ -15,7 +15,7 @@ DM_CHARSET=0
 DM_CASE_SENSITIVE=Y
 DM_VERSION=""
 
-VERSIONS_URL="https://raw.githubusercontent.com/guangl/dm-database-installer/main/versions.txt"
+VERSIONS_URL="https://raw.giteeusercontent.com/guangluo/dm-database-installer/raw/main/versions.txt"
 
 # ── 颜色输出 ─────────────────────────────────────────────────────────────────────
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
