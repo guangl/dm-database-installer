@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-06-21
+
+### 修复
+
+- **musl 发布产物实际为动态链接**：v1.2.0 的 `x86_64-unknown-linux-musl` / `aarch64-unknown-linux-musl` 二进制因未显式开启 `crt-static`，依赖 `/lib/ld-musl-*.so.1` 动态加载器，在 CentOS 等 glibc 发行版上报 `bad ELF interpreter`，现已修复为完全静态链接
+
 ## [1.2.0] - 2026-06-21
 
 ### 新增
