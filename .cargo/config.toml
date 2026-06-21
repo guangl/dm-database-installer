@@ -4,12 +4,13 @@
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"
 
-# musl target 默认不再自动启用 crt-static，导致产物是动态链接到
-# musl libc 的 PIE 可执行文件（依赖 /lib/ld-musl-*.so.1），在没有
-# musl 运行时的 glibc 发行版（如 CentOS）上报 "bad ELF interpreter"。
-# 显式开启 crt-static，确保产出完全静态链接、无解释器依赖的二进制。
+# musl target 在较新 Rust 版本默认开启 PIE，与 crt-static 组合会生成
+# static-pie；Ubuntu 22.04 自带的 musl-gcc/musl-tools 对 static-pie 支持
+# 不完整，实际产出仍是依赖 /lib/ld-musl-*.so.1 的动态链接 PIE 可执行文件，
+# 在没有 musl 运行时的 glibc 发行版（如 CentOS）上报 "bad ELF interpreter"。
+# 同时关闭 PIE（relocation-model=static），确保产出传统的完全静态二进制。
 [target.x86_64-unknown-linux-musl]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "relocation-model=static"]
 
 [target.aarch64-unknown-linux-musl]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "relocation-model=static"]

@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-06-21
+
+### 修复
+
+- **v1.2.1 仍未完全修复 musl 动态链接问题**：单独开启 `crt-static` 在较新 Rust 版本上与 musl target 默认的 PIE 结合产生 static-pie，Ubuntu 22.04 自带的 musl-gcc 对 static-pie 支持不完整，实际仍产出动态链接二进制。现在同时显式关闭 PIE（`-C relocation-model=static`），并在 CI 的 `RUSTFLAGS` 环境变量中直接设置，确保构建一定生效，产出传统的完全静态二进制
+
 ## [1.2.1] - 2026-06-21
 
 ### 修复
