@@ -125,18 +125,22 @@ async fn download_with_progress(client: &Client, asset: &GithubAsset) -> Result<
 
 fn extract_binary(bytes: &[u8], asset_name: &str) -> Result<Vec<u8>> {
     if asset_name.ends_with(".tar.gz") {
-        extract_from_tar_gz(bytes)
+        let decoder = flate2::read::GzDecoder::new(bytes);
+        extract_from_tar(decoder)
+    } else if asset_name.ends_with(".tar.xz") {
+        let mut decompressed = Vec::new();
+        lzma_rs::xz_decompress(&mut std::io::Cursor::new(bytes), &mut decompressed)
+            .context("解压 xz 数据失败")?;
+        extract_from_tar(std::io::Cursor::new(decompressed))
     } else {
         bail!("不支持的压缩格式: {asset_name}")
     }
 }
 
-fn extract_from_tar_gz(bytes: &[u8]) -> Result<Vec<u8>> {
-    use flate2::read::GzDecoder;
+fn extract_from_tar<R: Read>(reader: R) -> Result<Vec<u8>> {
     use tar::Archive;
 
-    let decoder = GzDecoder::new(bytes);
-    let mut archive = Archive::new(decoder);
+    let mut archive = Archive::new(reader);
 
     for entry in archive.entries()? {
         let mut entry = entry?;
