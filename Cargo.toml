@@ -1,6 +1,6 @@
 [package]
 name = "dm-database-installer"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2024"
 description = "达梦数据库安装器 (dm-database-installer) — 单机/集群静默部署工具"
 license = "Apache-2.0"

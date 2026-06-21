@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-06-21
+
+### 修复
+
+- **v1.2.2 仍未生效**：target-scoped 的 `CARGO_TARGET_*_RUSTFLAGS` 被 `dist build` 内部设置的裸 `RUSTFLAGS` 整体覆盖。改为在构建脚本中按目标条件直接 `export RUSTFLAGS`，确保静态链接 flag 真正传给 rustc
+
 ## [1.2.2] - 2026-06-21
 
 ### 修复

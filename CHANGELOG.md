@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-06-21
+
+### 修复
+
+- **v1.2.2 仍未生效**：验证发现 `CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS` 这类 target-scoped 环境变量被 `dist build` 内部设置的裸 `RUSTFLAGS` 整体覆盖（cargo 的优先级是"整体覆盖"而非"合并"），导致静态链接 flag 从未真正传给 rustc。现改为在构建脚本里按目标条件判断后直接 `export RUSTFLAGS`（裸变量，最高优先级），确保 musl 目标一定拿到 `+crt-static` 与 `relocation-model=static`
+
 ## [1.2.2] - 2026-06-21
 
 ### 修复

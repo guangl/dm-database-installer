@@ -149,11 +149,16 @@ jobs:
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C target-feature=+crt-static -C relocation-model=static"
           CC_aarch64_unknown_linux_musl: musl-gcc
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C target-feature=+crt-static -C relocation-model=static"
         run: |
+          # musl target 必须用裸 RUSTFLAGS（而非 CARGO_TARGET_*_RUSTFLAGS）强制完全静态链接：
+          # dist 内部可能会设置自己的 RUSTFLAGS，覆盖优先级更低的 target-scoped 设置。
+          case "${{ join(matrix.targets, ' ') }}" in
+            *musl*)
+              export RUSTFLAGS="-C target-feature=+crt-static -C relocation-model=static"
+              ;;
+          esac
           # Actually do builds and make zips and whatnot
           dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
