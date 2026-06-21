@@ -142,6 +142,7 @@ log_level = "info"
 [install]
 install_path = "/home/dmdba/dmdbms"
 data_path    = "/home/dmdba/dmdbms/data"
+# backup_path = "/home/dmdba/dmdbms/backup"  # 数据库备份目录，强烈建议配置；未配置会在安装完成后提醒
 
 [instance]
 instance_name  = "DMSERVER"

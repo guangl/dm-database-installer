@@ -40,6 +40,7 @@ log_level = "info"
 |----|--------|------|
 | `install_path` | `/home/dmdba/dmdbms` | DM 程序安装目录 |
 | `data_path` | `/home/dmdba/dmdbms/data` | 数据文件目录 |
+| `backup_path` | — | 数据库备份目录（可选）。未配置、或与 `data_path`/归档目录路径重叠时，安装完成后会输出配置建议提醒 |
 
 ### [instance] — 实例参数
 
@@ -71,6 +72,7 @@ log_level = "info"
 [install]
 install_path = "/home/dmdba/dmdbms"
 data_path    = "/home/dmdba/dmdbms/data"
+backup_path  = "/home/dmdba/dmdbms/backup"
 
 [instance]
 instance_name  = "DMSERVER"
