@@ -163,3 +163,16 @@ pub fn print_success(
     );
     println!();
 }
+
+/// 打印一组配置建议（与安装模式无关的通用渲染）。各安装模式自行收集建议内容，
+/// 例如单机模式见 `install::advisory::standalone_advisories`。
+pub fn print_advisories(advisories: &[String]) {
+    if advisories.is_empty() {
+        return;
+    }
+    println!("配置建议：");
+    for a in advisories {
+        check_warn(a, "");
+    }
+    println!();
+}

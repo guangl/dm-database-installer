@@ -153,6 +153,9 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     crate::ui::step_footer();
 
     crate::ui::print_success(&specific, &sysdba_pwd, &sysauditor_pwd, dm_version.as_deref());
+    crate::ui::print_advisories(&crate::install::advisory::standalone_advisories(
+        &specific, &arch_path,
+    ));
     if let Some(cached) = &cp.package_cache {
         let _ = std::fs::remove_file(cached);
     }

@@ -661,6 +661,7 @@ mod tests {
         InstallConfig {
             install_path: "/opt/dmdbms".to_string(),
             data_path: "/opt/dmdbms/data".to_string(),
+            backup_path: None,
             instance_name: "DMSERVER".to_string(),
             port: 5236,
             ap_port: 4236,

@@ -1,3 +1,4 @@
+pub mod advisory;
 pub mod env_setup;
 pub mod package;
 pub mod preflight;
