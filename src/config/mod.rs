@@ -193,6 +193,8 @@ pub(crate) fn validate_db_params(
 pub struct InstallConfig {
     pub install_path: String,
     pub data_path: String,
+    /// 数据库备份目录，未配置时仅提醒，不阻断安装
+    pub backup_path: Option<String>,
     pub instance_name: String,
     pub port: u16,
     pub ap_port: u16,
@@ -212,6 +214,8 @@ struct InstallSection {
     install_path: String,
     #[serde(default = "default_data_path")]
     data_path: String,
+    #[serde(default)]
+    backup_path: Option<String>,
 }
 
 impl Default for InstallSection {
@@ -219,6 +223,7 @@ impl Default for InstallSection {
         Self {
             install_path: default_install_path(),
             data_path: default_data_path(),
+            backup_path: None,
         }
     }
 }
@@ -271,6 +276,7 @@ impl From<InstallConfigFile> for InstallConfig {
         Self {
             install_path: f.install.install_path,
             data_path: f.install.data_path,
+            backup_path: f.install.backup_path,
             instance_name: f.instance.instance_name,
             port: f.instance.port,
             ap_port: f.instance.ap_port,
@@ -317,6 +323,7 @@ impl Default for InstallConfig {
         Self {
             install_path: default_install_path(),
             data_path: default_data_path(),
+            backup_path: None,
             instance_name: default_instance_name(),
             port: default_port(),
             ap_port: default_ap_port(),

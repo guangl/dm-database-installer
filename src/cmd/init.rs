@@ -76,6 +76,8 @@ const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配
 [install]
 install_path = "/home/dmdba/dmdbms"
 data_path = "/home/dmdba/dmdbms/data"
+# 数据库备份目录，强烈建议配置；未配置时安装时会给出提醒
+# backup_path = "/home/dmdba/dmdbms/backup"
 
 [instance]
 instance_name = "DMSERVER"
