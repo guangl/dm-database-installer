@@ -64,6 +64,19 @@ fn extract_via_bsdtar(iso_path: &Path, extract_dir: &TempDir) -> Result<()> {
     Ok(())
 }
 
+/// 挂载点 RAII 守卫：无论函数正常返回、提前 `?` 退出还是 panic，
+/// Drop 时都会执行 umount —— 等价于 install.sh 中 `trap cleanup EXIT` 对
+/// `_ISO_MOUNT_DIR` 的兜底卸载，避免提取失败时残留 loop 挂载。
+struct MountGuard<'a> {
+    mount_point: &'a Path,
+}
+
+impl Drop for MountGuard<'_> {
+    fn drop(&mut self) {
+        let _ = Command::new("umount").arg(self.mount_point).status();
+    }
+}
+
 /// 通过 mount -o loop,ro 挂载 ISO，find DMInstall.bin 后复制出来。
 fn extract_via_mount(iso_path: &Path, extract_dir: &TempDir) -> Result<()> {
     let mount_point = TempDir::new().context("创建挂载点失败")?;
@@ -83,12 +96,12 @@ fn extract_via_mount(iso_path: &Path, extract_dir: &TempDir) -> Result<()> {
             stderr.trim()
         );
     }
+    let _guard = MountGuard {
+        mount_point: mount_point.path(),
+    };
 
-    let src = find_dminstall_bin(mount_point.path());
-    let _ = Command::new("umount").arg(mount_point.path()).status();
-
-    let src =
-        src.with_context(|| format!("未在安装包中找到 DMInstall.bin: {}", iso_path.display()))?;
+    let src = find_dminstall_bin(mount_point.path())
+        .with_context(|| format!("未在安装包中找到 DMInstall.bin: {}", iso_path.display()))?;
     let dst = extract_dir.path().join("DMInstall.bin");
     std::fs::copy(&src, &dst)
         .with_context(|| format!("复制 DMInstall.bin 失败: {}", src.display()))?;

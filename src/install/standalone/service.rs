@@ -24,8 +24,7 @@ pub async fn wait_ready(
         "su - dmdba -c {} && echo ok || echo fail",
         shell_quote(&inner_cmd),
     );
-    let alive_cmd =
-        "pgrep -u dmdba dmserver >/dev/null 2>&1 && echo alive || echo dead";
+    let alive_cmd = "pgrep -u dmdba dmserver >/dev/null 2>&1 && echo alive || echo dead";
 
     crate::ui::log_info("等待数据库就绪...");
     for attempt in 1..=60u32 {

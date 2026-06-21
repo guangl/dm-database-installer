@@ -76,8 +76,8 @@ const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配
 [install]
 install_path = "/home/dmdba/dmdbms"
 data_path = "/home/dmdba/dmdbms/data"
-# 数据库备份目录，强烈建议配置；未配置时安装时会给出提醒
-# backup_path = "/home/dmdba/dmdbms/backup"
+# 数据库备份目录，必须配置（用于创建备份作业）
+backup_path = "/home/dmdba/dmdbms/backup"
 
 [instance]
 instance_name = "DMSERVER"
@@ -92,13 +92,17 @@ case_sensitive = true
 extent_size = 32
 
 # ─── 本地归档配置 ──────────────────────────────────────────
-# 单机模式默认开启本地归档（ARCH_INI=1），以下参数均可省略走默认值。
+# 安装完成后会在线开启本地归档（MOUNT → ARCHIVELOG → ADD ARCHIVELOG → OPEN），
+# 无需重启 dmserver，以下参数均可省略走默认值。
 [archive]
 # arch_path = "/home/dmdba/dmdbms/data/arch"  # 不填则默认为 data_path/arch
 file_size   = 128   # 单归档文件大小（MB）
 space_limit = 0     # 归档空间上限（MB），0 = 无限
-hang_flag   = false # 归档失败时是否挂起数据库（单机建议 false）
-compressed  = false # 是否压缩归档文件
+
+# ─── 备份作业配置 ──────────────────────────────────────────
+# 安装完成后会自动创建达梦作业系统中的全备/增量备份/清理作业（写入 backup_path）。
+[backup]
+retain_days = 15 # 备份保留天数，至少 15 天
 
 # ─── SSH 远程安装目标（可选）────────────────────────────────
 # 填写后将通过 SSH 在目标服务器上安装，host 为本机时自动退化为本地安装。

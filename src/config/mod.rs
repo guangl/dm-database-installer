@@ -111,16 +111,30 @@ pub struct ArchiveConfig {
     /// 归档空间上限（MB），0 = 无限
     #[serde(default)]
     pub space_limit: u32,
-    /// 归档失败时是否挂起数据库，默认 false
-    #[serde(default)]
-    pub hang_flag: bool,
-    /// 是否压缩归档文件，默认 false
-    #[serde(default)]
-    pub compressed: bool,
 }
 
 fn default_arch_file_size() -> u32 {
     128
+}
+
+/// 备份作业配置，单机和集群共用。
+#[derive(Debug, Deserialize, Clone)]
+pub struct BackupConfig {
+    /// 备份保留天数，至少 15 天（按达梦官方建议的最小值）
+    #[serde(default = "default_retain_days")]
+    pub retain_days: u32,
+}
+
+fn default_retain_days() -> u32 {
+    15
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            retain_days: default_retain_days(),
+        }
+    }
 }
 
 impl Default for ArchiveConfig {
@@ -129,8 +143,6 @@ impl Default for ArchiveConfig {
             arch_path: None,
             file_size: 128,
             space_limit: 0,
-            hang_flag: false,
-            compressed: false,
         }
     }
 }
@@ -140,16 +152,6 @@ pub(crate) fn resolve_arch_path(arch: &ArchiveConfig, data_path: &str) -> String
     arch.arch_path
         .clone()
         .unwrap_or_else(|| format!("{}/arch", data_path))
-}
-
-/// 生成 dmarch.ini 的 LOCAL 段（单机和集群共用）。
-pub(crate) fn format_local_arch_section(arch_path: &str, arch: &ArchiveConfig) -> String {
-    format!(
-        "[ARCHIVE_LOCAL1]\nARCH_TYPE = LOCAL\nARCH_DEST = {}\n\
-         ARCH_FILE_SIZE = {}\nARCH_SPACE_LIMIT = {}\n\
-         ARCH_HANG_FLAG = {}\nARCH_COMPRESSED = {}\n",
-        arch_path, arch.file_size, arch.space_limit, arch.hang_flag as u8, arch.compressed as u8,
-    )
 }
 
 /// 校验数据库初始化参数的值域约束（单机和集群共用）。
@@ -193,7 +195,7 @@ pub(crate) fn validate_db_params(
 pub struct InstallConfig {
     pub install_path: String,
     pub data_path: String,
-    /// 数据库备份目录，未配置时仅提醒，不阻断安装
+    /// 数据库备份目录，必须配置（用于创建备份作业）
     pub backup_path: Option<String>,
     pub instance_name: String,
     pub port: u16,
@@ -203,6 +205,7 @@ pub struct InstallConfig {
     pub case_sensitive: bool,
     pub extent_size: u8,
     pub archive: ArchiveConfig,
+    pub backup: BackupConfig,
     pub ssh_target: Option<ssh::SshTarget>,
 }
 
@@ -268,6 +271,8 @@ struct InstallConfigFile {
     instance: InstanceSection,
     #[serde(default)]
     archive: ArchiveConfig,
+    #[serde(default)]
+    backup: BackupConfig,
     ssh_target: Option<ssh::SshTarget>,
 }
 
@@ -285,6 +290,7 @@ impl From<InstallConfigFile> for InstallConfig {
             case_sensitive: f.instance.case_sensitive,
             extent_size: f.instance.extent_size,
             archive: f.archive,
+            backup: f.backup,
             ssh_target: f.ssh_target,
         }
     }
@@ -332,6 +338,7 @@ impl Default for InstallConfig {
             case_sensitive: default_case_sensitive(),
             extent_size: default_extent_size(),
             archive: ArchiveConfig::default(),
+            backup: BackupConfig::default(),
             ssh_target: None,
         }
     }
@@ -342,6 +349,18 @@ pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
     validate_db_params("", cfg.port, cfg.page_size, cfg.charset, cfg.extent_size)?;
     if cfg.ap_port == 0 {
         bail!("配置验证失败: ap_port 无效: 0；有效范围为 1-65535");
+    }
+    match cfg.backup_path.as_deref() {
+        None | Some("") => bail!(
+            "配置验证失败: backup_path 未配置；请在 standalone.toml [install] 段配置 backup_path（用于创建备份作业）"
+        ),
+        _ => {}
+    }
+    if cfg.backup.retain_days < 15 {
+        bail!(
+            "配置验证失败: backup.retain_days 无效: {}；至少保留 15 天",
+            cfg.backup.retain_days
+        );
     }
     if let Some(target) = &cfg.ssh_target {
         if target.host.is_empty() {
@@ -434,6 +453,7 @@ mod tests {
                         charset,
                         extent_size,
                         port: 5236,
+                        backup_path: Some("/data/dmbak".to_string()),
                         ..Default::default()
                     };
                     assert!(
@@ -448,7 +468,11 @@ mod tests {
     #[test]
     fn test_load_standalone_specific_valid() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "[instance]\nport = 5237\npage_size = 16").unwrap();
+        writeln!(
+            file,
+            "[install]\nbackup_path = \"/data/dmbak\"\n[instance]\nport = 5237\npage_size = 16"
+        )
+        .unwrap();
         let cfg = load_standalone_specific(file.path()).expect("应返回 Ok(InstallConfig)");
         assert_eq!(cfg.port, 5237);
         assert_eq!(cfg.page_size, 16);

@@ -89,8 +89,6 @@ fn print_archive_section(arch: &ArchiveConfig, default_path: &str) {
     } else {
         println!("  空间上限:   {} MB", arch.space_limit);
     }
-    println!("  归档挂起:   {}", yn(arch.hang_flag));
-    println!("  归档压缩:   {}", yn(arch.compressed));
 }
 
 fn charset_name(charset: u8) -> &'static str {
