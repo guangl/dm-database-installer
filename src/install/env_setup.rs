@@ -64,9 +64,26 @@ async fn setup_dmdba_user(runner: &dyn CommandRunner) -> Result<()> {
         "创建用户组 dinstall 失败",
     )
     .await?;
-    exec_r(runner,
-        "id dmdba >/dev/null 2>&1 || useradd -u 1002 -g dinstall -m -d /home/dmdba -s /bin/bash dmdba",
-        "创建用户 dmdba 失败").await?;
+    let existing_group = read_str(
+        runner,
+        "id -gn dmdba 2>/dev/null || echo ''",
+    )
+    .await;
+    if !existing_group.trim().is_empty() {
+        if existing_group.trim() != "dinstall" {
+            anyhow::bail!(
+                "系统用户 dmdba 已存在，但所属组为 {}（应为 dinstall），请手动处理后重试",
+                existing_group.trim()
+            );
+        }
+    } else {
+        exec_r(
+            runner,
+            "useradd -u 1002 -g dinstall -m -d /home/dmdba -s /bin/bash dmdba",
+            "创建用户 dmdba 失败",
+        )
+        .await?;
+    }
     exec_r(
         runner,
         "echo 'dmdba:dmdba' | chpasswd",

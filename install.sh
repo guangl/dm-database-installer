@@ -325,7 +325,12 @@ create_dmdba_user() {
         _DM_GROUP_CREATED=1
     }
     if id dmdba >/dev/null 2>&1; then
-        log_info "系统用户 dmdba 已存在，跳过创建"
+        if [ "$(id -gn dmdba)" = "dinstall" ]; then
+            log_info "系统用户 dmdba 已存在且属于 dinstall 组，跳过创建"
+        else
+            log_err "系统用户 dmdba 已存在，但所属组为 $(id -gn dmdba)（应为 dinstall），请手动处理后重试"
+            exit 1
+        fi
     else
         log_info "创建系统用户 dmdba..."
         $SUDO useradd -u 1002 -g dinstall -m -d /home/dmdba -s /bin/bash dmdba || {
