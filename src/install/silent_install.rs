@@ -2,44 +2,46 @@ use anyhow::{Context, Result};
 use std::{path::Path, process::Command};
 use tempfile::TempDir;
 
-/// 将 DMInstall.bin (ZIP格式) 解压，把 dmdbms 目录复制到 install_path。
+/// 执行 DMInstall.bin 静默安装（-i -q 响应文件模式），不在此处初始化数据库
+/// （INIT_DB=N，数据库初始化由调用方单独执行 dminit）。
 pub fn install_from_bin(bin_path: &Path, install_path: &str) -> Result<()> {
     let tmp = TempDir::new().context("创建临时目录失败")?;
+    let response_xml = tmp.path().join("dm_install.xml");
+    std::fs::write(&response_xml, build_response_xml(install_path))
+        .context("写入响应文件失败")?;
 
-    let status = Command::new("unzip")
+    let status = Command::new(bin_path)
+        .arg("-i")
         .arg("-q")
-        .arg(bin_path)
-        .arg("-d")
-        .arg(tmp.path())
+        .arg(&response_xml)
         .status()
-        .context("执行 unzip 失败，请确认 unzip 已安装")?;
-    anyhow::ensure!(status.success(), "unzip DMInstall.bin 返回非零退出码");
-
-    let dmdbms_src = tmp.path().join("dmdbms");
+        .with_context(|| format!("执行 {} 失败", bin_path.display()))?;
     anyhow::ensure!(
-        dmdbms_src.exists(),
-        "DMInstall.bin 解压后未找到 dmdbms 目录（解压路径: {}）",
-        tmp.path().display()
+        status.success(),
+        "DMInstall.bin 静默安装返回非零退出码: {:?}",
+        status.code()
     );
 
-    let install_dir = Path::new(install_path);
-    if let Some(parent) = install_dir.parent() {
-        std::fs::create_dir_all(parent).context("创建安装路径父目录失败")?;
-    }
-
-    // 同分区 rename 最快；跨分区 fallback 到 cp -r
-    if std::fs::rename(&dmdbms_src, install_dir).is_err() {
-        std::fs::create_dir_all(install_dir).context("创建安装目录失败")?;
-        let status = Command::new("cp")
-            .args(["-r", "--"])
-            .arg(dmdbms_src.join("."))
-            .arg(install_dir)
-            .status()
-            .context("cp -r dmdbms 到安装路径失败")?;
-        anyhow::ensure!(status.success(), "cp -r 返回非零退出码");
-    }
+    anyhow::ensure!(
+        Path::new(install_path).join("bin/dminit").exists(),
+        "DMInstall.bin 执行完成但未在安装目录找到 bin/dminit（安装路径: {}）",
+        install_path
+    );
 
     Ok(())
+}
+
+fn build_response_xml(install_path: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<DATABASE>
+    <LANGUAGE>ZH</LANGUAGE>
+    <INSTALL_TYPE>0</INSTALL_TYPE>
+    <INSTALL_PATH>{install_path}</INSTALL_PATH>
+    <INIT_DB>N</INIT_DB>
+</DATABASE>
+"#
+    )
 }
 
 #[cfg(test)]
@@ -53,18 +55,26 @@ mod tests {
     }
 
     #[test]
-    fn test_install_from_bin_fails_when_dmdbms_missing() {
+    fn test_install_from_bin_fails_when_bin_not_executable_installer() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let zip_path = tmp.path().join("DMInstall.bin");
-        // 写一个不含 dmdbms 的 ZIP
-        let file = std::fs::File::create(&zip_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-        zip.add_directory("other/", zip::write::SimpleFileOptions::default())
-            .unwrap();
-        zip.finish().unwrap();
+        let bin_path = tmp.path().join("DMInstall.bin");
+        // 一个能成功执行但不安装任何文件的假 "installer"（/bin/true）
+        std::fs::write(&bin_path, "#!/bin/true\n").unwrap();
+        std::fs::set_permissions(
+            &bin_path,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .unwrap();
 
         let install_dir = tmp.path().join("install");
-        let result = install_from_bin(&zip_path, install_dir.to_str().unwrap());
-        assert!(result.is_err(), "缺少 dmdbms 目录应返回错误");
+        let result = install_from_bin(&bin_path, install_dir.to_str().unwrap());
+        assert!(result.is_err(), "未生成 bin/dminit 应返回错误");
+    }
+
+    #[test]
+    fn test_build_response_xml_contains_install_path_and_no_init() {
+        let xml = build_response_xml("/opt/dmdbms");
+        assert!(xml.contains("<INSTALL_PATH>/opt/dmdbms</INSTALL_PATH>"));
+        assert!(xml.contains("<INIT_DB>N</INIT_DB>"));
     }
 }
