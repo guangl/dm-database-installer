@@ -2,8 +2,9 @@ use anyhow::{Context, Result};
 use std::{path::Path, process::Command};
 use tempfile::TempDir;
 
-/// 执行 DMInstall.bin 静默安装（-i -q 响应文件模式），不在此处初始化数据库
-/// （INIT_DB=N，数据库初始化由调用方单独执行 dminit）。
+/// 执行 DMInstall.bin 静默安装（-q 响应文件模式，与 install.sh 一致），
+/// 不在此处初始化数据库（INIT_DB=N，数据库初始化由调用方单独执行 dminit）。
+/// 注意：不要加 -i，会让 DMInstall.bin 回退到交互模式，重新弹出语言选择提示。
 pub fn install_from_bin(bin_path: &Path, install_path: &str) -> Result<()> {
     let tmp = TempDir::new().context("创建临时目录失败")?;
     let response_xml = tmp.path().join("dm_install.xml");
@@ -11,7 +12,6 @@ pub fn install_from_bin(bin_path: &Path, install_path: &str) -> Result<()> {
         .context("写入响应文件失败")?;
 
     let status = Command::new(bin_path)
-        .arg("-i")
         .arg("-q")
         .arg(&response_xml)
         .status()
