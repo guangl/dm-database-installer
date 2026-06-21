@@ -40,7 +40,24 @@ async fn check_privilege(runner: &dyn CommandRunner) -> Result<()> {
 
 // ── dmdba 用户 ────────────────────────────────────────────────────────────────
 
+// groupadd/useradd 依赖 /etc/{passwd,group,shadow,gshadow}.lock；若此前进程被强杀
+// 或异常中断，会残留死锁文件，导致后续命令永久报错 "existing lock file ... with PID"。
+// 这里检测锁文件中的 PID 是否仍存活，不存活则视为残留锁并清除（与 install.sh 一致）。
+async fn clear_stale_account_locks(runner: &dyn CommandRunner) -> Result<()> {
+    exec_r(
+        runner,
+        "for lock in /etc/passwd.lock /etc/group.lock /etc/shadow.lock /etc/gshadow.lock /etc/subuid.lock /etc/subgid.lock; do \
+           [ -f \"$lock\" ] || continue; \
+           pid=$(tr -dc '0-9' < \"$lock\" 2>/dev/null); \
+           if [ -z \"$pid\" ] || ! kill -0 \"$pid\" 2>/dev/null; then rm -f \"$lock\"; fi; \
+         done",
+        "清除残留账户锁文件失败",
+    )
+    .await
+}
+
 async fn setup_dmdba_user(runner: &dyn CommandRunner) -> Result<()> {
+    clear_stale_account_locks(runner).await?;
     exec_r(
         runner,
         "getent group dinstall >/dev/null 2>&1 || groupadd -g 1002 dinstall",

@@ -108,7 +108,7 @@ pub async fn register_and_start(runner: &dyn CommandRunner, config: &InstallConf
         uid == "0",
         "服务注册需要 root 权限（当前 UID: {}）。\n\
          请以 root 身份运行，或在命令前加 sudo：\n\
-         sudo dm-installer install",
+         sudo dm_installer install",
         uid
     );
 

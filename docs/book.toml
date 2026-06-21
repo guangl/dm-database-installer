@@ -1,5 +1,5 @@
 [book]
-title = "dm-installer 文档"
+title = "dm_installer 文档"
 description = "达梦数据库自动化安装工具"
 language = "zh"
 src = "src"

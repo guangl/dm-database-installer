@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
                 if !std::path::Path::new(config::CONFIG_FILE).exists() {
                     cmd::guide::print_install();
                 } else {
-                    eprintln!("\n请运行: dm-installer init standalone");
+                    eprintln!("\n请运行: dm_installer init standalone");
                 }
                 std::process::exit(1);
             });

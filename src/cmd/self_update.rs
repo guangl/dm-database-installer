@@ -26,7 +26,7 @@ pub async fn run(check_only: bool) -> Result<()> {
     println!("正在检查最新版本...");
 
     let client = Client::builder()
-        .user_agent(format!("dm-installer/{current_version}"))
+        .user_agent(format!("dm_installer/{current_version}"))
         .build()?;
 
     let release = fetch_latest_release(&client).await?;
@@ -43,7 +43,7 @@ pub async fn run(check_only: bool) -> Result<()> {
     println!("发现新版本: v{current_version} → {latest_tag}");
 
     if check_only {
-        println!("运行 `dm-installer self-update` 以安装更新。");
+        println!("运行 `dm_installer self-update` 以安装更新。");
         return Ok(());
     }
 
@@ -142,20 +142,20 @@ fn extract_from_tar_gz(bytes: &[u8]) -> Result<Vec<u8>> {
         let mut entry = entry?;
         let path = entry.path()?;
         let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-        if file_name == "dm-installer" {
+        if file_name == "dm_installer" {
             let mut binary = Vec::new();
             entry.read_to_end(&mut binary)?;
             return Ok(binary);
         }
     }
-    bail!("压缩包中找不到 dm-installer 可执行文件")
+    bail!("压缩包中找不到 dm_installer 可执行文件")
 }
 
 fn replace_binary(exe_path: &std::path::Path, binary: &[u8]) -> Result<()> {
     use std::io::Write;
 
     let parent = exe_path.parent().context("无法获取可执行文件所在目录")?;
-    let temp_path = parent.join(format!(".dm-installer.tmp.{}", std::process::id()));
+    let temp_path = parent.join(format!(".dm_installer.tmp.{}", std::process::id()));
 
     let mut temp_file = std::fs::File::create(&temp_path).context("创建临时文件失败")?;
     temp_file.write_all(binary)?;

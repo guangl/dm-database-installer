@@ -44,11 +44,11 @@ DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c \
 
 **请立即保存密码**，脚本不会再次显示。
 
-> 仅支持 Linux（x86_64 / aarch64）。macOS 用户请使用方式二或三安装 `dm-installer` 工具。
+> 仅支持 Linux（x86_64 / aarch64）。macOS 用户请使用方式二或三安装 `dm_installer` 工具。
 
 ---
 
-## 方式二：安装 dm-installer 工具（自定义 / 集群场景）
+## 方式二：安装 dm_installer 工具（自定义 / 集群场景）
 
 适合需要自定义参数、SSH 远程部署、主备集群等精细化场景。
 
@@ -68,7 +68,7 @@ source ~/.cargo/env
 验证安装：
 
 ```sh
-dm-installer --version
+dm_installer --version
 ```
 
 ---
@@ -79,11 +79,11 @@ dm-installer --version
 
 | 文件名 | 平台 |
 |--------|------|
-| `dm-installer-x86_64-unknown-linux-musl.tar.gz` | Linux x86_64 |
-| `dm-installer-aarch64-unknown-linux-musl.tar.gz` | Linux ARM64 |
-| `dm-installer-aarch64-apple-darwin.tar.gz` | macOS Apple Silicon |
+| `dm_installer-x86_64-unknown-linux-musl.tar.gz` | Linux x86_64 |
+| `dm_installer-aarch64-unknown-linux-musl.tar.gz` | Linux ARM64 |
+| `dm_installer-aarch64-apple-darwin.tar.gz` | macOS Apple Silicon |
 
-解压后将 `dm-installer` 放入 `$PATH` 中的任意目录。
+解压后将 `dm_installer` 放入 `$PATH` 中的任意目录。
 
 ---
 
@@ -103,6 +103,6 @@ cargo install dm-database-installer
 git clone https://github.com/guangl/dm-database-installer.git
 cd dm-database-installer
 cargo build --release
-# 二进制位于 target/release/dm-installer
+# 二进制位于 target/release/dm_installer
 ```
 

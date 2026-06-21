@@ -1,13 +1,13 @@
 # 配置参考
 
-`dm-installer` 使用两个配置文件，均放在同一目录下，由 `dm-installer init` 生成带注释的模板。
+`dm_installer` 使用两个配置文件，均放在同一目录下，由 `dm_installer init` 生成带注释的模板。
 
 | 文件 | 说明 |
 |------|------|
 | `config.toml` | 通用配置：安装类型、安装包路径、日志级别 |
 | `standalone.toml` / `dw.toml` / `rws.toml` / `dsc.toml` | 各类型特有配置 |
 
-执行 `dm-installer install` 时，工具从当前目录读取 `config.toml`，再根据其中的 `type` 字段加载对应的特有配置文件。
+执行 `dm_installer install` 时，工具从当前目录读取 `config.toml`，再根据其中的 `type` 字段加载对应的特有配置文件。
 
 ---
 
@@ -216,8 +216,8 @@ export DM_INSTALL_PATH=/opt/dmdbms
 curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/install.sh | bash
 ```
 
-### dm-installer 工具
+### dm_installer 工具
 
 | 变量 | 说明 |
 |------|------|
-| `RUST_LOG` | 覆盖日志级别，例如 `RUST_LOG=debug dm-installer install` |
+| `RUST_LOG` | 覆盖日志级别，例如 `RUST_LOG=debug dm_installer install` |

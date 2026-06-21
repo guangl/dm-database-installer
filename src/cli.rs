@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// dm-installer 的顶层 CLI 入口
+/// dm_installer 的顶层 CLI 入口
 #[derive(Parser)]
-#[command(name = "dm-installer", version, about = "达梦数据库安装器")]
+#[command(name = "dm_installer", version, about = "达梦数据库安装器")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -18,7 +18,7 @@ pub enum Commands {
     Validate(ValidateArgs),
     /// 生成配置文件模板
     Init(InitArgs),
-    /// 更新 dm-installer 到最新版本
+    /// 更新 dm_installer 到最新版本
     SelfUpdate(SelfUpdateArgs),
 }
 
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_install_no_args_parses() {
-        let cli = Cli::try_parse_from(["dm-installer", "install"]).unwrap();
+        let cli = Cli::try_parse_from(["dm_installer", "install"]).unwrap();
         let Commands::Install(args) = cli.command else {
             panic!("expected Install")
         };
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn test_install_with_package() {
         let cli =
-            Cli::try_parse_from(["dm-installer", "install", "--package", "/tmp/x.iso"]).unwrap();
+            Cli::try_parse_from(["dm_installer", "install", "--package", "/tmp/x.iso"]).unwrap();
         let Commands::Install(args) = cli.command else {
             panic!("expected Install")
         };
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_validate_defaults_to_no_path() {
-        let cli = Cli::try_parse_from(["dm-installer", "validate"]).unwrap();
+        let cli = Cli::try_parse_from(["dm_installer", "validate"]).unwrap();
         let Commands::Validate(args) = cli.command else {
             panic!("expected Validate")
         };
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_validate_with_explicit_config() {
-        let cli = Cli::try_parse_from(["dm-installer", "validate", "/etc/dm.toml"]).unwrap();
+        let cli = Cli::try_parse_from(["dm_installer", "validate", "/etc/dm.toml"]).unwrap();
         let Commands::Validate(args) = cli.command else {
             panic!("expected Validate")
         };

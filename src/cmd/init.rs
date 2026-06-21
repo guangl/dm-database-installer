@@ -22,7 +22,7 @@ pub fn run(kind: &InitKind) -> Result<()> {
                 if wrote_specific {
                     println!("  standalone.toml  — 单机特有配置（端口、路径、字符集等）");
                 }
-                println!("编辑后使用: dm-installer install");
+                println!("编辑后使用: dm_installer install");
             } else {
                 println!("配置文件已存在，无需覆盖。使用 --force 强制重新生成。");
             }
@@ -37,7 +37,7 @@ pub fn run(kind: &InitKind) -> Result<()> {
                 _ => unreachable!(),
             };
             println!("{} 配置模板即将支持，请关注后续版本。", mode);
-            println!("当前可使用: dm-installer init standalone");
+            println!("当前可使用: dm_installer init standalone");
             Ok(())
         }
     }
@@ -59,7 +59,7 @@ fn write_template(path: &Path, force: bool, content: &str) -> Result<bool> {
 }
 
 const STANDALONE_COMMON: &str = r#"# 达梦数据库单机安装 — 通用配置
-# 使用方式: dm-installer install
+# 使用方式: dm_installer install
 
 type = "standalone"
 

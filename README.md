@@ -1,4 +1,4 @@
-# dm-installer
+# dm_installer
 
 达梦数据库（DM8）自动化安装工具——开发者一行命令搞定本地环境，DBA 用配置文件完成生产集群部署。
 
@@ -52,7 +52,7 @@ DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c \
 
 > 仅支持 Linux（x86_64 / aarch64）。需要 root 权限或具有 sudo 权限的普通用户。安装完成后会输出随机生成的 SYSDBA / SYSAUDITOR 密码，请妥善保存。
 
-### 方式二：安装 dm-installer 管理工具（DBA / 生产环境推荐）
+### 方式二：安装 dm_installer 管理工具（DBA / 生产环境推荐）
 
 适合需要自定义参数、SSH 远程部署、主备集群等精细化场景。
 
@@ -73,7 +73,7 @@ cargo install dm-database-installer
 git clone https://github.com/guangl/dm-database-installer.git
 cd dm-database-installer
 cargo build --release
-# 二进制位于 target/release/dm-installer
+# 二进制位于 target/release/dm_installer
 ```
 
 ## 快速开始
@@ -82,19 +82,19 @@ cargo build --release
 
 ```sh
 # 1. 生成配置模板
-dm-installer init standalone
+dm_installer init standalone
 
 # 2. 按需编辑（默认值通常够用）
 # vim standalone.toml
 
 # 3. 安装（自动下载安装包）
-dm-installer install
+dm_installer install
 ```
 
 ### 单机安装（SSH 远程）
 
 ```sh
-dm-installer init standalone
+dm_installer init standalone
 ```
 
 在生成的 `standalone.toml` 中取消注释 `[ssh_target]` 部分：
@@ -108,20 +108,20 @@ user = "root"
 ```
 
 ```sh
-dm-installer install
+dm_installer install
 ```
 
 ### 主备集群
 
 ```sh
-dm-installer init dw
+dm_installer init dw
 # 编辑 config.toml + dw.toml，填写节点 IP 和 SSH 凭证
-dm-installer install
+dm_installer install
 ```
 
 ## 配置参考
 
-所有安装都依赖两个配置文件，由 `dm-installer init` 自动生成模板。
+所有安装都依赖两个配置文件，由 `dm_installer init` 自动生成模板。
 
 ### `config.toml`（通用配置）
 
@@ -162,25 +162,25 @@ extent_size    = 32   # 区段大小（页数）：16 / 32
 
 | 集群类型 | 命令 | 状态 |
 |---------|------|------|
-| 主备（DW）| `dm-installer init dw` | ✅ 支持 |
-| 读写分离（RWS）| `dm-installer init rws` | ✅ 支持 |
-| 共享存储（DSC）| `dm-installer init dsc` | ✅ 支持 |
+| 主备（DW）| `dm_installer init dw` | ✅ 支持 |
+| 读写分离（RWS）| `dm_installer init rws` | ✅ 支持 |
+| 共享存储（DSC）| `dm_installer init dsc` | ✅ 支持 |
 | 数据保护集群（DPC）| — | 🚧 开发中 |
 
 ## 子命令
 
 ```
-dm-installer install                    安装（读取 config.toml 自动判断类型）
-dm-installer install --package PATH     指定本地安装包路径（跳过下载）
-dm-installer install --url URL          指定自定义下载链接
-dm-installer install --checksum SHA256  校验安装包 SHA-256
-dm-installer validate [PATH]            验证配置文件语法与语义，不执行安装
-dm-installer init standalone            生成单机配置模板
-dm-installer init dw                    生成主备（DW）集群配置模板
-dm-installer init rws                   生成读写分离（RWS）集群配置模板
-dm-installer init dsc                   生成共享存储（DSC）集群配置模板
-dm-installer status                     查询本地及远程节点运行状态
-dm-installer --help                     查看帮助
+dm_installer install                    安装（读取 config.toml 自动判断类型）
+dm_installer install --package PATH     指定本地安装包路径（跳过下载）
+dm_installer install --url URL          指定自定义下载链接
+dm_installer install --checksum SHA256  校验安装包 SHA-256
+dm_installer validate [PATH]            验证配置文件语法与语义，不执行安装
+dm_installer init standalone            生成单机配置模板
+dm_installer init dw                    生成主备（DW）集群配置模板
+dm_installer init rws                   生成读写分离（RWS）集群配置模板
+dm_installer init dsc                   生成共享存储（DSC）集群配置模板
+dm_installer status                     查询本地及远程节点运行状态
+dm_installer --help                     查看帮助
 ```
 
 ## 支持平台
