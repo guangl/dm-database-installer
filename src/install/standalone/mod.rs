@@ -6,10 +6,11 @@ use crate::config::{CommonConfig, InstallConfig};
 use crate::install::{env_setup, package, preflight as cpf, silent_install};
 use crate::ssh::LocalRunner;
 
+pub mod archive;
+pub mod backup;
 pub mod checkpoint;
 pub mod init;
 pub mod remote;
-pub mod rollback;
 pub mod service;
 
 /// 单机安装入口。common 和 specific 已由调用方从配置文件加载并验证。
@@ -25,8 +26,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
 
     let existing_cp = checkpoint::load(&specific.install_path)?;
 
-    // [1/6] 环境预检
-    crate::ui::step_header("[1/6] 环境预检");
+    // [1/8] 环境预检
+    crate::ui::step_header("[1/8] 环境预检");
     if cpf::is_already_installed(&specific.install_path) {
         crate::ui::log_info(&format!(
             "检测到达梦数据库已安装至 {}，跳过安装",
@@ -42,12 +43,6 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     }
     crate::ui::step_footer();
 
-    let mut rb = rollback::StandaloneRollback::new(
-        &specific.install_path,
-        &specific.data_path,
-        &specific.instance_name,
-    );
-
     // 初始化 checkpoint（提前，后续每步都基于它判断是否跳过）
     let (sysdba_pwd, sysauditor_pwd) = match &existing_cp {
         Some(c) => (c.sysdba_pwd.clone(), c.sysauditor_pwd.clone()),
@@ -62,21 +57,19 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     });
     cp.save()?;
 
-    // [2/6] 系统准备
-    crate::ui::step_header("[2/6] 系统准备");
+    // [2/8] 系统准备
+    crate::ui::step_header("[2/8] 系统准备");
     if cp.env_setup_done {
         crate::ui::log_info("[续] 系统环境已配置，跳过");
     } else {
-        let env_backup = rollback::EnvBackup::capture()?;
-        rb.set_env_backup(env_backup);
         env_setup::run(&runner).await?;
         cp.env_setup_done = true;
         cp.save()?;
     }
     crate::ui::step_footer();
 
-    // [3/6] 下载安装包
-    crate::ui::step_header("[3/6] 下载安装包");
+    // [3/8] 下载安装包
+    crate::ui::step_header("[3/8] 下载安装包");
     let extract_dir = if cp.installed {
         crate::ui::log_info("[续] dmdbms 已安装，跳过下载与解压");
         None
@@ -86,8 +79,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     };
     crate::ui::step_footer();
 
-    // [4/6] 静默安装 dmdbms
-    crate::ui::step_header("[4/6] 静默安装");
+    // [4/8] 静默安装 dmdbms
+    crate::ui::step_header("[4/8] 静默安装");
     if cp.installed {
         crate::ui::log_info(&format!(
             "[续] 跳过安装，dmdbms 已安装至 {}",
@@ -114,11 +107,10 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         cp.installed = true;
         cp.save()?;
     }
-    rb.installed = cp.installed;
     crate::ui::step_footer();
 
-    // [5/6] 初始化数据库
-    crate::ui::step_header("[5/6] 初始化数据库");
+    // [5/8] 初始化数据库
+    crate::ui::step_header("[5/8] 初始化数据库");
     let db_already_inited = cp.db_inited
         || Path::new(&specific.data_path)
             .join("DAMENG/dm.ini")
@@ -129,15 +121,13 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         crate::ui::log_info("以 dmdba 用户初始化数据库实例...");
         init::run_dminit(&runner, &specific, &sysdba_pwd, &sysauditor_pwd).await?;
         crate::ui::log_ok("数据库初始化完成");
-        init::write_dmarch_ini(&runner, &specific).await?;
         cp.db_inited = true;
         cp.save()?;
     }
-    rb.db_inited = cp.db_inited;
     crate::ui::step_footer();
 
-    // [6/6] 注册服务并启动
-    crate::ui::step_header("[6/6] 注册服务");
+    // [6/8] 注册服务并启动
+    crate::ui::step_header("[6/8] 注册服务");
     if cp.services_done {
         crate::ui::log_info("[续] 服务已注册，跳过");
     } else {
@@ -145,14 +135,40 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         cp.services_done = true;
         cp.save()?;
     }
-    rb.services_registered = true;
     service::wait_ready(&runner, &specific, &sysdba_pwd).await?;
     let dm_version = service::query_dm_version(&runner, &specific, &sysdba_pwd).await;
+    crate::ui::step_footer();
+
+    // [7/8] 配置归档（在线开启，dmserver 无需重启）
+    crate::ui::step_header("[7/8] 配置归档");
+    if cp.arch_configured {
+        crate::ui::log_info("[续] 归档已配置，跳过");
+    } else {
+        archive::enable_archive_online(&runner, &specific, &sysdba_pwd).await?;
+        cp.arch_configured = true;
+        cp.save()?;
+    }
     let arch_path = crate::config::resolve_arch_path(&specific.archive, &specific.data_path);
     crate::ui::log_ok(&format!("归档模式已配置: {}", arch_path));
     crate::ui::step_footer();
 
-    crate::ui::print_success(&specific, &sysdba_pwd, &sysauditor_pwd, dm_version.as_deref());
+    // [8/8] 配置备份作业
+    crate::ui::step_header("[8/8] 配置备份作业");
+    if cp.backup_configured {
+        crate::ui::log_info("[续] 备份作业已配置，跳过");
+    } else {
+        backup::configure_jobs(&runner, &specific, &sysdba_pwd).await?;
+        cp.backup_configured = true;
+        cp.save()?;
+    }
+    crate::ui::step_footer();
+
+    crate::ui::print_success(
+        &specific,
+        &sysdba_pwd,
+        &sysauditor_pwd,
+        dm_version.as_deref(),
+    );
     crate::ui::print_advisories(&crate::install::advisory::standalone_advisories(
         &specific, &arch_path,
     ));
@@ -160,7 +176,6 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
         let _ = std::fs::remove_file(cached);
     }
     checkpoint::Checkpoint::remove()?;
-    rb.commit();
     Ok(())
 }
 
@@ -219,6 +234,18 @@ async fn resolve_package(
         crate::ui::log_info(&format!("使用本地安装包 (CLI --package): {}", p.display()));
         return Ok(p.clone());
     }
+    if let Some(cached) = cp
+        .package_cache
+        .as_ref()
+        .map(std::path::Path::new)
+        .filter(|p| p.exists())
+    {
+        crate::ui::log_info(&format!(
+            "[续] 跳过下载，使用已缓存安装包: {}",
+            cached.display()
+        ));
+        return Ok(cached.to_path_buf());
+    }
     if let Some(url) = &args.url {
         crate::ui::log_info(&format!("下载安装包 (CLI --url): {}", url));
         let handle = crate::download::fetch_from_url(url, None).await?;
@@ -234,18 +261,6 @@ async fn resolve_package(
             Ok(path.clone())
         }
         InstallerSource::Url(url) => {
-            if let Some(cached) = cp
-                .package_cache
-                .as_ref()
-                .map(std::path::Path::new)
-                .filter(|p| p.exists())
-            {
-                crate::ui::log_info(&format!(
-                    "[续] 跳过下载，使用已缓存安装包: {}",
-                    cached.display()
-                ));
-                return Ok(cached.to_path_buf());
-            }
             let handle = crate::download::fetch_from_url(url, None).await?;
             let cached = cache_package(&handle.path)?;
             cp.package_cache = Some(cached.to_string_lossy().into_owned());
@@ -253,18 +268,6 @@ async fn resolve_package(
             Ok(cached)
         }
         InstallerSource::Auto => {
-            if let Some(cached) = cp
-                .package_cache
-                .as_ref()
-                .map(std::path::Path::new)
-                .filter(|p| p.exists())
-            {
-                crate::ui::log_info(&format!(
-                    "[续] 跳过下载，使用已缓存安装包: {}",
-                    cached.display()
-                ));
-                return Ok(cached.to_path_buf());
-            }
             let handle = crate::download::fetch_dm_installer().await?;
             let cached = cache_package(&handle.path)?;
             cp.package_cache = Some(cached.to_string_lossy().into_owned());
@@ -364,6 +367,27 @@ mod tests {
                 pwd
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_package_skips_download_when_cached() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cached_pkg = tmp.path().join(".dm_cache_dm8.iso");
+        std::fs::write(&cached_pkg, b"fake iso").unwrap();
+
+        let args = InstallArgs {
+            package: None,
+            url: None,
+        };
+        let mut cp = checkpoint::Checkpoint::new("/opt/dmdbms", "pwd1".into(), "pwd2".into());
+        cp.package_cache = Some(cached_pkg.to_string_lossy().into_owned());
+
+        // 若未命中缓存，Auto 会触发真实网络下载并在测试环境中报错/超时；
+        // 命中缓存应直接返回缓存路径，不触碰网络。
+        let resolved = resolve_package(&args, &crate::config::InstallerSource::Auto, &mut cp)
+            .await
+            .unwrap();
+        assert_eq!(resolved, cached_pkg);
     }
 
     #[test]

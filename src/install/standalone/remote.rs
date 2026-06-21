@@ -35,8 +35,8 @@ pub async fn run(
         password: Some(password),
     };
 
-    // [1/6] 环境预检
-    crate::ui::step_header("[1/6] 环境预检");
+    // [1/8] 环境预检
+    crate::ui::step_header("[1/8] 环境预检");
     let session = connect_with_retry(
         &target.host,
         target.ssh_port,
@@ -84,8 +84,8 @@ pub async fn run(
     });
     cp.save()?;
 
-    // [2/6] 系统准备
-    crate::ui::step_header("[2/6] 系统准备");
+    // [2/8] 系统准备
+    crate::ui::step_header("[2/8] 系统准备");
     if cp.env_setup_done {
         crate::ui::log_info("[续] 系统环境已配置，跳过");
     } else {
@@ -95,8 +95,8 @@ pub async fn run(
     }
     crate::ui::step_footer();
 
-    // [3/6] 下载安装包
-    crate::ui::step_header("[3/6] 下载安装包");
+    // [3/8] 下载安装包
+    crate::ui::step_header("[3/8] 下载安装包");
     let package_path = if cp.installed {
         crate::ui::log_info("[续] dmdbms 已安装，跳过下载");
         None
@@ -106,8 +106,8 @@ pub async fn run(
     };
     crate::ui::step_footer();
 
-    // [4/6] 上传并安装 dmdbms
-    crate::ui::step_header("[4/6] 上传并安装");
+    // [4/8] 上传并安装 dmdbms
+    crate::ui::step_header("[4/8] 上传并安装");
     if cp.installed {
         crate::ui::log_info(&format!(
             "[续] 跳过安装，dmdbms 已安装至 {}",
@@ -144,8 +144,8 @@ pub async fn run(
     }
     crate::ui::step_footer();
 
-    // [5/6] 初始化数据库
-    crate::ui::step_header("[5/6] 初始化数据库");
+    // [5/8] 初始化数据库
+    crate::ui::step_header("[5/8] 初始化数据库");
     if cp.db_inited {
         crate::ui::log_info("[续] 跳过 dminit，数据库实例已初始化");
     } else if check_remote_dminit_done(specific, &session).await? {
@@ -161,14 +161,13 @@ pub async fn run(
             );
         }
         init::run_dminit(&session, specific, &sysdba_pwd, &sysauditor_pwd).await?;
-        init::write_dmarch_ini(&session, specific).await?;
         cp.db_inited = true;
         cp.save()?;
     }
     crate::ui::step_footer();
 
-    // [6/6] 注册服务
-    crate::ui::step_header("[6/6] 注册服务");
+    // [6/8] 注册服务
+    crate::ui::step_header("[6/8] 注册服务");
     let dm_version = if cp.services_done {
         crate::ui::log_info("[续] 服务已注册，跳过");
         query_version_from_cache_or_banner(specific, &session).await
@@ -185,7 +184,34 @@ pub async fn run(
     };
     crate::ui::step_footer();
 
-    crate::ui::print_success(specific, &sysdba_pwd, &sysauditor_pwd, dm_version.as_deref());
+    // [7/8] 配置归档（在线开启，dmserver 无需重启）
+    crate::ui::step_header("[7/8] 配置归档");
+    if cp.arch_configured {
+        crate::ui::log_info("[续] 归档已配置，跳过");
+    } else {
+        super::archive::enable_archive_online(&session, specific, &sysdba_pwd).await?;
+        cp.arch_configured = true;
+        cp.save()?;
+    }
+    crate::ui::step_footer();
+
+    // [8/8] 配置备份作业
+    crate::ui::step_header("[8/8] 配置备份作业");
+    if cp.backup_configured {
+        crate::ui::log_info("[续] 备份作业已配置，跳过");
+    } else {
+        super::backup::configure_jobs(&session, specific, &sysdba_pwd).await?;
+        cp.backup_configured = true;
+        cp.save()?;
+    }
+    crate::ui::step_footer();
+
+    crate::ui::print_success(
+        specific,
+        &sysdba_pwd,
+        &sysauditor_pwd,
+        dm_version.as_deref(),
+    );
     if let Some(cached) = &cp.package_cache {
         let _ = std::fs::remove_file(cached);
     }
@@ -206,6 +232,18 @@ async fn resolve_package_for_remote(
         crate::ui::log_info(&format!("使用本地安装包 (CLI --package): {}", p.display()));
         return Ok(p.clone());
     }
+    if let Some(cached) = cp
+        .package_cache
+        .as_ref()
+        .map(std::path::Path::new)
+        .filter(|p| p.exists())
+    {
+        crate::ui::log_info(&format!(
+            "[续] 跳过下载，使用已缓存安装包: {}",
+            cached.display()
+        ));
+        return Ok(cached.to_path_buf());
+    }
     if let Some(url) = &args.url {
         crate::ui::log_info(&format!("下载安装包 (CLI --url): {}", url));
         let handle = crate::download::fetch_from_url(url, None).await?;
@@ -221,18 +259,6 @@ async fn resolve_package_for_remote(
             Ok(path.clone())
         }
         InstallerSource::Url(url) => {
-            if let Some(cached) = cp
-                .package_cache
-                .as_ref()
-                .map(std::path::Path::new)
-                .filter(|p| p.exists())
-            {
-                crate::ui::log_info(&format!(
-                    "[续] 跳过下载，使用已缓存安装包: {}",
-                    cached.display()
-                ));
-                return Ok(cached.to_path_buf());
-            }
             let handle = crate::download::fetch_from_url(url, None).await?;
             let cached = cache_package(&handle.path)?;
             cp.package_cache = Some(cached.to_string_lossy().into_owned());
@@ -240,18 +266,6 @@ async fn resolve_package_for_remote(
             Ok(cached)
         }
         InstallerSource::Auto => {
-            if let Some(cached) = cp
-                .package_cache
-                .as_ref()
-                .map(std::path::Path::new)
-                .filter(|p| p.exists())
-            {
-                crate::ui::log_info(&format!(
-                    "[续] 跳过下载，使用已缓存安装包: {}",
-                    cached.display()
-                ));
-                return Ok(cached.to_path_buf());
-            }
             let platform = detect_remote_platform(runner).await;
             let handle = fetch_dm_installer_for(&platform).await?;
             let cached = cache_package(&handle.path)?;
@@ -670,8 +684,39 @@ mod tests {
             case_sensitive: true,
             extent_size: 32,
             archive: Default::default(),
+            backup: Default::default(),
             ssh_target: None,
         }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_package_for_remote_skips_download_when_cached() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cached_pkg = tmp.path().join(".dm_cache_dm8.iso");
+        std::fs::write(&cached_pkg, b"fake iso").unwrap();
+
+        let args = InstallArgs {
+            package: None,
+            url: None,
+        };
+        let mut cp = checkpoint::Checkpoint::new("/opt/dmdbms", "pwd1".into(), "pwd2".into());
+        cp.package_cache = Some(cached_pkg.to_string_lossy().into_owned());
+        let runner = MockRunner::new(vec![]);
+
+        let resolved = resolve_package_for_remote(
+            &args,
+            &crate::config::InstallerSource::Auto,
+            &runner,
+            &mut cp,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resolved, cached_pkg);
+        assert!(
+            runner.exec_log().is_empty(),
+            "缓存命中时不应执行任何远端命令（即不应触发平台探测/下载）: {:?}",
+            runner.exec_log()
+        );
     }
 
     #[tokio::test]

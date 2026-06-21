@@ -19,7 +19,11 @@ pub struct Checkpoint {
     #[serde(default)]
     pub db_inited: bool,
     #[serde(default)]
+    pub arch_configured: bool,
+    #[serde(default)]
     pub services_done: bool,
+    #[serde(default)]
+    pub backup_configured: bool,
 }
 
 impl Checkpoint {
@@ -33,7 +37,9 @@ impl Checkpoint {
             env_setup_done: false,
             installed: false,
             db_inited: false,
+            arch_configured: false,
             services_done: false,
+            backup_configured: false,
         }
     }
 
