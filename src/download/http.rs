@@ -141,9 +141,9 @@ fn read_zip_text(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Re
     let mut entry = archive
         .by_name(name)
         .with_context(|| format!("zip 中找不到: {}", name))?;
-    let mut buf = String::new();
-    entry.read_to_string(&mut buf).context("读取 sha256 文件失败")?;
-    Ok(buf)
+    let mut buf = Vec::new();
+    entry.read_to_end(&mut buf).context("读取 sha256 文件失败")?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// 从 `文件名_SHA256.txt` 第二行提取 SHA-256 十六进制串（64位）。
