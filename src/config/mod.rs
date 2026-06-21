@@ -74,7 +74,7 @@ pub fn load_config_from(common_path: &Path) -> Result<LoadedConfig> {
 pub(super) fn load_common_config(path: &Path) -> Result<CommonConfig> {
     if !path.exists() {
         bail!(
-            "未找到配置文件 {}\n请先运行 dm-installer init standalone",
+            "未找到配置文件 {}\n请先运行 dm_installer init standalone",
             path.display()
         );
     }

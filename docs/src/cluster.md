@@ -4,9 +4,9 @@
 
 | 类型 | init 命令 | config.toml type | 状态 |
 |------|-----------|-----------------|------|
-| 主备（DW） | `dm-installer init dw` | `dw` | ✅ 已支持 |
-| 读写分离（RWS） | `dm-installer init rws` | `rws` | 🚧 开发中 |
-| 共享存储（DSC） | `dm-installer init dsc` | `dsc` | 🚧 开发中 |
+| 主备（DW） | `dm_installer init dw` | `dw` | ✅ 已支持 |
+| 读写分离（RWS） | `dm_installer init rws` | `rws` | 🚧 开发中 |
+| 共享存储（DSC） | `dm_installer init dsc` | `dsc` | 🚧 开发中 |
 
 ---
 
@@ -23,7 +23,7 @@
 **第一步：生成配置模板**
 
 ```sh
-dm-installer init dw
+dm_installer init dw
 ```
 
 生成两个文件：
@@ -92,7 +92,7 @@ identity_file = "~/.ssh/id_rsa"
 **第四步：验证配置**
 
 ```sh
-dm-installer validate
+dm_installer validate
 ```
 
 验证内容包括：
@@ -108,7 +108,7 @@ dm-installer validate
 **第五步：部署**
 
 ```sh
-dm-installer install
+dm_installer install
 ```
 
 ### 部署流程
@@ -132,7 +132,7 @@ dm-installer install
 集群部署同样支持断点续传。中断后直接重跑：
 
 ```sh
-dm-installer install
+dm_installer install
 ```
 
 工具会从中断的步骤继续，已完成的节点不会重复处理。
@@ -142,7 +142,7 @@ dm-installer install
 ## 读写分离集群（开发中）
 
 ```sh
-dm-installer init rws
+dm_installer init rws
 ```
 
 生成 `config.toml`（`type = "rws"`）和 `rws.toml` 模板。
@@ -161,7 +161,7 @@ read_only = true
 ## 共享存储集群 DSC（开发中）
 
 ```sh
-dm-installer init dsc
+dm_installer init dsc
 ```
 
 生成 `config.toml`（`type = "dsc"`）和 `dsc.toml` 模板。

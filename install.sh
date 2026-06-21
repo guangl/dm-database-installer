@@ -301,14 +301,36 @@ check_selinux() {
     esac
 }
 
+# ── 用户/组管理锁文件预检查 ────────────────────────────────────────────────────────
+# groupadd/useradd 依赖 /etc/{passwd,group,shadow,gshadow}.lock；若此前进程被强杀
+# 或异常中断，会残留死锁文件，导致后续命令永久报错 "existing lock file ... with PID"。
+# 这里检测锁文件中的 PID 是否仍存活，不存活则视为残留锁并清除。
+clear_stale_account_locks() {
+    local lock pid
+    for lock in /etc/passwd.lock /etc/group.lock /etc/shadow.lock /etc/gshadow.lock /etc/subuid.lock /etc/subgid.lock; do
+        [ -f "$lock" ] || continue
+        pid=$(tr -dc '0-9' < "$lock" 2>/dev/null)
+        if [ -z "$pid" ] || ! $SUDO kill -0 "$pid" 2>/dev/null; then
+            log_warn "清除残留锁文件 $lock（持有 PID ${pid:-未知} 已不存在）"
+            $SUDO rm -f "$lock"
+        fi
+    done
+}
+
 # ── 创建 dmdba 系统用户 ───────────────────────────────────────────────────────────
 create_dmdba_user() {
+    clear_stale_account_locks
     getent group dinstall >/dev/null 2>&1 || {
         $SUDO groupadd -g 1002 dinstall || { log_err "创建用户组 dinstall 失败"; exit 1; }
         _DM_GROUP_CREATED=1
     }
     if id dmdba >/dev/null 2>&1; then
-        log_info "系统用户 dmdba 已存在，跳过创建"
+        if [ "$(id -gn dmdba)" = "dinstall" ]; then
+            log_info "系统用户 dmdba 已存在且属于 dinstall 组，跳过创建"
+        else
+            log_err "系统用户 dmdba 已存在，但所属组为 $(id -gn dmdba)（应为 dinstall），请手动处理后重试"
+            exit 1
+        fi
     else
         log_info "创建系统用户 dmdba..."
         $SUDO useradd -u 1002 -g dinstall -m -d /home/dmdba -s /bin/bash dmdba || {

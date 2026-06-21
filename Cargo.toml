@@ -7,7 +7,7 @@ license = "Apache-2.0"
 repository = "https://github.com/guangl/dm-database-installer"
 
 [[bin]]
-name = "dm-installer"
+name = "dm_installer"
 path = "src/main.rs"
 
 [dependencies]

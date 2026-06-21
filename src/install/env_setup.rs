@@ -40,16 +40,50 @@ async fn check_privilege(runner: &dyn CommandRunner) -> Result<()> {
 
 // ── dmdba 用户 ────────────────────────────────────────────────────────────────
 
+// groupadd/useradd 依赖 /etc/{passwd,group,shadow,gshadow}.lock；若此前进程被强杀
+// 或异常中断，会残留死锁文件，导致后续命令永久报错 "existing lock file ... with PID"。
+// 这里检测锁文件中的 PID 是否仍存活，不存活则视为残留锁并清除（与 install.sh 一致）。
+async fn clear_stale_account_locks(runner: &dyn CommandRunner) -> Result<()> {
+    exec_r(
+        runner,
+        "for lock in /etc/passwd.lock /etc/group.lock /etc/shadow.lock /etc/gshadow.lock /etc/subuid.lock /etc/subgid.lock; do \
+           [ -f \"$lock\" ] || continue; \
+           pid=$(tr -dc '0-9' < \"$lock\" 2>/dev/null); \
+           if [ -z \"$pid\" ] || ! kill -0 \"$pid\" 2>/dev/null; then rm -f \"$lock\"; fi; \
+         done",
+        "清除残留账户锁文件失败",
+    )
+    .await
+}
+
 async fn setup_dmdba_user(runner: &dyn CommandRunner) -> Result<()> {
+    clear_stale_account_locks(runner).await?;
     exec_r(
         runner,
         "getent group dinstall >/dev/null 2>&1 || groupadd -g 1002 dinstall",
         "创建用户组 dinstall 失败",
     )
     .await?;
-    exec_r(runner,
-        "id dmdba >/dev/null 2>&1 || useradd -u 1002 -g dinstall -m -d /home/dmdba -s /bin/bash dmdba",
-        "创建用户 dmdba 失败").await?;
+    let existing_group = read_str(
+        runner,
+        "id -gn dmdba 2>/dev/null || echo ''",
+    )
+    .await;
+    if !existing_group.trim().is_empty() {
+        if existing_group.trim() != "dinstall" {
+            anyhow::bail!(
+                "系统用户 dmdba 已存在，但所属组为 {}（应为 dinstall），请手动处理后重试",
+                existing_group.trim()
+            );
+        }
+    } else {
+        exec_r(
+            runner,
+            "useradd -u 1002 -g dinstall -m -d /home/dmdba -s /bin/bash dmdba",
+            "创建用户 dmdba 失败",
+        )
+        .await?;
+    }
     exec_r(
         runner,
         "echo 'dmdba:dmdba' | chpasswd",

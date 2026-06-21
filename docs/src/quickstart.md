@@ -21,15 +21,15 @@ DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c \
 
 ---
 
-## 路径二：dm-installer 工具
+## 路径二：dm_installer 工具
 
-先按[安装说明](installation.md)安装 `dm-installer`。
+先按[安装说明](installation.md)安装 `dm_installer`。
 
 ### 本地单机安装
 
 ```sh
 # 1. 在当前目录生成配置模板
-dm-installer init standalone
+dm_installer init standalone
 
 # 生成的文件：
 #   config.toml      — 通用配置（type = "standalone"）
@@ -39,7 +39,7 @@ dm-installer init standalone
 #    默认安装路径：/home/dmdba/dmdbms
 
 # 3. 安装（自动下载适配当前系统的 DM8 安装包）
-dm-installer install
+dm_installer install
 ```
 
 安装完成后，工具会输出随机生成的 SYSDBA / SYSAUDITOR 密码，请妥善保存。
@@ -52,7 +52,7 @@ dm-installer install
 
 ```sh
 # 1. 生成配置模板
-dm-installer init standalone
+dm_installer init standalone
 ```
 
 编辑 `standalone.toml`，取消注释 `[ssh_target]` 节并填写目标信息：
@@ -75,7 +75,7 @@ max_retries = 3
 
 ```sh
 # 2. 安装
-dm-installer install
+dm_installer install
 ```
 
 工具会自动：
@@ -90,7 +90,7 @@ dm-installer install
 
 ```sh
 # 1. 生成配置模板
-dm-installer init dw
+dm_installer init dw
 
 # 生成的文件：
 #   config.toml  — 通用配置（type = "dw"）
@@ -102,10 +102,10 @@ dm-installer init dw
 # 3. 编辑 dw.toml：填写各节点信息（IP、SSH 凭证、OGUID 等）
 
 # 4. 验证配置
-dm-installer validate
+dm_installer validate
 
 # 5. 部署（控制机需能 SSH 访问所有节点）
-dm-installer install
+dm_installer install
 ```
 
 详细配置说明见[集群部署](cluster.md)。
@@ -118,10 +118,10 @@ dm-installer install
 
 ```sh
 # 验证当前目录的 config.toml（及对应特有配置文件）
-dm-installer validate
+dm_installer validate
 
 # 或指定路径
-dm-installer validate --config /path/to/config.toml
+dm_installer validate --config /path/to/config.toml
 ```
 
 常见语义检查项：`page_size` 枚举值（4/8/16/32）、`charset` 枚举值（0/1/2）、端口冲突、节点 SSH 凭证完整性、集群 OGUID 范围等。
@@ -133,7 +133,7 @@ dm-installer validate --config /path/to/config.toml
 安装中途因网络或其他原因中断时，直接重跑即可：
 
 ```sh
-dm-installer install
+dm_installer install
 ```
 
 工具会检测当前目录的 `dm_installer_checkpoint.json`，跳过已完成的步骤，从中断处继续。
@@ -142,5 +142,5 @@ dm-installer install
 
 ```sh
 rm dm_installer_checkpoint.json
-dm-installer install
+dm_installer install
 ```

@@ -8,20 +8,20 @@ pub fn print_install() {
 未找到当前目录的 config.toml，请先生成配置模板：
 
   单机安装（开发 / 测试环境）
-    dm-installer init standalone
+    dm_installer init standalone
 
   主备集群（推荐生产入门）
-    dm-installer init dw
+    dm_installer init dw
 
   读写分离集群
-    dm-installer init rws
+    dm_installer init rws
 
   DSC 共享存储集群
-    dm-installer init dsc
+    dm_installer init dsc
 
 生成后编辑配置文件，然后执行安装：
 
-    dm-installer install
+    dm_installer install
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     );

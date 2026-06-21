@@ -1,4 +1,4 @@
-# dm-installer
+# dm_installer
 
 达梦数据库（DM8）自动化安装工具，让开发者和运维人员都能用最少的操作完成 DM8 部署。
 
@@ -16,11 +16,11 @@ curl -fsSL https://raw.githubusercontent.com/guangl/dm-database-installer/main/i
 
 ### DBA / 运维 — TOML 配置驱动
 
-安装 `dm-installer` 二进制，用配置文件描述目标环境，支持单机、SSH 远程、主备集群：
+安装 `dm_installer` 二进制，用配置文件描述目标环境，支持单机、SSH 远程、主备集群：
 
 ```sh
-dm-installer init standalone   # 生成配置模板
-dm-installer install           # 按模板安装
+dm_installer init standalone   # 生成配置模板
+dm_installer install           # 按模板安装
 ```
 
 ## 核心特性
@@ -31,8 +31,8 @@ dm-installer install           # 按模板安装
 | SSH 远程安装 | 在控制机上一键部署到目标服务器，SFTP 上传带进度条 |
 | 主备集群（DW） | 批量推送安装包、自动生成并同步 `dm.ini` / `dmarch.ini` / `dmmal.ini` / `dmwatcher.ini` |
 | 断点续传 | 安装中断后重跑，自动从检查点恢复，已完成步骤不重复 |
-| 配置驱动 | TOML 文件，`dm-installer init` 生成带注释的完整模板 |
-| 配置校验 | `dm-installer validate` 在安装前检查所有语义约束 |
+| 配置驱动 | TOML 文件，`dm_installer init` 生成带注释的完整模板 |
+| 配置校验 | `dm_installer validate` 在安装前检查所有语义约束 |
 | 跨平台二进制 | Linux x86_64 / aarch64（musl 静态链接）、macOS Apple Silicon |
 
 ## 源码
