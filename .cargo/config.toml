@@ -3,3 +3,13 @@
 # 对应 [workspace.metadata.dist.dependencies.apt] 中的 gcc-aarch64-linux-gnu
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"
+
+# musl target 默认不再自动启用 crt-static，导致产物是动态链接到
+# musl libc 的 PIE 可执行文件（依赖 /lib/ld-musl-*.so.1），在没有
+# musl 运行时的 glibc 发行版（如 CentOS）上报 "bad ELF interpreter"。
+# 显式开启 crt-static，确保产出完全静态链接、无解释器依赖的二进制。
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=+crt-static"]
