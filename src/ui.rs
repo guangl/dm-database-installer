@@ -4,7 +4,6 @@ use crate::config::{InstallConfig, resolve_arch_path};
 
 struct Colors {
     green: &'static str,
-    red: &'static str,
     yellow: &'static str,
     reset: &'static str,
 }
@@ -13,14 +12,12 @@ fn colors() -> Colors {
     if std::io::stdout().is_terminal() {
         Colors {
             green: "\x1b[32m",
-            red: "\x1b[31m",
             yellow: "\x1b[33m",
             reset: "\x1b[0m",
         }
     } else {
         Colors {
             green: "",
-            red: "",
             yellow: "",
             reset: "",
         }
@@ -82,11 +79,7 @@ pub fn print_banner() {
         c.yellow, c.reset
     );
     println!(
-        "{}║{}  ⚠  仅限开发 / 测试环境使用，严禁用于生产环境！            {}║{}",
-        c.yellow, c.red, c.yellow, c.reset
-    );
-    println!(
-        "{}║     此工具会修改内核参数、关闭 SELinux 和防火墙。            ║{}",
+        "{}║  ⚠  此工具会修改内核参数、关闭 SELinux 和防火墙。            ║{}",
         c.yellow, c.reset
     );
     println!(
