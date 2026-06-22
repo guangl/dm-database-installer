@@ -24,6 +24,10 @@ pub struct Checkpoint {
     pub services_done: bool,
     #[serde(default)]
     pub backup_configured: bool,
+    #[serde(default)]
+    pub param_tuned: bool,
+    #[serde(default)]
+    pub sql_log_enabled: bool,
 }
 
 impl Checkpoint {
@@ -40,6 +44,8 @@ impl Checkpoint {
             arch_configured: false,
             services_done: false,
             backup_configured: false,
+            param_tuned: false,
+            sql_log_enabled: false,
         }
     }
 

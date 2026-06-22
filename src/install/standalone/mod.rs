@@ -3,15 +3,14 @@ use std::path::Path;
 
 use crate::cli::InstallArgs;
 use crate::config::{CommonConfig, InstallConfig};
-use crate::install::{env_setup, package, preflight as cpf, silent_install};
+use crate::install::steps::{
+    archive, backup, env_setup, init, package, param_tune, preflight as cpf, service,
+    silent_install, sql_log,
+};
 use crate::ssh::LocalRunner;
 
-pub mod archive;
-pub mod backup;
 pub mod checkpoint;
-pub mod init;
 pub mod remote;
-pub mod service;
 
 /// 单机安装入口。common 和 specific 已由调用方从配置文件加载并验证。
 pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConfig) -> Result<()> {
@@ -26,8 +25,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
 
     let existing_cp = checkpoint::load(&specific.install_path)?;
 
-    // [1/8] 环境预检
-    crate::ui::step_header("[1/8] 环境预检");
+    // [1/10] 环境预检
+    crate::ui::step_header("[1/10] 环境预检");
     if cpf::is_already_installed(&specific.install_path) {
         crate::ui::log_info(&format!(
             "检测到达梦数据库已安装至 {}，跳过安装",
@@ -57,8 +56,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     });
     cp.save()?;
 
-    // [2/8] 系统准备
-    crate::ui::step_header("[2/8] 系统准备");
+    // [2/10] 系统准备
+    crate::ui::step_header("[2/10] 系统准备");
     if cp.env_setup_done {
         crate::ui::log_info("[续] 系统环境已配置，跳过");
     } else {
@@ -68,8 +67,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     }
     crate::ui::step_footer();
 
-    // [3/8] 下载安装包
-    crate::ui::step_header("[3/8] 下载安装包");
+    // [3/10] 下载安装包
+    crate::ui::step_header("[3/10] 下载安装包");
     let extract_dir = if cp.installed {
         crate::ui::log_info("[续] dmdbms 已安装，跳过下载与解压");
         None
@@ -79,8 +78,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     };
     crate::ui::step_footer();
 
-    // [4/8] 静默安装 dmdbms
-    crate::ui::step_header("[4/8] 静默安装");
+    // [4/10] 静默安装 dmdbms
+    crate::ui::step_header("[4/10] 静默安装");
     if cp.installed {
         crate::ui::log_info(&format!(
             "[续] 跳过安装，dmdbms 已安装至 {}",
@@ -109,8 +108,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     }
     crate::ui::step_footer();
 
-    // [5/8] 初始化数据库
-    crate::ui::step_header("[5/8] 初始化数据库");
+    // [5/10] 初始化数据库
+    crate::ui::step_header("[5/10] 初始化数据库");
     let db_already_inited = cp.db_inited
         || Path::new(&specific.data_path)
             .join("DAMENG/dm.ini")
@@ -126,8 +125,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     }
     crate::ui::step_footer();
 
-    // [6/8] 注册服务并启动
-    crate::ui::step_header("[6/8] 注册服务");
+    // [6/10] 注册服务并启动
+    crate::ui::step_header("[6/10] 注册服务");
     if cp.services_done {
         crate::ui::log_info("[续] 服务已注册，跳过");
     } else {
@@ -139,8 +138,8 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     let dm_version = service::query_dm_version(&runner, &specific, &sysdba_pwd).await;
     crate::ui::step_footer();
 
-    // [7/8] 配置归档（在线开启，dmserver 无需重启）
-    crate::ui::step_header("[7/8] 配置归档");
+    // [7/10] 配置归档（在线开启，dmserver 无需重启）
+    crate::ui::step_header("[7/10] 配置归档");
     if cp.arch_configured {
         crate::ui::log_info("[续] 归档已配置，跳过");
     } else {
@@ -152,14 +151,37 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     crate::ui::log_ok(&format!("归档模式已配置: {}", arch_path));
     crate::ui::step_footer();
 
-    // [8/8] 配置备份作业
-    crate::ui::step_header("[8/8] 配置备份作业");
+    // [8/10] 配置备份作业
+    crate::ui::step_header("[8/10] 配置备份作业");
     if cp.backup_configured {
         crate::ui::log_info("[续] 备份作业已配置，跳过");
     } else {
         backup::configure_jobs(&runner, &specific, &sysdba_pwd).await?;
         cp.backup_configured = true;
         cp.save()?;
+    }
+    crate::ui::step_footer();
+
+    // [9/10] 开启 SQL 日志
+    crate::ui::step_header("[9/10] 开启 SQL 日志");
+    if cp.sql_log_enabled {
+        crate::ui::log_info("[续] SQL 日志已开启，跳过");
+    } else {
+        sql_log::enable(&runner, &specific, &sysdba_pwd).await?;
+        cp.sql_log_enabled = true;
+        cp.save()?;
+    }
+    crate::ui::step_footer();
+
+    // [10/10] 应用参数调优（执行 AutoParaAdj 脚本并重启 dmserver 使其生效）
+    crate::ui::step_header("[10/10] 应用参数调优");
+    if cp.param_tuned {
+        crate::ui::log_info("[续] 参数调优已应用，跳过");
+    } else {
+        param_tune::apply_and_restart(&runner, &specific, &sysdba_pwd).await?;
+        cp.param_tuned = true;
+        cp.save()?;
+        service::wait_ready(&runner, &specific, &sysdba_pwd).await?;
     }
     crate::ui::step_footer();
 
