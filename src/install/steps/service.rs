@@ -243,6 +243,20 @@ async fn run_installer(
     Ok(())
 }
 
+/// 重启 dmserver 服务（参数调整等场景需要重启才能生效）。
+pub async fn restart_dmserver(runner: &dyn CommandRunner, config: &InstallConfig) -> Result<()> {
+    let name = service_name(config);
+    runner
+        .exec(&format!(
+            "systemctl restart {n} 2>/dev/null || service {n} restart 2>/dev/null",
+            n = shell_quote(&name)
+        ))
+        .await
+        .map_err(|e| anyhow::anyhow!("重启服务 {} 失败: {e}", name))?;
+    crate::ui::log_ok(&format!("服务已重启: {}", name));
+    Ok(())
+}
+
 async fn start_service(runner: &dyn CommandRunner, name: &str) -> Result<()> {
     runner
         .exec(&format!(

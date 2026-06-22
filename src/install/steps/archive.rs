@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::config::InstallConfig;
-use crate::install::preflight;
+use super::preflight;
 use crate::ssh::{CommandRunner, shell_quote};
 
 const ARCH_SQL_PATH: &str = "/tmp/dm_enable_archive.sql";
@@ -32,13 +32,7 @@ pub async fn enable_archive_online(
 
     let disql = format!("{}/bin/disql", config.install_path);
     let conn = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
-    let inner_cmd = format!(
-        "{} {} < {}",
-        shell_quote(&disql),
-        shell_quote(&conn),
-        shell_quote(ARCH_SQL_PATH),
-    );
-    let cmd = format!("su - dmdba -c {}", shell_quote(&inner_cmd));
+    let cmd = super::disql_script_cmd(&disql, &conn, ARCH_SQL_PATH);
     runner
         .exec(&cmd)
         .await

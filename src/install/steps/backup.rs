@@ -39,13 +39,7 @@ pub async fn configure_jobs(
 
     let disql = format!("{}/bin/disql", config.install_path);
     let conn = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
-    let inner_cmd = format!(
-        "{} {} < {}",
-        shell_quote(&disql),
-        shell_quote(&conn),
-        shell_quote(JOB_SQL_PATH),
-    );
-    let cmd = format!("su - dmdba -c {}", shell_quote(&inner_cmd));
+    let cmd = super::disql_script_cmd(&disql, &conn, JOB_SQL_PATH);
     runner
         .exec(&cmd)
         .await
