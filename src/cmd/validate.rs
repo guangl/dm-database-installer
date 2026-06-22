@@ -84,10 +84,10 @@ fn print_archive_section(arch: &ArchiveConfig, default_path: &str) {
         None => println!("  归档目录:   {}", default_path),
     }
     println!("  文件大小:   {} MB", arch.file_size);
-    if arch.space_limit == 0 {
-        println!("  空间上限:   无限制");
-    } else {
-        println!("  空间上限:   {} MB", arch.space_limit);
+    match arch.space_limit {
+        Some(0) => println!("  空间上限:   无限制"),
+        Some(limit) => println!("  空间上限:   {} MB", limit),
+        None => println!("  空间上限:   自动（磁盘总容量的 20%）"),
     }
 }
 

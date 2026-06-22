@@ -105,34 +105,79 @@ pub struct ArchiveConfig {
     /// 归档目录，不填则默认为 {data_path}/arch
     #[serde(default)]
     pub arch_path: Option<String>,
-    /// 单归档文件大小（MB），默认 128
+    /// 单归档文件大小（MB），默认 1024
     #[serde(default = "default_arch_file_size")]
     pub file_size: u32,
-    /// 归档空间上限（MB），0 = 无限
+    /// 归档空间上限（MB），不填则默认为磁盘总容量的 20%；显式填 0 = 无限
     #[serde(default)]
-    pub space_limit: u32,
+    pub space_limit: Option<u32>,
 }
 
 fn default_arch_file_size() -> u32 {
-    128
+    1024
 }
 
 /// 备份作业配置，单机和集群共用。
+/// 默认策略：每 7 天（即每周六）执行一次全量备份，其余天执行一次增量备份，
+/// 备份保留 `retain_days` 天，每天清理过期备份。
+///
+/// `full_backup_interval_days` 决定全量备份频率：
+/// - `1`：每天只做全量备份，不创建增量备份作业
+/// - `7`（默认）：与原版行为一致，全量固定在每周六，增量固定在周日至周五，按自然周对齐
+/// - 其他值（如 `3`）：全量备份按 N 天间隔调度，增量备份按天调度；
+///   由于达梦作业系统的间隔调度无法精确排除"恰好与全量同一天"，
+///   两者重合的那天会同时执行全量和增量（增量备份内容会很少，不影响数据安全）
 #[derive(Debug, Deserialize, Clone)]
 pub struct BackupConfig {
+    /// 数据库备份目录，必须配置（用于创建备份作业）
+    #[serde(default)]
+    pub backup_path: Option<String>,
     /// 备份保留天数，至少 15 天（按达梦官方建议的最小值）
     #[serde(default = "default_retain_days")]
     pub retain_days: u32,
+    /// 全量备份间隔天数，至少 1 天，默认 7 天（每周六）
+    #[serde(default = "default_full_backup_interval_days")]
+    pub full_backup_interval_days: u32,
+    /// 全量备份执行时间，格式 HH:MM:SS，默认 02:00
+    #[serde(default = "default_full_backup_time")]
+    pub full_backup_time: String,
+    /// 增量备份执行时间，格式 HH:MM:SS，默认 02:00
+    #[serde(default = "default_incr_backup_time")]
+    pub incr_backup_time: String,
+    /// 过期备份清理执行时间，格式 HH:MM:SS，默认每天 05:00
+    #[serde(default = "default_clean_time")]
+    pub clean_time: String,
 }
 
 fn default_retain_days() -> u32 {
     15
 }
 
+fn default_full_backup_interval_days() -> u32 {
+    7
+}
+
+fn default_full_backup_time() -> String {
+    "02:00:00".to_string()
+}
+
+fn default_incr_backup_time() -> String {
+    "02:00:00".to_string()
+}
+
+fn default_clean_time() -> String {
+    "05:00:00".to_string()
+}
+
 impl Default for BackupConfig {
     fn default() -> Self {
         Self {
+            backup_path: None,
             retain_days: default_retain_days(),
+            full_backup_interval_days: default_full_backup_interval_days(),
+            full_backup_time: default_full_backup_time(),
+            incr_backup_time: default_incr_backup_time(),
+            clean_time: default_clean_time(),
         }
     }
 }
@@ -141,8 +186,8 @@ impl Default for ArchiveConfig {
     fn default() -> Self {
         Self {
             arch_path: None,
-            file_size: 128,
-            space_limit: 0,
+            file_size: default_arch_file_size(),
+            space_limit: None,
         }
     }
 }
@@ -152,6 +197,24 @@ pub(crate) fn resolve_arch_path(arch: &ArchiveConfig, data_path: &str) -> String
     arch.arch_path
         .clone()
         .unwrap_or_else(|| format!("{}/arch", data_path))
+}
+
+/// 校验 `HH:MM:SS` 格式的时间字符串（备份作业调度时间）。
+fn validate_time_hhmmss(field: &str, value: &str) -> Result<()> {
+    let parts: Vec<&str> = value.split(':').collect();
+    let valid = parts.len() == 3
+        && parts.iter().all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_digit()))
+        && parts[0].parse::<u8>().is_ok_and(|h| h < 24)
+        && parts[1].parse::<u8>().is_ok_and(|m| m < 60)
+        && parts[2].parse::<u8>().is_ok_and(|s| s < 60);
+    if !valid {
+        bail!(
+            "配置验证失败: {} 无效: \"{}\"；格式应为 HH:MM:SS（如 02:00:00）",
+            field,
+            value
+        );
+    }
+    Ok(())
 }
 
 /// 校验数据库初始化参数的值域约束（单机和集群共用）。
@@ -195,11 +258,8 @@ pub(crate) fn validate_db_params(
 pub struct InstallConfig {
     pub install_path: String,
     pub data_path: String,
-    /// 数据库备份目录，必须配置（用于创建备份作业）
-    pub backup_path: Option<String>,
     pub instance_name: String,
     pub port: u16,
-    pub ap_port: u16,
     pub page_size: u8,
     pub charset: u8,
     pub case_sensitive: bool,
@@ -217,8 +277,6 @@ struct InstallSection {
     install_path: String,
     #[serde(default = "default_data_path")]
     data_path: String,
-    #[serde(default)]
-    backup_path: Option<String>,
 }
 
 impl Default for InstallSection {
@@ -226,7 +284,6 @@ impl Default for InstallSection {
         Self {
             install_path: default_install_path(),
             data_path: default_data_path(),
-            backup_path: None,
         }
     }
 }
@@ -237,8 +294,6 @@ struct InstanceSection {
     instance_name: String,
     #[serde(default = "default_port")]
     port: u16,
-    #[serde(default = "default_ap_port")]
-    ap_port: u16,
     #[serde(default = "default_page_size")]
     page_size: u8,
     #[serde(default = "default_charset")]
@@ -254,7 +309,6 @@ impl Default for InstanceSection {
         Self {
             instance_name: default_instance_name(),
             port: default_port(),
-            ap_port: default_ap_port(),
             page_size: default_page_size(),
             charset: default_charset(),
             case_sensitive: default_case_sensitive(),
@@ -281,10 +335,8 @@ impl From<InstallConfigFile> for InstallConfig {
         Self {
             install_path: f.install.install_path,
             data_path: f.install.data_path,
-            backup_path: f.install.backup_path,
             instance_name: f.instance.instance_name,
             port: f.instance.port,
-            ap_port: f.instance.ap_port,
             page_size: f.instance.page_size,
             charset: f.instance.charset,
             case_sensitive: f.instance.case_sensitive,
@@ -308,9 +360,9 @@ fn default_instance_name() -> String {
 fn default_port() -> u16 {
     5236
 }
-fn default_ap_port() -> u16 {
-    4236
-}
+/// AP（应用）端口仅用于安装前端口占用预检查，不可配置，固定为达梦默认值。
+pub(crate) const AP_PORT_PRECHECK: u16 = 4236;
+
 fn default_page_size() -> u8 {
     32
 }
@@ -329,10 +381,8 @@ impl Default for InstallConfig {
         Self {
             install_path: default_install_path(),
             data_path: default_data_path(),
-            backup_path: None,
             instance_name: default_instance_name(),
             port: default_port(),
-            ap_port: default_ap_port(),
             page_size: default_page_size(),
             charset: default_charset(),
             case_sensitive: default_case_sensitive(),
@@ -347,12 +397,9 @@ impl Default for InstallConfig {
 /// 验证 InstallConfig 字段语义合法性（枚举值域、范围约束）。
 pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
     validate_db_params("", cfg.port, cfg.page_size, cfg.charset, cfg.extent_size)?;
-    if cfg.ap_port == 0 {
-        bail!("配置验证失败: ap_port 无效: 0；有效范围为 1-65535");
-    }
-    match cfg.backup_path.as_deref() {
+    match cfg.backup.backup_path.as_deref() {
         None | Some("") => bail!(
-            "配置验证失败: backup_path 未配置；请在 standalone.toml [install] 段配置 backup_path（用于创建备份作业）"
+            "配置验证失败: backup_path 未配置；请在 standalone.toml [backup] 段配置 backup_path（用于创建备份作业）"
         ),
         _ => {}
     }
@@ -362,6 +409,15 @@ pub fn validate_install_config(cfg: &InstallConfig) -> Result<()> {
             cfg.backup.retain_days
         );
     }
+    if cfg.backup.full_backup_interval_days < 1 {
+        bail!(
+            "配置验证失败: backup.full_backup_interval_days 无效: {}；至少为 1 天",
+            cfg.backup.full_backup_interval_days
+        );
+    }
+    validate_time_hhmmss("backup.full_backup_time", &cfg.backup.full_backup_time)?;
+    validate_time_hhmmss("backup.incr_backup_time", &cfg.backup.incr_backup_time)?;
+    validate_time_hhmmss("backup.clean_time", &cfg.backup.clean_time)?;
     if let Some(target) = &cfg.ssh_target {
         if target.host.is_empty() {
             bail!("配置验证失败: ssh_target.host 不能为空");
@@ -453,7 +509,10 @@ mod tests {
                         charset,
                         extent_size,
                         port: 5236,
-                        backup_path: Some("/data/dmbak".to_string()),
+                        backup: BackupConfig {
+                            backup_path: Some("/data/dmbak".to_string()),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     };
                     assert!(
@@ -470,7 +529,7 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         writeln!(
             file,
-            "[install]\nbackup_path = \"/data/dmbak\"\n[instance]\nport = 5237\npage_size = 16"
+            "[backup]\nbackup_path = \"/data/dmbak\"\n[instance]\nport = 5237\npage_size = 16"
         )
         .unwrap();
         let cfg = load_standalone_specific(file.path()).expect("应返回 Ok(InstallConfig)");

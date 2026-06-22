@@ -76,13 +76,10 @@ const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配
 [install]
 install_path = "/home/dmdba/dmdbms"
 data_path = "/home/dmdba/dmdbms/data"
-# 数据库备份目录，必须配置（用于创建备份作业）
-backup_path = "/home/dmdba/dmdbms/backup"
 
 [instance]
 instance_name = "DMSERVER"
 port = 5236
-ap_port = 4236
 # 页大小（KB），可选值：4 / 8 / 16 / 32
 page_size = 32
 # 字符集：0=GB18030  1=UTF-8  2=EUC-KR
@@ -96,13 +93,23 @@ extent_size = 32
 # 无需重启 dmserver，以下参数均可省略走默认值。
 [archive]
 # arch_path = "/home/dmdba/dmdbms/data/arch"  # 不填则默认为 data_path/arch
-file_size   = 128   # 单归档文件大小（MB）
-space_limit = 0     # 归档空间上限（MB），0 = 无限
+file_size   = 1024  # 单归档文件大小（MB）
+# space_limit = 0    # 归档空间上限（MB），不填则默认为磁盘总容量的 20%；显式填 0 = 无限
 
 # ─── 备份作业配置 ──────────────────────────────────────────
 # 安装完成后会自动创建达梦作业系统中的全备/增量备份/清理作业（写入 backup_path）。
 [backup]
+# 数据库备份目录，必须配置（用于创建备份作业）
+backup_path = "/home/dmdba/dmdbms/backup"
 retain_days = 15 # 备份保留天数，至少 15 天
+# 全量备份间隔天数：
+#   1 = 每天只做全量备份，不创建增量备份作业
+#   7（默认）= 与自然周对齐，全量固定在每周六，增量固定在周日至周五
+#   其他 N = 全量每 N 天一次，其余天做增量（与全量同一天会同时执行，增量内容很少）
+full_backup_interval_days = 7
+full_backup_time = "02:00:00" # 全量备份时间（HH:MM:SS）
+incr_backup_time = "02:00:00" # 增量备份时间（HH:MM:SS，full_backup_interval_days=1 时不生效）
+clean_time        = "05:00:00" # 过期备份清理时间（每天，HH:MM:SS）
 
 # ─── SSH 远程安装目标（可选）────────────────────────────────
 # 填写后将通过 SSH 在目标服务器上安装，host 为本机时自动退化为本地安装。

@@ -583,7 +583,7 @@ async fn check_remote_prerequisites(
         check_port_available(runner, specific.port)
             .await
             .context("远端节点端口检测失败")?;
-        check_port_available(runner, specific.ap_port)
+        check_port_available(runner, crate::config::AP_PORT_PRECHECK)
             .await
             .context("远端节点 AP 端口检测失败")?;
     }
@@ -675,10 +675,8 @@ mod tests {
         InstallConfig {
             install_path: "/opt/dmdbms".to_string(),
             data_path: "/opt/dmdbms/data".to_string(),
-            backup_path: None,
             instance_name: "DMSERVER".to_string(),
             port: 5236,
-            ap_port: 4236,
             page_size: 32,
             charset: 1,
             case_sensitive: true,

@@ -13,6 +13,7 @@ pub async fn configure_jobs(
     sysdba_pwd: &str,
 ) -> Result<()> {
     let backup_path = config
+        .backup
         .backup_path
         .as_deref()
         .filter(|p| !p.is_empty())
@@ -30,7 +31,7 @@ pub async fn configure_jobs(
         .await
         .map_err(|e| anyhow::anyhow!("创建备份目录失败: {e}"))?;
 
-    let sql = generate_backup_job_sql(backup_path, config.backup.retain_days);
+    let sql = generate_backup_job_sql(backup_path, &config.backup);
     runner
         .sftp_write(JOB_SQL_PATH, sql.as_bytes())
         .await
@@ -56,38 +57,84 @@ pub async fn configure_jobs(
     Ok(())
 }
 
-/// 生成备份作业 SQL：全备(bakup_ql) + 增量备份并切全备(bakup_zl) + 过期清理(bak_clear)。
-fn generate_backup_job_sql(backup_path: &str, retain_days: u32) -> String {
-    format!(
-        r#"SP_INIT_JOB_SYS(1);
+/// 生成备份作业 SQL：全备(bakup_ql) + [可选]增量备份并切全备(bakup_zl) + 过期清理(bak_clear，保留 retain_days 天)。
+///
+/// 全量备份调度由 `full_backup_interval_days` 决定：
+/// - `1`：全量备份按天调度，不创建增量备份作业（每天都是全量，没有"非全量天"）
+/// - `7`：全量按周调度（周六），增量按周调度（周日-周五），与自然周对齐
+/// - 其他 N：全量按 N 天间隔调度，增量按天调度（两者重合的那天会同时执行，增量内容很少）
+fn generate_backup_job_sql(backup_path: &str, backup: &crate::config::BackupConfig) -> String {
+    let full_schedule = match backup.full_backup_interval_days {
+        7 => format!(
+            "call SP_ADD_JOB_SCHEDULE('bakup_ql', 'diaoduql', 1, 2, 1, 64, 0, '{time}', NULL, '2020-06-25 22:43:59', NULL, '');",
+            time = backup.full_backup_time
+        ),
+        n => format!(
+            "call SP_ADD_JOB_SCHEDULE('bakup_ql', 'diaoduql', 1, 1, {n}, 0, 0, '{time}', NULL, '2020-06-25 22:43:59', NULL, '');",
+            n = n,
+            time = backup.full_backup_time
+        ),
+    };
 
-call SP_CREATE_JOB('bakup_ql',1,0,'',0,0,'',0,'');
+    let full_job = format!(
+        r#"call SP_CREATE_JOB('bakup_ql',1,0,'',0,0,'',0,'');
 call SP_JOB_CONFIG_START('bakup_ql');
 call SP_ADD_JOB_STEP('bakup_ql', 'bak_ql', 6, '01000000{path}', 1, 2, 0, 0, NULL, 0);
-call SP_ADD_JOB_SCHEDULE('bakup_ql', 'diaoduql', 1, 2, 1, 64, 0, '01:00:00', NULL, '2020-06-25 22:43:59', NULL, '');
+{schedule}
 call SP_JOB_CONFIG_COMMIT('bakup_ql');
+"#,
+        path = backup_path,
+        schedule = full_schedule,
+    );
 
+    let incr_job = if backup.full_backup_interval_days == 1 {
+        String::new()
+    } else {
+        let incr_schedule = match backup.full_backup_interval_days {
+            7 => format!(
+                "call SP_ADD_JOB_SCHEDULE('bakup_zl', 'diaodu_zl', 1, 2, 1, 63, 0, '{time}', NULL, '2020-06-21 11:15:00', NULL, '');",
+                time = backup.incr_backup_time
+            ),
+            _ => format!(
+                "call SP_ADD_JOB_SCHEDULE('bakup_zl', 'diaodu_zl', 1, 1, 1, 0, 0, '{time}', NULL, '2020-06-21 11:15:00', NULL, '');",
+                time = backup.incr_backup_time
+            ),
+        };
+        format!(
+            r#"
 call SP_CREATE_JOB('bakup_zl',1,0,'',0,0,'',0,'');
 call SP_JOB_CONFIG_START('bakup_zl');
 call SP_ADD_JOB_STEP('bakup_zl', 'bak_zl', 6, '11000000{path}|{path}', 1, 0, 2, 6, NULL, 0);
 call SP_ADD_JOB_STEP('bakup_zl', 'switch_quanbei', 6, '01000000{path}', 1, 2, 0, 0, NULL, 0);
-call SP_ADD_JOB_SCHEDULE('bakup_zl', 'diaodu_zl', 1, 2, 1, 63, 0, '22:30:00', NULL, '2020-06-21 11:15:00', NULL, '');
+{schedule}
 call SP_JOB_CONFIG_COMMIT('bakup_zl');
+"#,
+            path = backup_path,
+            schedule = incr_schedule,
+        )
+    };
 
+    format!(
+        r#"SP_INIT_JOB_SYS(1);
+
+{full_job}{incr_job}
 call SP_CREATE_JOB('bak_clear',1,0,'',0,0,'',0,'每天删除{retain_days}天前的备份');
 call SP_JOB_CONFIG_START('bak_clear');
 call SP_ADD_JOB_STEP('bak_clear', 'del_bak', 0, 'SF_BAKSET_BACKUP_DIR_ADD(''DISK'',''{path}'');
 CALL SP_DB_BAKSET_REMOVE_BATCH(''DISK'',SYSDATE-{retain_days});', 1, 2, 0, 0, NULL, 0);
-call SP_ADD_JOB_SCHEDULE('bak_clear', 'diaodu_del', 1, 1, 1, 0, 0, '01:00:00', NULL, '2020-06-25 22:54:03', NULL, '');
+call SP_ADD_JOB_SCHEDULE('bak_clear', 'diaodu_del', 1, 1, 1, 0, 0, '{clean_time}', NULL, '2020-06-25 22:54:03', NULL, '');
 call SP_JOB_CONFIG_COMMIT('bak_clear');
 
--- bakup_ql 仅在每周六调度，安装当天若非周六，bakup_zl 在首个周六前无全备可依赖会失败；
+-- 全量备份的调度周期可能晚于安装当天（如每周/每 N 天一次），首次全备完成前增量/集群依赖会缺基线；
 -- 此处立即执行一次全量备份，确保安装当天即有可用全备基线。
 BACKUP DATABASE BACKUPSET '{path}/FULL_INIT';
 exit;
 "#,
+        full_job = full_job,
+        incr_job = incr_job,
         path = backup_path,
-        retain_days = retain_days,
+        retain_days = backup.retain_days,
+        clean_time = backup.clean_time,
     )
 }
 
@@ -100,7 +147,10 @@ mod tests {
         InstallConfig {
             install_path: "/opt/dmdbms".to_string(),
             data_path: data_path.to_string(),
-            backup_path: backup_path.map(str::to_string),
+            backup: crate::config::BackupConfig {
+                backup_path: backup_path.map(str::to_string),
+                ..Default::default()
+            },
             port: 5236,
             ..Default::default()
         }
@@ -156,15 +206,76 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_backup_job_sql_substitutes_path_and_retain_days() {
-        let sql = generate_backup_job_sql("/data/dmbak", 30);
+    fn test_generate_backup_job_sql_default_weekly_schedule() {
+        let backup = crate::config::BackupConfig {
+            retain_days: 30,
+            ..Default::default()
+        };
+        let sql = generate_backup_job_sql("/data/dmbak", &backup);
         assert!(sql.contains("'01000000/data/dmbak'"));
         assert!(sql.contains("'11000000/data/dmbak|/data/dmbak'"));
         assert!(sql.contains("每天删除30天前的备份"));
         assert!(sql.contains("SYSDATE-30"));
-        // 不应影响其余不该被替换的字面值
         assert!(sql.contains("'2020-06-25 22:43:59'"));
-        assert!(sql.contains(", 64, 0, '01:00:00'"));
+        assert!(sql.contains(", 64, 0, '02:00:00'"), "全备应在周六 02:00 调度");
+        assert!(sql.contains(", 63, 0, '02:00:00'"), "增量备份应在周日-周五 02:00 调度");
+        assert!(sql.contains(", 0, 0, '05:00:00'"), "清理作业应在每天 05:00 调度");
         assert!(sql.contains("BACKUP DATABASE BACKUPSET '/data/dmbak/FULL_INIT';"));
+    }
+
+    #[test]
+    fn test_generate_backup_job_sql_uses_configured_times() {
+        let backup = crate::config::BackupConfig {
+            full_backup_time: "03:30:00".to_string(),
+            incr_backup_time: "04:15:00".to_string(),
+            clean_time: "06:45:00".to_string(),
+            ..Default::default()
+        };
+        let sql = generate_backup_job_sql("/data/dmbak", &backup);
+        assert!(sql.contains(", 64, 0, '03:30:00'"), "全备时间应可配置");
+        assert!(sql.contains(", 63, 0, '04:15:00'"), "增量备份时间应可配置");
+        assert!(sql.contains(", 0, 0, '06:45:00'"), "清理时间应可配置");
+    }
+
+    #[test]
+    fn test_generate_backup_job_sql_daily_full_only_skips_incremental() {
+        let backup = crate::config::BackupConfig {
+            full_backup_interval_days: 1,
+            ..Default::default()
+        };
+        let sql = generate_backup_job_sql("/data/dmbak", &backup);
+        assert!(
+            sql.contains("call SP_CREATE_JOB('bakup_ql',"),
+            "应创建全量备份作业"
+        );
+        assert!(
+            !sql.contains("call SP_CREATE_JOB('bakup_zl',"),
+            "每天全量时不应创建增量备份作业"
+        );
+        assert!(
+            sql.contains(", 1, 1, 0, 0, '02:00:00'"),
+            "全量应按天调度（间隔 1 天）"
+        );
+    }
+
+    #[test]
+    fn test_generate_backup_job_sql_interval_full_keeps_daily_incremental() {
+        let backup = crate::config::BackupConfig {
+            full_backup_interval_days: 3,
+            ..Default::default()
+        };
+        let sql = generate_backup_job_sql("/data/dmbak", &backup);
+        assert!(
+            sql.contains("call SP_CREATE_JOB('bakup_zl',"),
+            "全量间隔大于 1 天时应保留增量备份作业"
+        );
+        assert!(
+            sql.contains(", 1, 1, 3, 0, 0, '02:00:00'"),
+            "全量应按 3 天间隔调度"
+        );
+        assert!(
+            sql.contains("call SP_ADD_JOB_SCHEDULE('bakup_zl', 'diaodu_zl', 1, 1, 1, 0, 0, '02:00:00'"),
+            "增量应按天调度"
+        );
     }
 }
