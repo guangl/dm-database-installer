@@ -80,6 +80,10 @@ call SP_ADD_JOB_STEP('bak_clear', 'del_bak', 0, 'SF_BAKSET_BACKUP_DIR_ADD(''DISK
 CALL SP_DB_BAKSET_REMOVE_BATCH(''DISK'',SYSDATE-{retain_days});', 1, 2, 0, 0, NULL, 0);
 call SP_ADD_JOB_SCHEDULE('bak_clear', 'diaodu_del', 1, 1, 1, 0, 0, '01:00:00', NULL, '2020-06-25 22:54:03', NULL, '');
 call SP_JOB_CONFIG_COMMIT('bak_clear');
+
+-- bakup_ql 仅在每周六调度，安装当天若非周六，bakup_zl 在首个周六前无全备可依赖会失败；
+-- 此处立即执行一次全量备份，确保安装当天即有可用全备基线。
+BACKUP DATABASE BACKUPSET '{path}/FULL_INIT';
 exit;
 "#,
         path = backup_path,
@@ -161,5 +165,6 @@ mod tests {
         // 不应影响其余不该被替换的字面值
         assert!(sql.contains("'2020-06-25 22:43:59'"));
         assert!(sql.contains(", 64, 0, '01:00:00'"));
+        assert!(sql.contains("BACKUP DATABASE BACKUPSET '/data/dmbak/FULL_INIT';"));
     }
 }
