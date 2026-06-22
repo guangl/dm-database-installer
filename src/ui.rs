@@ -83,6 +83,10 @@ pub fn print_banner() {
         c.yellow, c.reset
     );
     println!(
+        "{}║  ⚠  安装完成后会自动开启本地归档（ARCHIVELOG）。            ║{}",
+        c.yellow, c.reset
+    );
+    println!(
         "{}╚══════════════════════════════════════════════════════════════╝{}",
         c.yellow, c.reset
     );
@@ -163,9 +167,18 @@ pub fn print_advisories(advisories: &[String]) {
     if advisories.is_empty() {
         return;
     }
-    println!("配置建议：");
+    let c = colors();
+    println!(
+        "{}╔══════════════════════════════════════════════════════════════╗{}",
+        c.yellow, c.reset
+    );
+    println!("{}║  ⚠  配置建议{}", c.yellow, c.reset);
     for a in advisories {
-        check_warn(a, "");
+        println!("{}║{}    - {}", c.yellow, c.reset, a);
     }
+    println!(
+        "{}╚══════════════════════════════════════════════════════════════╝{}",
+        c.yellow, c.reset
+    );
     println!();
 }
