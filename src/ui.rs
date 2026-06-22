@@ -107,10 +107,10 @@ pub fn print_success(
         2 => "EUC-KR",
         _ => "未知",
     };
-    let arch_space = if config.archive.space_limit == 0 {
-        "不限".to_string()
-    } else {
-        format!("{} MB", config.archive.space_limit)
+    let arch_space = match config.archive.space_limit {
+        Some(0) => "不限".to_string(),
+        Some(limit) => format!("{} MB", limit),
+        None => "自动（磁盘总容量的 20%）".to_string(),
     };
 
     println!();

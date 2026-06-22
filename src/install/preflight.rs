@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use crate::ssh::{CommandRunner, SshError};
+use crate::ssh::{CommandRunner, SshError, shell_quote};
 use crate::ui;
 
 pub fn is_already_installed(install_path: &str) -> bool {
@@ -94,6 +94,29 @@ fn parse_df_available(stdout: &[u8]) -> Result<u64> {
     available_str
         .parse::<u64>()
         .context(format!("df Available 列无法解析为 u64: {available_str}"))
+}
+
+/// 查询 `path` 所在文件系统的总容量（字节）。用于在归档空间上限未配置时，
+/// 按磁盘总容量的百分比计算默认值。
+pub async fn disk_total_bytes(runner: &dyn CommandRunner, path: &str) -> Result<u64> {
+    let cmd = format!("df -B1 {}", shell_quote(path));
+    let (stdout, _) = runner.exec(&cmd).await.map_err(|e| anyhow::anyhow!(e))?;
+    parse_df_total(&stdout)
+}
+
+fn parse_df_total(stdout: &[u8]) -> Result<u64> {
+    let text = std::str::from_utf8(stdout).context("df 输出不是有效 UTF-8")?;
+    let second_line = text
+        .lines()
+        .nth(1)
+        .context("df 输出行数不足，无法解析 1B-blocks 列")?;
+    let total_str = second_line
+        .split_whitespace()
+        .nth(1)
+        .context("df 输出列数不足，无法解析第 2 列")?;
+    total_str
+        .parse::<u64>()
+        .context(format!("df 1B-blocks 列无法解析为 u64: {total_str}"))
 }
 
 pub async fn check_ulimits(runner: &dyn CommandRunner) -> Result<()> {

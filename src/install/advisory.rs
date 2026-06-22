@@ -17,7 +17,7 @@ pub fn path_overlaps(a: &str, b: &str) -> bool {
 pub fn standalone_advisories(config: &InstallConfig, arch_path: &str) -> Vec<String> {
     let mut advisories: Vec<String> = Vec::new();
 
-    match &config.backup_path {
+    match &config.backup.backup_path {
         None => advisories.push(
             "未配置备份目录(backup_path)，单机部署建议同时配置归档与备份，避免数据丢失风险".to_string(),
         ),
@@ -47,7 +47,10 @@ mod tests {
 
     fn make_config(backup_path: Option<&str>, data_path: &str) -> InstallConfig {
         InstallConfig {
-            backup_path: backup_path.map(str::to_string),
+            backup: crate::config::BackupConfig {
+                backup_path: backup_path.map(str::to_string),
+                ..Default::default()
+            },
             data_path: data_path.to_string(),
             ..Default::default()
         }

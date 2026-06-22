@@ -309,7 +309,7 @@ async fn check_standalone_prerequisites(
     cpf::check_cpu_cores(runner).await?;
     cpf::check_disk_space(runner, &specific.install_path).await?;
     cpf::check_port_available(runner, specific.port).await?;
-    cpf::check_port_available(runner, specific.ap_port).await?;
+    cpf::check_port_available(runner, crate::config::AP_PORT_PRECHECK).await?;
     cpf::check_ulimits(runner).await?;
     cpf::check_selinux(runner).await?;
     Ok(())
