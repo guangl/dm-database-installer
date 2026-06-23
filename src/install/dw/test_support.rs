@@ -39,8 +39,8 @@ pub(super) fn make_cluster() -> DwClusterConfig {
     DwClusterConfig {
         oguid: 453331,
         nodes: vec![
-            make_node(NodeRole::Primary, "192.168.1.10", "DMSVR01"),
-            make_node(NodeRole::Standby, "192.168.1.11", "DMSVR02"),
+            make_node(NodeRole::Primary, "192.168.1.10", "DM01"),
+            make_node(NodeRole::Standby, "192.168.1.11", "DM02"),
         ],
     }
 }

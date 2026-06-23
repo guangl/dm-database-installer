@@ -133,7 +133,7 @@ oguid = 20260623
 [[nodes]]
 role          = "primary"
 host          = "192.168.1.10"
-instance_name = "DMSVR01"
+instance_name = "DM01"
 
 [nodes.backup]
 backup_path = "/data/dmbackup"
@@ -145,7 +145,7 @@ identity_file = "~/.ssh/id_rsa"
 [[nodes]]
 role          = "standby"
 host          = "192.168.1.11"
-instance_name = "DMSVR02"
+instance_name = "DM02"
 # standby 节点无需配置 [nodes.backup]，备份作业由主库同步过来
 
 [nodes.ssh]

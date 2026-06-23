@@ -326,7 +326,7 @@ host = "192.168.1.10"
 port = 5236
 install_path = "/opt/dmdbms"
 data_path = "/opt/dmdbms/data"
-instance_name = "DMSVR01"
+instance_name = "DM01"
 
 [nodes.backup]
 backup_path = "/opt/dmdbms/backup"
@@ -341,7 +341,7 @@ host = "192.168.1.11"
 port = 5236
 install_path = "/opt/dmdbms"
 data_path = "/opt/dmdbms/data"
-instance_name = "DMSVR02"
+instance_name = "DM02"
 
 [nodes.ssh]
 user = "root"
@@ -428,7 +428,7 @@ identity_file = "~/.ssh/id_rsa"
 
     #[test]
     fn test_validate_rejects_duplicate_instance_name() {
-        let toml = VALID_TOML.replace("DMSVR02", "DMSVR01");
+        let toml = VALID_TOML.replace("DM02", "DM01");
         let file = write_fixture(&toml);
         let err = load_dw_specific(file.path()).unwrap_err();
         let msg = format!("{:#}", err);
@@ -459,8 +459,8 @@ identity_file = "~/.ssh/id_rsa"
     #[test]
     fn test_validate_rejects_invalid_page_size() {
         let toml = VALID_TOML.replacen(
-            "instance_name = \"DMSVR01\"",
-            "instance_name = \"DMSVR01\"\npage_size = 12",
+            "instance_name = \"DM01\"",
+            "instance_name = \"DM01\"\npage_size = 12",
             1,
         );
         let file = write_fixture(&toml);
