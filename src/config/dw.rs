@@ -14,12 +14,12 @@ pub enum NodeRole {
     Standby,
 }
 
-/// 守护切换模式：AUTO = 故障时自动切换主备；MANUAL = 需人工介入切换。
+/// 守护切换模式：AUTO = 故障时自动切换主备；MANUAL（默认）= 需人工介入切换。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum DwMode {
-    #[default]
     Auto,
+    #[default]
     Manual,
 }
 
@@ -28,6 +28,34 @@ impl DwMode {
         match self {
             DwMode::Auto => "AUTO",
             DwMode::Manual => "MANUAL",
+        }
+    }
+}
+
+/// dmwatcher.ini 守护进程配置，对应 dw.toml 的 [watcher] 段。
+#[derive(Debug, Clone, Deserialize)]
+pub struct WatcherConfig {
+    /// 切换模式：AUTO（故障自动切换）或 MANUAL（默认，人工介入）。
+    #[serde(default)]
+    pub dw_mode: DwMode,
+    /// 故障确认时间（秒）：守护进程判定实例故障所需的连续无响应时长，默认 10 秒。
+    #[serde(default = "default_dw_error_time")]
+    pub dw_error_time: u32,
+    /// 实例恢复等待时间（秒）：故障切换后等待原主库恢复的最长时长，默认 60 秒。
+    #[serde(default = "default_inst_recover_time")]
+    pub inst_recover_time: u32,
+    /// 实例崩溃后是否自动重启（1=是，0=否），默认 1。
+    #[serde(default = "default_inst_auto_restart")]
+    pub inst_auto_restart: u8,
+}
+
+impl Default for WatcherConfig {
+    fn default() -> Self {
+        Self {
+            dw_mode: DwMode::default(),
+            dw_error_time: default_dw_error_time(),
+            inst_recover_time: default_inst_recover_time(),
+            inst_auto_restart: default_inst_auto_restart(),
         }
     }
 }
@@ -87,8 +115,8 @@ impl DwNode {
 #[derive(Debug, Clone)]
 pub struct DwClusterConfig {
     pub oguid: u32,
-    /// 守护切换模式：AUTO（默认，故障自动切换）或 MANUAL（人工介入切换）。
-    pub dw_mode: DwMode,
+    /// dmwatcher 守护进程配置（[watcher] 段）。
+    pub watcher: WatcherConfig,
     /// 确认监视器模式：true（默认）= MON_DW_CONFIRM=1，需监视器确认才能自动切换；
     /// false = MON_DW_CONFIRM=0，仅通知模式，不参与仲裁。
     pub mon_confirm: bool,
@@ -176,7 +204,7 @@ struct DwClusterConfigRaw {
     #[serde(default = "default_oguid")]
     oguid: u32,
     #[serde(default)]
-    dw_mode: DwMode,
+    watcher: WatcherConfig,
     #[serde(default = "default_mon_confirm")]
     mon_confirm: bool,
     #[serde(rename = "nodes")]
@@ -187,7 +215,7 @@ impl From<DwClusterConfigRaw> for DwClusterConfig {
     fn from(r: DwClusterConfigRaw) -> Self {
         Self {
             oguid: r.oguid,
-            dw_mode: r.dw_mode,
+            watcher: r.watcher,
             mon_confirm: r.mon_confirm,
             nodes: r.nodes.into_iter().map(DwNode::from).collect(),
         }
@@ -228,6 +256,15 @@ fn default_oguid() -> u32 {
 
 fn default_mon_confirm() -> bool {
     true
+}
+fn default_dw_error_time() -> u32 {
+    10
+}
+fn default_inst_recover_time() -> u32 {
+    60
+}
+fn default_inst_auto_restart() -> u8 {
+    1
 }
 
 fn default_install_path() -> String {

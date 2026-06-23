@@ -39,7 +39,7 @@ pub(super) fn make_node(role: NodeRole, host: &str, instance_name: &str) -> DwNo
 pub(super) fn make_cluster() -> DwClusterConfig {
     DwClusterConfig {
         oguid: 453331,
-        dw_mode: crate::config::dw::DwMode::Auto,
+        watcher: crate::config::dw::WatcherConfig::default(),
         mon_confirm: true,
         nodes: vec![
             make_node(NodeRole::Primary, "192.168.1.10", "DM01"),

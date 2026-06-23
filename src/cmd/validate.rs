@@ -49,20 +49,22 @@ fn print_dw_summary(path: &Path, common: &CommonConfig, cfg: &DwClusterConfig) {
     section("集群配置");
     kv("安装包", &installer_line(&common.installer));
     kv("OGUID", &cfg.oguid.to_string());
-    kv("切换模式", &format!(
-        "{}（{}）",
-        cfg.dw_mode.as_str(),
-        if cfg.dw_mode == crate::config::dw::DwMode::Auto {
-            "故障自动切换"
-        } else {
-            "人工介入切换"
-        }
-    ));
     kv("监视器", &format!(
         "{}（MON_DW_CONFIRM={}）",
         if cfg.mon_confirm { "确认监视，参与仲裁" } else { "通知监视，不参与仲裁" },
         cfg.mon_confirm as u8,
     ));
+
+    section("守护配置（dmwatcher.ini）");
+    let w = &cfg.watcher;
+    kv("切换模式", &format!(
+        "{}（{}）",
+        w.dw_mode.as_str(),
+        if w.dw_mode == crate::config::dw::DwMode::Auto { "故障自动切换" } else { "人工介入切换" }
+    ));
+    kv("故障确认", &format!("{} 秒（DW_ERROR_TIME）", w.dw_error_time));
+    kv("恢复等待", &format!("{} 秒（INST_RECOVER_TIME）", w.inst_recover_time));
+    kv("自动重启", &format!("{}（INST_AUTO_RESTART）", if w.inst_auto_restart != 0 { "是" } else { "否" }));
 
     for (i, node) in cfg.nodes.iter().enumerate() {
         print_dw_node(i + 1, cfg.nodes.len(), node);

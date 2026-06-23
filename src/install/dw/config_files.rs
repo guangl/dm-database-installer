@@ -59,20 +59,24 @@ pub fn dmarch_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
     out
 }
 
-/// dmwatcher.ini：数据守护进程配置，切换模式由 cluster.dw_mode 控制。
+/// dmwatcher.ini：数据守护进程配置，各字段由 cluster.watcher 控制。
 pub fn dmwatcher_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
+    let w = &cluster.watcher;
     format!(
         "[GRP1]\n\
          DW_TYPE = GLOBAL\n\
          DW_MODE = {dw_mode}\n\
-         DW_ERROR_TIME = 10\n\
-         INST_RECOVER_TIME = 60\n\
+         DW_ERROR_TIME = {dw_error_time}\n\
+         INST_RECOVER_TIME = {inst_recover_time}\n\
          INST_OGUID = {oguid}\n\
          INST_INI = {dm_ini}\n\
-         INST_AUTO_RESTART = 1\n\
+         INST_AUTO_RESTART = {inst_auto_restart}\n\
          INST_STARTUP_CMD = {install_path}/bin/dmserver\n\
          RLOG_SEND_APPLY_MON = 1\n",
-        dw_mode = cluster.dw_mode.as_str(),
+        dw_mode = w.dw_mode.as_str(),
+        dw_error_time = w.dw_error_time,
+        inst_recover_time = w.inst_recover_time,
+        inst_auto_restart = w.inst_auto_restart,
         oguid = cluster.oguid,
         dm_ini = crate::install::steps::service::dm_ini_path(&node.as_install_config()),
         install_path = node.install_path,
@@ -140,7 +144,7 @@ mod tests {
     fn make_cluster() -> DwClusterConfig {
         DwClusterConfig {
             oguid: 453331,
-            dw_mode: crate::config::dw::DwMode::Auto,
+            watcher: crate::config::dw::WatcherConfig::default(),
             mon_confirm: true,
             nodes: vec![
                 make_node(NodeRole::Primary, "192.168.1.10", "DM01"),
@@ -176,7 +180,7 @@ mod tests {
         let cluster = make_cluster();
         let ini = dmwatcher_ini(&cluster.nodes[0], &cluster);
         assert!(ini.contains("INST_OGUID = 453331"));
-        assert!(ini.contains("DW_MODE = AUTO"));
+        assert!(ini.contains("DW_MODE = MANUAL")); // 默认手动切换
         assert!(ini.contains("/home/dmdba/dmdbms/bin/dmserver"));
     }
 
