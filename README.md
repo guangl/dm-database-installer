@@ -114,10 +114,48 @@ dm_installer install
 ### 主备集群
 
 ```sh
+# 1. 生成配置模板
 dm_installer init dw
-# 编辑 config.toml + dw.toml，填写节点 IP 和 SSH 凭证
+
+# 2. 编辑 dw.toml，填写节点 IP、SSH 凭证和备份路径
+# vim dw.toml
+
+# 3. 一键安装（支持断点续传）
 dm_installer install
 ```
+
+`dw.toml` 最小示例：
+
+```toml
+# oguid 可省略，默认为当天 YYYYMMDD（如 20260623）
+oguid = 20260623
+
+[[nodes]]
+role          = "primary"
+host          = "192.168.1.10"
+instance_name = "DMSVR01"
+
+[nodes.backup]
+backup_path = "/data/dmbackup"
+
+[nodes.ssh]
+user          = "root"
+identity_file = "~/.ssh/id_rsa"
+
+[[nodes]]
+role          = "standby"
+host          = "192.168.1.11"
+instance_name = "DMSVR02"
+
+[nodes.backup]
+backup_path = "/data/dmbackup"
+
+[nodes.ssh]
+user          = "root"
+identity_file = "~/.ssh/id_rsa"
+```
+
+安装完成后，`dmserver`/`dmwatcher`/`dmmonitor` 均已注册为 systemd 服务，随系统自启。监视器（`dmmonitor`）默认运行在第一个 standby 节点，避免与 primary 共置。
 
 ## 配置参考
 
@@ -163,8 +201,8 @@ extent_size    = 32   # 区段大小（页数）：16 / 32
 | 集群类型 | 命令 | 状态 |
 |---------|------|------|
 | 主备（DW）| `dm_installer init dw` | ✅ 支持 |
-| 读写分离（RWS）| `dm_installer init rws` | ✅ 支持 |
-| 共享存储（DSC）| `dm_installer init dsc` | ✅ 支持 |
+| 读写分离（RWS）| — | 🚧 开发中 |
+| 共享存储（DSC）| — | 🚧 开发中 |
 | 数据保护集群（DPC）| — | 🚧 开发中 |
 
 ## 子命令
