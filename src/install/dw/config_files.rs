@@ -118,9 +118,13 @@ mod tests {
             charset: 1,
             case_sensitive: true,
             extent_size: 32,
-            backup: crate::config::BackupConfig {
-                backup_path: Some("/home/dmdba/dmdbms/backup".to_string()),
-                ..Default::default()
+            backup: if role == NodeRole::Primary {
+                Some(crate::config::BackupConfig {
+                    backup_path: Some("/home/dmdba/dmdbms/backup".to_string()),
+                    ..Default::default()
+                })
+            } else {
+                None
             },
             ssh: SshCredentials {
                 user: "root".to_string(),

@@ -3,16 +3,21 @@
 use anyhow::{Context, Result};
 use futures::future::try_join_all;
 
+use crate::config::dw::NodeRole;
 use crate::install::steps::{backup, param_tune, service, sql_log};
 
 use super::NodeRunner;
 
+/// 备份作业只在 primary 节点配置；主库建好作业后会自动同步到备库，无需在备库重复操作。
 pub(super) async fn backup_all(pairs: &[NodeRunner<'_>], sysdba_pwd: &str) -> Result<()> {
-    let futs = pairs.iter().map(|(node, runner)| async move {
-        backup::configure_jobs(*runner, &node.as_install_config(), sysdba_pwd)
-            .await
-            .with_context(|| format!("节点 {} 配置备份作业失败", node.host))
-    });
+    let futs = pairs
+        .iter()
+        .filter(|(node, _)| node.role == NodeRole::Primary)
+        .map(|(node, runner)| async move {
+            backup::configure_jobs(*runner, &node.as_install_config(), sysdba_pwd)
+                .await
+                .with_context(|| format!("节点 {} 配置备份作业失败", node.host))
+        });
     try_join_all(futs).await?;
     Ok(())
 }
@@ -50,22 +55,24 @@ mod tests {
     use crate::ssh::{CommandRunner, MockRunner};
 
     #[tokio::test]
-    async fn test_backup_all_configures_each_node() {
+    async fn test_backup_all_only_configures_primary() {
         let cluster = make_cluster();
-        let m1 = MockRunner::new(vec![]);
-        let m2 = MockRunner::new(vec![]);
+        let m1 = MockRunner::new(vec![]); // primary
+        let m2 = MockRunner::new(vec![]); // standby
         let pairs: Vec<NodeRunner> = cluster
             .nodes
             .iter()
             .zip([&m1, &m2].into_iter().map(|m| m as &dyn CommandRunner))
             .collect();
         backup_all(&pairs, "Pwd123").await.unwrap();
-        for m in [&m1, &m2] {
-            assert!(
-                m.exec_log().iter().any(|c| c.contains("mkdir -p")),
-                "应为每个节点创建备份目录"
-            );
-        }
+        assert!(
+            m1.exec_log().iter().any(|c| c.contains("mkdir -p")),
+            "primary 应创建备份目录"
+        );
+        assert!(
+            !m2.exec_log().iter().any(|c| c.contains("mkdir -p")),
+            "standby 不应创建备份目录（备份作业由主库同步）"
+        );
     }
 
     #[tokio::test]

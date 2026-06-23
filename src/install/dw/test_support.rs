@@ -19,9 +19,13 @@ pub(super) fn make_node(role: NodeRole, host: &str, instance_name: &str) -> DwNo
         charset: 0,
         case_sensitive: true,
         extent_size: 16,
-        backup: BackupConfig {
-            backup_path: Some("/opt/dmdbms/backup".to_string()),
-            ..Default::default()
+        backup: if role == NodeRole::Primary {
+            Some(BackupConfig {
+                backup_path: Some("/opt/dmdbms/backup".to_string()),
+                ..Default::default()
+            })
+        } else {
+            None
         },
         ssh: SshCredentials {
             user: "root".to_string(),

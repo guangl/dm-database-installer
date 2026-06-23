@@ -30,14 +30,15 @@ pub struct DwNode {
     pub charset: u8,
     pub case_sensitive: bool,
     pub extent_size: u8,
-    pub backup: BackupConfig,
+    /// 备份作业配置：仅 primary 节点需要填写，standby 不需要（备份作业会由主库同步过去）。
+    pub backup: Option<BackupConfig>,
     pub ssh: SshCredentials,
 }
 
 impl DwNode {
-    /// 桥接到 `InstallConfig`，复用单机安装步骤函数（dminit/service/preflight/backup/sql_log
-    /// 等）。集群的归档走 dmarch.ini 文件而非 `archive` 模块的在线 SQL 路径，因此该字段留空
-    /// 对集群安装无副作用；`backup` 则直接复用本节点配置，供 `backup::configure_jobs` 使用。
+    /// 桥接到 `InstallConfig`，复用单机安装步骤函数（dminit/service/preflight 等）。
+    /// 集群的归档走 dmarch.ini 文件而非 `archive` 模块的在线 SQL 路径，因此该字段留空
+    /// 对集群安装无副作用；`backup` 仅 primary 有值，standby 传空配置（不会触发备份作业）。
     pub fn as_install_config(&self) -> InstallConfig {
         InstallConfig {
             install_path: self.install_path.clone(),
@@ -49,7 +50,7 @@ impl DwNode {
             case_sensitive: self.case_sensitive,
             extent_size: self.extent_size,
             archive: ArchiveConfig::default(),
-            backup: self.backup.clone(),
+            backup: self.backup.clone().unwrap_or_default(),
             ssh_target: None,
         }
     }
@@ -109,7 +110,7 @@ struct DwNodeRaw {
     #[serde(default = "default_extent_size")]
     extent_size: u8,
     #[serde(default)]
-    backup: BackupConfig,
+    backup: Option<BackupConfig>,
     ssh: SshCredentials,
 }
 
@@ -275,19 +276,23 @@ pub fn validate_dw_config(cfg: &DwClusterConfig) -> Result<()> {
                 node.host
             );
         }
-        match node.backup.backup_path.as_deref() {
-            None | Some("") => bail!(
-                "配置验证失败: 节点 {} 的 backup_path 未配置；请在 dw.toml [[nodes]] 的 [nodes.backup] 段配置 backup_path（用于创建备份作业）",
-                node.host
-            ),
-            _ => {}
-        }
-        if node.backup.retain_days < 15 {
-            bail!(
-                "配置验证失败: 节点 {} 的 backup.retain_days 无效: {}；至少保留 15 天",
-                node.host,
-                node.backup.retain_days
-            );
+        if node.role == NodeRole::Primary {
+            match node.backup.as_ref().and_then(|b| b.backup_path.as_deref()) {
+                None | Some("") => bail!(
+                    "配置验证失败: primary 节点 {} 的 backup_path 未配置；请在 dw.toml [[nodes]] 的 [nodes.backup] 段配置 backup_path",
+                    node.host
+                ),
+                _ => {}
+            }
+            if let Some(b) = &node.backup {
+                if b.retain_days < 15 {
+                    bail!(
+                        "配置验证失败: 节点 {} 的 backup.retain_days 无效: {}；至少保留 15 天",
+                        node.host,
+                        b.retain_days
+                    );
+                }
+            }
         }
         if !seen_instance_names.insert(node.instance_name.clone()) {
             bail!(
@@ -337,9 +342,6 @@ port = 5236
 install_path = "/opt/dmdbms"
 data_path = "/opt/dmdbms/data"
 instance_name = "DMSVR02"
-
-[nodes.backup]
-backup_path = "/opt/dmdbms/backup"
 
 [nodes.ssh]
 user = "root"
@@ -434,6 +436,24 @@ identity_file = "~/.ssh/id_rsa"
             msg.contains("instance_name 在集群内必须唯一"),
             "实际: {msg}"
         );
+    }
+
+    #[test]
+    fn test_validate_rejects_primary_missing_backup_path() {
+        let toml = VALID_TOML.replace("[nodes.backup]\nbackup_path = \"/opt/dmdbms/backup\"\n\n", "");
+        let file = write_fixture(&toml);
+        let err = load_dw_specific(file.path()).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("backup_path 未配置"), "实际: {msg}");
+    }
+
+    #[test]
+    fn test_standby_without_backup_config_is_valid() {
+        // standby 节点不填 [nodes.backup] 应通过校验
+        let file = write_fixture(VALID_TOML);
+        let cfg = load_dw_specific(file.path()).expect("standby 无备份配置应合法");
+        let standby = cfg.standbys().next().expect("应有 standby");
+        assert!(standby.backup.is_none(), "standby.backup 应为 None");
     }
 
     #[test]
