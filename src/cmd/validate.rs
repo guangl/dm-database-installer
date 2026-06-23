@@ -46,6 +46,18 @@ fn print_dw_summary(path: &Path, common: &CommonConfig, cfg: &DwClusterConfig) {
             node.page_size, node.charset, node.extent_size
         );
         println!("    SSH 用户:   {}", node.ssh.user);
+        if let Some(b) = &node.backup {
+            println!("\n    [备份作业]");
+            match b.backup_path.as_deref() {
+                Some(p) => println!("      备份目录:   {}", p),
+                None => println!("      备份目录:   （未配置）"),
+            }
+            println!("      保留天数:   {}", b.retain_days);
+            println!("      全量间隔:   {} 天", b.full_backup_interval_days);
+            println!("      全量时间:   {}", b.full_backup_time);
+            println!("      增量时间:   {}", b.incr_backup_time);
+            println!("      清理时间:   {}", b.clean_time);
+        }
     }
 }
 
