@@ -146,16 +146,17 @@ identity_file = "~/.ssh/id_rsa"
 role          = "standby"
 host          = "192.168.1.11"
 instance_name = "DMSVR02"
-
-[nodes.backup]
-backup_path = "/data/dmbackup"
+# standby 节点无需配置 [nodes.backup]，备份作业由主库同步过来
 
 [nodes.ssh]
 user          = "root"
 identity_file = "~/.ssh/id_rsa"
 ```
 
-安装完成后，`dmserver`/`dmwatcher`/`dmmonitor` 均已注册为 systemd 服务，随系统自启。监视器（`dmmonitor`）默认运行在第一个 standby 节点，避免与 primary 共置。
+安装完成后：
+- `dmserver`/`dmwatcher`/`dmmonitor` 均已注册为 systemd 服务，随系统自启
+- 监视器（`dmmonitor`）默认运行在第一个 standby 节点，避免与 primary 共置
+- 备份作业仅在 primary 上创建，主库会自动将作业同步到备库
 
 ## 配置参考
 

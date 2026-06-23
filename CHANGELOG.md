@@ -18,9 +18,9 @@
   - 启动 `dmwatcher` 守护进程（自动将 Mount 状态实例切换为 Open）与 `dmmonitor` 确认监视器
   - 配置备份作业、开启 SQL 日志（SVR_LOG）、应用官方自动参数调整脚本（调整后以 Mount 模式重启 dmserver 生效）
 - **集群断点续传**：按节点维度的检查点续传覆盖以上每一个独立步骤，中断后重跑 `dm_installer install` 会跳过已完成的节点和步骤（启动顺序步骤因 primary 优先的强约束仍整体重跑）
-- `dw.toml` 节点新增 `[nodes.backup]` 备份作业配置段（字段与单机 `standalone.toml` 的 `[backup]` 一致）
+- `dw.toml` primary 节点新增 `[nodes.backup]` 备份作业配置段（字段与单机 `standalone.toml` 的 `[backup]` 一致）；**standby 节点无需配置**，主库建好备份作业后会自动同步到备库
 - `dw.toml` 的 `oguid` 字段可省略，默认值为执行 `dm_installer init dw` 当天的 `YYYYMMDD` 数字（如 `20260623`），满足达梦对 oguid 全局唯一的要求；有效范围 0–2147483647
-- `dm_installer validate` 支持校验 `dw.toml`：节点列表非空、恰好一个 primary、`oguid` 范围、`mal_port` 不与 `port` 冲突、SSH 凭证完整性、`instance_name` 集群内唯一、各节点 `backup_path` 已配置
+- `dm_installer validate` 支持校验 `dw.toml`：节点列表非空、恰好一个 primary、`oguid` 范围、`mal_port` 不与 `port` 冲突、SSH 凭证完整性、`instance_name` 集群内唯一、primary 节点 `backup_path` 已配置
 - `CommandRunner` 新增 `sftp_read`（SSH/本地/Mock 三种实现均已支持），用于控制机中转两个远端节点间的文件传输
 - 主备集群（dw）安装包来源与单机一致支持三选一：本地路径、下载链接、或都不填自动检测平台下载（按 primary 节点平台检测，下载后的同一份包推送到所有节点；下载结果按 oguid 缓存进集群 checkpoint，断点续传时跳过重复下载）
 
