@@ -53,8 +53,8 @@ pub struct InitArgs {
 pub enum InitKind {
     /// 生成单机安装配置模板（输出 config.toml + standalone.toml）
     Standalone(InitOutputArgs),
-    /// 生成主备集群配置模板（即将支持）
-    Dw,
+    /// 生成主备集群配置模板（输出 config.toml + dw.toml）
+    Dw(InitOutputArgs),
     /// 生成读写分离集群配置模板（即将支持）
     Rws,
     /// 生成 DSC 共享存储集群配置模板（即将支持）

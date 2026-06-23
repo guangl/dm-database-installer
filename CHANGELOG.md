@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-23
+
+### 新增
+
+- **主备集群（DW）安装支持**：`dm_installer init dw` 生成 `config.toml` + `dw.toml` 配置模板，`dm_installer install` 按达梦官方[数据守护搭建文档](https://eco.dameng.com/document/dm/zh-cn/pm/data-guard-construction.html)的步骤顺序自动完成整套主备搭建：
+  - 连接预检 → 环境准备（dmdba 用户/SELinux/内核参数等，与单机安装共用逻辑）→ 上传安装包 → 静默安装 → `dminit` 初始化
+  - **备份还原同步备库数据**：在 primary 上用 `dmrman` 做一次脱机全量备份，经控制机中转打包传输到每个 standby，再执行 RESTORE + RECOVER 建立一致的数据基线
+  - 分发 `dmmal.ini`/`dmarch.ini`/`dmwatcher.ini`，并在 `dm.ini` 中补充 `MAL_INI`/`ARCH_INI`/`DW_INACTIVE_INTERVAL`/`ENABLE_OFFLINE_TS`/`RLOG_SEND_APPLY_MON` 等守护参数
+  - 以 **Mount 模式**启动 `dmserver`（`dmserver dm.ini mount`），通过 disql 执行 `sp_set_oguid` 与 `ALTER DATABASE PRIMARY/STANDBY`（primary 先于 standby）
+  - 启动 `dmwatcher` 守护进程（自动将 Mount 状态实例切换为 Open）与 `dmmonitor` 确认监视器
+  - 配置备份作业、开启 SQL 日志（SVR_LOG）、应用官方自动参数调整脚本（调整后以 Mount 模式重启 dmserver 生效）
+- **集群断点续传**：按节点维度的检查点续传覆盖以上每一个独立步骤，中断后重跑 `dm_installer install` 会跳过已完成的节点和步骤（启动顺序步骤因 primary 优先的强约束仍整体重跑）
+- `dw.toml` 节点新增 `[nodes.backup]` 备份作业配置段（字段与单机 `standalone.toml` 的 `[backup]` 一致）
+- `dm_installer validate` 支持校验 `dw.toml`：节点列表非空、恰好一个 primary、`oguid` 范围、`mal_port` 不与 `port` 冲突、SSH 凭证完整性、`instance_name` 集群内唯一、各节点 `backup_path` 已配置
+- `CommandRunner` 新增 `sftp_read`（SSH/本地/Mock 三种实现均已支持），用于控制机中转两个远端节点间的文件传输
+- 主备集群（dw）安装包来源与单机一致支持三选一：本地路径、下载链接、或都不填自动检测平台下载（按 primary 节点平台检测，下载后的同一份包推送到所有节点；下载结果按 oguid 缓存进集群 checkpoint，断点续传时跳过重复下载）
+
+### 变更
+
+- 主版本号升级至 2.0.0：单机安装（standalone）与主备集群安装（dw）并列为本工具的两条主路径，对齐 PROJECT.md 中“开发者单机环境 / DBA 生产集群”的双用户定位
+- `dw.toml` 节点默认值（`install_path`/`data_path`/`page_size`/`charset`/`extent_size`）改为与 `standalone.toml` 一致，仅集群专属字段（端口、角色、SSH）保留差异
+- `install::steps::param_tune` 拆分出不含重启逻辑的 `apply()`，供集群安装在 Mount 模式重启场景下复用
+
 ## [1.2.3] - 2026-06-21
 
 ### 修复

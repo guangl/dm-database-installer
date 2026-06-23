@@ -25,7 +25,14 @@ async fn main() -> Result<()> {
                 }
                 std::process::exit(1);
             });
-            install::standalone::run(args, cfg.common, cfg.specific).await
+            match cfg.specific {
+                config::LoadedSpecific::Standalone(specific) => {
+                    install::standalone::run(args, cfg.common, specific).await
+                }
+                config::LoadedSpecific::Dw(cluster) => {
+                    install::dw::run(args, cfg.common, &cluster).await
+                }
+            }
         }
         cli::Commands::SelfUpdate(args) => cmd::self_update::run(args.check).await,
         cli::Commands::Validate(args) => cmd::validate::run(args).await,

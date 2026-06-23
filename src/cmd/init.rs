@@ -28,16 +28,33 @@ pub fn run(kind: &InitKind) -> Result<()> {
             }
             Ok(())
         }
-        InitKind::Dw | InitKind::Rws | InitKind::Dsc | InitKind::Dpc => {
+        InitKind::Dw(args) => {
+            let dir = output_dir(args);
+            let wrote_common = write_template(&dir.join("config.toml"), args.force, DW_COMMON)?;
+            let wrote_specific = write_template(&dir.join("dw.toml"), args.force, DW_SPECIFIC)?;
+            if wrote_common || wrote_specific {
+                println!("已生成主备集群配置模板:");
+                if wrote_common {
+                    println!("  config.toml — 通用配置（type、安装包路径等）");
+                }
+                if wrote_specific {
+                    println!("  dw.toml     — 主备集群节点配置（角色、网络端口、SSH 凭证等）");
+                }
+                println!("编辑后使用: dm_installer validate 校验，再 dm_installer install 部署");
+            } else {
+                println!("配置文件已存在，无需覆盖。使用 --force 强制重新生成。");
+            }
+            Ok(())
+        }
+        InitKind::Rws | InitKind::Dsc | InitKind::Dpc => {
             let mode = match kind {
-                InitKind::Dw => "主备集群（dw）",
                 InitKind::Rws => "读写分离集群（rws）",
                 InitKind::Dsc => "DSC 共享存储集群（dsc）",
                 InitKind::Dpc => "DPC 分布式集群（dpc）",
                 _ => unreachable!(),
             };
             println!("{} 配置模板即将支持，请关注后续版本。", mode);
-            println!("当前可使用: dm_installer init standalone");
+            println!("当前可使用: dm_installer init standalone / dm_installer init dw");
             Ok(())
         }
     }
@@ -123,6 +140,85 @@ clean_time        = "05:00:00" # 过期备份清理时间（每天，HH:MM:SS）
 # retry_interval_secs = 5
 "#;
 
+const DW_COMMON: &str = r#"# 达梦数据库主备集群安装 — 通用配置
+# 使用方式: dm_installer install
+
+type = "dw"
+
+# ─── 安装包来源（三选一，都不填则自动检测 primary 节点平台并下载）──
+# 工具会把这个文件推送到各节点后再静默安装。
+# 本地文件路径
+# installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
+# 自定义下载链接
+# installer_url = "https://download.example.com/dm8.zip"
+"#;
+
+const DW_SPECIFIC: &str = r#"# 达梦数据库主备集群安装 — 节点配置（dw.toml）
+# 注意：SYSDBA / SYSAUDITOR 密码在安装时由终端提示输入，不写入此文件
+
+# 数据库守护系统全局唯一标识，范围 0-2147483647
+oguid = 453331
+
+[[nodes]]
+role          = "primary"
+host          = "192.168.1.10"
+instance_name = "DM01"
+install_path  = "/home/dmdba/dmdbms"
+data_path     = "/home/dmdba/dmdbms/data"
+port          = 5236
+mal_port      = 5237
+dw_port       = 5238
+inst_dw_port  = 5239
+# 页大小（KB），可选值：4 / 8 / 16 / 32
+page_size     = 32
+# 字符集：0=GB18030  1=UTF-8  2=EUC-KR
+charset       = 1
+case_sensitive = true
+# 区段大小（页数），可选值：16 / 32
+extent_size   = 32
+
+# 备份作业配置（字段含义与 standalone.toml 的 [backup] 段一致）
+[nodes.backup]
+backup_path = "/home/dmdba/dmdbms/backup"
+retain_days = 15
+full_backup_interval_days = 7
+full_backup_time = "02:00:00"
+incr_backup_time = "02:00:00"
+clean_time        = "05:00:00"
+
+[nodes.ssh]
+user          = "root"
+identity_file = "~/.ssh/id_rsa"
+# password 不填则使用 identity_file；两者至少配置一个
+
+[[nodes]]
+role          = "standby"
+host          = "192.168.1.11"
+instance_name = "DM02"
+install_path  = "/home/dmdba/dmdbms"
+data_path     = "/home/dmdba/dmdbms/data"
+port          = 5236
+mal_port      = 5237
+dw_port       = 5238
+inst_dw_port  = 5239
+page_size     = 32
+charset       = 1
+case_sensitive = true
+extent_size   = 32
+
+[nodes.backup]
+backup_path = "/home/dmdba/dmdbms/backup"
+retain_days = 15
+full_backup_interval_days = 7
+full_backup_time = "02:00:00"
+incr_backup_time = "02:00:00"
+clean_time        = "05:00:00"
+
+[nodes.ssh]
+user          = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +301,38 @@ mod tests {
         run(&InitKind::Standalone(output_args_in(&dir, false))).unwrap();
         run(&InitKind::Standalone(output_args_in(&dir, true))).unwrap();
         assert!(dir.path().join("standalone.toml").exists());
+    }
+
+    #[test]
+    fn test_dw_creates_two_files() {
+        let dir = TempDir::new().unwrap();
+        run(&InitKind::Dw(output_args_in(&dir, false))).unwrap();
+        assert!(dir.path().join("config.toml").exists(), "应生成 config.toml");
+        assert!(dir.path().join("dw.toml").exists(), "应生成 dw.toml");
+    }
+
+    #[test]
+    fn test_dw_common_has_type_field() {
+        let dir = TempDir::new().unwrap();
+        run(&InitKind::Dw(output_args_in(&dir, false))).unwrap();
+        let content = std::fs::read_to_string(dir.path().join("config.toml")).unwrap();
+        assert!(content.contains("type = \"dw\""), "通用配置应含 type = \"dw\"");
+    }
+
+    #[test]
+    fn test_dw_templates_are_valid_toml_and_pass_validation() {
+        toml::from_str::<toml::Value>(DW_COMMON).expect("通用模板应为合法 TOML");
+        toml::from_str::<toml::Value>(DW_SPECIFIC).expect("dw 特有模板应为合法 TOML");
+
+        let dir = TempDir::new().unwrap();
+        run(&InitKind::Dw(output_args_in(&dir, false))).unwrap();
+        let loaded =
+            crate::config::load_config_from(&dir.path().join("config.toml")).expect("应加载成功");
+        match loaded.specific {
+            crate::config::LoadedSpecific::Dw(cluster) => {
+                assert_eq!(cluster.nodes.len(), 2);
+            }
+            _ => panic!("应解析为 Dw 集群配置"),
+        }
     }
 }

@@ -2,16 +2,51 @@ use anyhow::Result;
 use std::path::Path;
 
 use crate::cli::ValidateArgs;
+use crate::config::dw::DwClusterConfig;
 use crate::config::ssh::SshTarget;
-use crate::config::{ArchiveConfig, CommonConfig, InstallConfig, InstallerSource};
+use crate::config::{ArchiveConfig, CommonConfig, InstallConfig, InstallerSource, LoadedSpecific};
 
 pub async fn run(args: &ValidateArgs) -> Result<()> {
     let config_path = resolve_common_config_path(args.config.as_deref());
     let loaded = crate::config::load_config_from(&config_path)?;
 
-    print_standalone_summary(&config_path, &loaded.common, &loaded.specific);
+    match &loaded.specific {
+        LoadedSpecific::Standalone(cfg) => {
+            print_standalone_summary(&config_path, &loaded.common, cfg)
+        }
+        LoadedSpecific::Dw(cluster) => print_dw_summary(&config_path, &loaded.common, cluster),
+    }
     println!("\n✓ 配置解析成功");
     Ok(())
+}
+
+fn print_dw_summary(path: &Path, common: &CommonConfig, cfg: &DwClusterConfig) {
+    println!("配置文件: {} + dw.toml", path.display());
+    println!("安装类型: 主备集群 (dw)");
+    match &common.installer {
+        InstallerSource::LocalFile(p) => println!("  安装包:     {}", p.display()),
+        InstallerSource::Url(u) => println!("  安装包:     下载 {}", u),
+        InstallerSource::Auto => println!("  安装包:     自动检测下载"),
+    }
+    println!("  oguid:      {}", cfg.oguid);
+    println!("  节点数:     {}", cfg.nodes.len());
+    for node in &cfg.nodes {
+        println!(
+            "\n  [{:?}] {} ({})",
+            node.role, node.host, node.instance_name
+        );
+        println!("    安装路径:   {}", node.install_path);
+        println!("    数据路径:   {}", node.data_path);
+        println!(
+            "    端口:       port={} mal_port={} dw_port={} inst_dw_port={}",
+            node.port, node.mal_port, node.dw_port, node.inst_dw_port
+        );
+        println!(
+            "    页大小:     {} KB / 字符集: {} / 簇大小: {}",
+            node.page_size, node.charset, node.extent_size
+        );
+        println!("    SSH 用户:   {}", node.ssh.user);
+    }
 }
 
 fn resolve_common_config_path(input: Option<&Path>) -> std::path::PathBuf {

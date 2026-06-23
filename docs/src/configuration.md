@@ -21,9 +21,9 @@
 # dsc         — 共享存储集群（开发中）
 type = "standalone"
 
-# DM8 安装包本地路径
-# 单机：留空则自动下载匹配当前平台的版本
-# 集群：必填，工具会将此文件推送到各节点
+# DM8 安装包本地路径或下载链接，与 installer_url 二选一
+# 都不填则自动检测平台并下载（集群模式按 primary 节点平台检测）
+# 确定后会将此文件推送到各节点再静默安装
 # installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
 
 # 日志级别：trace / debug / info / warn / error
@@ -111,16 +111,29 @@ retry_interval_secs = 5
 | `role` | — | `"primary"` 或 `"standby"`（必填，且只能有一个 primary） |
 | `host` | — | 节点 IP 或域名（必填） |
 | `instance_name` | — | 实例名称，同一集群内必须唯一（必填） |
-| `install_path` | `/opt/dmdbms` | DM 程序安装目录 |
-| `data_path` | `/opt/dmdbms/data` | 数据文件目录 |
+| `install_path` | `/home/dmdba/dmdbms` | DM 程序安装目录（与 standalone 默认一致） |
+| `data_path` | `/home/dmdba/dmdbms/data` | 数据文件目录（与 standalone 默认一致） |
 | `port` | `5236` | 数据库监听端口 |
 | `mal_port` | `5237` | MAL 通信端口（不能与 port 相同） |
-| `dw_port` | `5238` | 数据守护监听端口 |
+| `dw_port` | `5238` | 数据守护监听端口（即 MAL_DW_PORT，dmmonitor 也用此端口） |
 | `inst_dw_port` | `5239` | 实例向守护进程注册的端口 |
-| `page_size` | `8` | 页大小（KB）：`4` / `8` / `16` / `32` |
-| `charset` | `0` | 0=GB18030  1=UTF-8  2=EUC-KR |
+| `page_size` | `32` | 页大小（KB）：`4` / `8` / `16` / `32` |
+| `charset` | `1` | 0=GB18030  1=UTF-8  2=EUC-KR |
 | `case_sensitive` | `true` | SQL 标识符大小写敏感 |
-| `extent_size` | `16` | 区段大小（页数）：`16` / `32` |
+| `extent_size` | `32` | 区段大小（页数）：`16` / `32` |
+
+### [nodes.backup] — 节点备份作业配置
+
+字段与 [standalone.toml 的 `[backup]` 段](#standalonetoml) 完全一致，每个节点独立配置（必填，用于在该节点上创建全备/增量备份作业）。
+
+| 键 | 默认值 | 说明 |
+|----|--------|------|
+| `backup_path` | — | 数据库备份目录（必填） |
+| `retain_days` | `15` | 备份保留天数，至少 15 天 |
+| `full_backup_interval_days` | `7` | 全量备份间隔天数 |
+| `full_backup_time` | `"02:00:00"` | 全量备份执行时间 |
+| `incr_backup_time` | `"02:00:00"` | 增量备份执行时间 |
+| `clean_time` | `"05:00:00"` | 过期备份清理执行时间 |
 
 ### [nodes.ssh] — 节点 SSH 凭证
 
@@ -142,17 +155,25 @@ oguid = 453331
 [[nodes]]
 role          = "primary"
 host          = "192.168.1.10"
-instance_name = "DMSVR01"
-install_path  = "/opt/dmdbms"
-data_path     = "/opt/dmdbms/data"
+instance_name = "DM01"
+install_path  = "/home/dmdba/dmdbms"
+data_path     = "/home/dmdba/dmdbms/data"
 port          = 5236
 mal_port      = 5237
 dw_port       = 5238
 inst_dw_port  = 5239
-page_size     = 8
-charset       = 0
+page_size     = 32
+charset       = 1
 case_sensitive = true
-extent_size   = 16
+extent_size   = 32
+
+[nodes.backup]
+backup_path = "/home/dmdba/dmdbms/backup"
+retain_days = 15
+full_backup_interval_days = 7
+full_backup_time = "02:00:00"
+incr_backup_time = "02:00:00"
+clean_time        = "05:00:00"
 
 [nodes.ssh]
 user          = "root"
@@ -163,17 +184,25 @@ identity_file = "~/.ssh/id_rsa"
 [[nodes]]
 role          = "standby"
 host          = "192.168.1.11"
-instance_name = "DMSVR02"
-install_path  = "/opt/dmdbms"
-data_path     = "/opt/dmdbms/data"
+instance_name = "DM02"
+install_path  = "/home/dmdba/dmdbms"
+data_path     = "/home/dmdba/dmdbms/data"
 port          = 5236
 mal_port      = 5237
 dw_port       = 5238
 inst_dw_port  = 5239
-page_size     = 8
-charset       = 0
+page_size     = 32
+charset       = 1
 case_sensitive = true
-extent_size   = 16
+extent_size   = 32
+
+[nodes.backup]
+backup_path = "/home/dmdba/dmdbms/backup"
+retain_days = 15
+full_backup_interval_days = 7
+full_backup_time = "02:00:00"
+incr_backup_time = "02:00:00"
+clean_time        = "05:00:00"
 
 [nodes.ssh]
 user          = "root"
