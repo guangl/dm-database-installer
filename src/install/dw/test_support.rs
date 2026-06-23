@@ -19,6 +19,7 @@ pub(super) fn make_node(role: NodeRole, host: &str, instance_name: &str) -> DwNo
         charset: 0,
         case_sensitive: true,
         extent_size: 16,
+        arch_path: None,
         backup: if role == NodeRole::Primary {
             Some(BackupConfig {
                 backup_path: Some("/opt/dmdbms/backup".to_string()),
@@ -38,6 +39,8 @@ pub(super) fn make_node(role: NodeRole, host: &str, instance_name: &str) -> DwNo
 pub(super) fn make_cluster() -> DwClusterConfig {
     DwClusterConfig {
         oguid: 453331,
+        dw_mode: crate::config::dw::DwMode::Auto,
+        mon_confirm: true,
         nodes: vec![
             make_node(NodeRole::Primary, "192.168.1.10", "DM01"),
             make_node(NodeRole::Standby, "192.168.1.11", "DM02"),

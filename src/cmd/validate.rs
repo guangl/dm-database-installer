@@ -29,6 +29,15 @@ fn print_dw_summary(path: &Path, common: &CommonConfig, cfg: &DwClusterConfig) {
         InstallerSource::Auto => println!("  安装包:     自动检测下载"),
     }
     println!("  oguid:      {}", cfg.oguid);
+    println!(
+        "  切换模式:   {}",
+        cfg.dw_mode.as_str()
+    );
+    println!(
+        "  监视器模式: {}（MON_DW_CONFIRM={}）",
+        if cfg.mon_confirm { "确认监视" } else { "通知监视" },
+        cfg.mon_confirm as u8,
+    );
     println!("  节点数:     {}", cfg.nodes.len());
     for node in &cfg.nodes {
         println!(
@@ -45,6 +54,7 @@ fn print_dw_summary(path: &Path, common: &CommonConfig, cfg: &DwClusterConfig) {
             "    页大小:     {} KB / 字符集: {} / 簇大小: {}",
             node.page_size, node.charset, node.extent_size
         );
+        println!("    归档目录:   {}", node.resolve_arch_path());
         println!("    SSH 用户:   {}", node.ssh.user);
         if let Some(b) = &node.backup {
             println!("\n    [备份作业]");

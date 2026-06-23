@@ -14,6 +14,24 @@ pub enum NodeRole {
     Standby,
 }
 
+/// 守护切换模式：AUTO = 故障时自动切换主备；MANUAL = 需人工介入切换。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum DwMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
+impl DwMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DwMode::Auto => "AUTO",
+            DwMode::Manual => "MANUAL",
+        }
+    }
+}
+
 /// 主备集群（dw.toml）单个节点配置。
 #[derive(Debug, Clone)]
 pub struct DwNode {
@@ -30,6 +48,8 @@ pub struct DwNode {
     pub charset: u8,
     pub case_sensitive: bool,
     pub extent_size: u8,
+    /// 本节点归档目录，不填则默认为 {data_path}/arch。
+    pub arch_path: Option<String>,
     /// 备份作业配置：仅 primary 节点需要填写，standby 不需要（备份作业会由主库同步过去）。
     pub backup: Option<BackupConfig>,
     pub ssh: SshCredentials,
@@ -54,12 +74,24 @@ impl DwNode {
             ssh_target: None,
         }
     }
+
+    /// 解析本节点归档目录：优先取配置值，否则用 `{data_path}/arch`。
+    pub fn resolve_arch_path(&self) -> String {
+        self.arch_path
+            .clone()
+            .unwrap_or_else(|| format!("{}/arch", self.data_path))
+    }
 }
 
 /// 主备集群完整配置（dw.toml）。
 #[derive(Debug, Clone)]
 pub struct DwClusterConfig {
     pub oguid: u32,
+    /// 守护切换模式：AUTO（默认，故障自动切换）或 MANUAL（人工介入切换）。
+    pub dw_mode: DwMode,
+    /// 确认监视器模式：true（默认）= MON_DW_CONFIRM=1，需监视器确认才能自动切换；
+    /// false = MON_DW_CONFIRM=0，仅通知模式，不参与仲裁。
+    pub mon_confirm: bool,
     pub nodes: Vec<DwNode>,
 }
 
@@ -110,6 +142,8 @@ struct DwNodeRaw {
     #[serde(default = "default_extent_size")]
     extent_size: u8,
     #[serde(default)]
+    arch_path: Option<String>,
+    #[serde(default)]
     backup: Option<BackupConfig>,
     ssh: SshCredentials,
 }
@@ -130,6 +164,7 @@ impl From<DwNodeRaw> for DwNode {
             charset: r.charset,
             case_sensitive: r.case_sensitive,
             extent_size: r.extent_size,
+            arch_path: r.arch_path,
             backup: r.backup,
             ssh: r.ssh,
         }
@@ -140,6 +175,10 @@ impl From<DwNodeRaw> for DwNode {
 struct DwClusterConfigRaw {
     #[serde(default = "default_oguid")]
     oguid: u32,
+    #[serde(default)]
+    dw_mode: DwMode,
+    #[serde(default = "default_mon_confirm")]
+    mon_confirm: bool,
     #[serde(rename = "nodes")]
     nodes: Vec<DwNodeRaw>,
 }
@@ -148,6 +187,8 @@ impl From<DwClusterConfigRaw> for DwClusterConfig {
     fn from(r: DwClusterConfigRaw) -> Self {
         Self {
             oguid: r.oguid,
+            dw_mode: r.dw_mode,
+            mon_confirm: r.mon_confirm,
             nodes: r.nodes.into_iter().map(DwNode::from).collect(),
         }
     }
@@ -183,6 +224,10 @@ fn default_oguid() -> u32 {
     }
     let day = remaining + 1;
     y * 10000 + m * 100 + day
+}
+
+fn default_mon_confirm() -> bool {
+    true
 }
 
 fn default_install_path() -> String {

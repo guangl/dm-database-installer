@@ -54,17 +54,17 @@ pub fn dmarch_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
          ARCH_DEST = {arch_path}\n\
          ARCH_FILE_SIZE = 1024\n\
          ARCH_SPACE_LIMIT = 0\n",
-        arch_path = format!("{}/arch", node.data_path),
+        arch_path = node.resolve_arch_path(),
     ));
     out
 }
 
-/// dmwatcher.ini：数据守护进程配置，AUTO 模式下故障时自动切换。
+/// dmwatcher.ini：数据守护进程配置，切换模式由 cluster.dw_mode 控制。
 pub fn dmwatcher_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
     format!(
         "[GRP1]\n\
          DW_TYPE = GLOBAL\n\
-         DW_MODE = AUTO\n\
+         DW_MODE = {dw_mode}\n\
          DW_ERROR_TIME = 10\n\
          INST_RECOVER_TIME = 60\n\
          INST_OGUID = {oguid}\n\
@@ -72,6 +72,7 @@ pub fn dmwatcher_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
          INST_AUTO_RESTART = 1\n\
          INST_STARTUP_CMD = {install_path}/bin/dmserver\n\
          RLOG_SEND_APPLY_MON = 1\n",
+        dw_mode = cluster.dw_mode.as_str(),
         oguid = cluster.oguid,
         dm_ini = crate::install::steps::service::dm_ini_path(&node.as_install_config()),
         install_path = node.install_path,
@@ -82,13 +83,14 @@ pub fn dmwatcher_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
 /// 简化实现：监视器与某个节点共置运行（由调用方决定，通常是 primary），
 /// 不引入独立的监视器主机配置项。
 pub fn dmmonitor_ini(cluster: &DwClusterConfig) -> String {
-    let mut out = String::from(
-        "MON_DW_CONFIRM = 1\n\
+    let mut out = format!(
+        "MON_DW_CONFIRM = {}\n\
          MON_LOG_PATH = .\n\
          MON_LOG_INTERVAL = 60\n\
          MON_LOG_FILE_SIZE = 32\n\
          MON_LOG_SPACE_LIMIT = 0\n\n\
          [GRP1]\n",
+        cluster.mon_confirm as u8,
     );
     out.push_str(&format!("MON_INST_OGUID = {}\n", cluster.oguid));
     for node in &cluster.nodes {
@@ -118,6 +120,7 @@ mod tests {
             charset: 1,
             case_sensitive: true,
             extent_size: 32,
+            arch_path: None,
             backup: if role == NodeRole::Primary {
                 Some(crate::config::BackupConfig {
                     backup_path: Some("/home/dmdba/dmdbms/backup".to_string()),
@@ -137,6 +140,8 @@ mod tests {
     fn make_cluster() -> DwClusterConfig {
         DwClusterConfig {
             oguid: 453331,
+            dw_mode: crate::config::dw::DwMode::Auto,
+            mon_confirm: true,
             nodes: vec![
                 make_node(NodeRole::Primary, "192.168.1.10", "DM01"),
                 make_node(NodeRole::Standby, "192.168.1.11", "DM02"),
