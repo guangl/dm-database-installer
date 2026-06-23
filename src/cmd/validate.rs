@@ -62,9 +62,50 @@ fn print_dw_summary(path: &Path, common: &CommonConfig, cfg: &DwClusterConfig) {
         w.dw_mode.as_str(),
         if w.dw_mode == crate::config::dw::DwMode::Auto { "故障自动切换" } else { "人工介入切换" }
     ));
-    kv("故障确认", &format!("{} 秒（DW_ERROR_TIME）", w.dw_error_time));
-    kv("恢复等待", &format!("{} 秒（INST_RECOVER_TIME）", w.inst_recover_time));
-    kv("自动重启", &format!("{}（INST_AUTO_RESTART）", if w.inst_auto_restart != 0 { "是" } else { "否" }));
+    kv("故障确认", &format!("{} 秒  DW_ERROR_TIME", w.dw_error_time));
+    kv("实例超时", &format!("{} 秒  INST_ERROR_TIME", w.inst_error_time));
+    kv("恢复等待", &format!("{} 秒  INST_RECOVER_TIME", w.inst_recover_time));
+    kv("强制超时", &if w.dw_open_force_timeout == 0 {
+        "永久等待  DW_OPEN_FORCE_TIMEOUT=0".to_string()
+    } else {
+        format!("{} 秒  DW_OPEN_FORCE_TIMEOUT", w.dw_open_force_timeout)
+    });
+    kv("无监视器", &format!(
+        "{}强制 Open  DW_FAILOVER_FORCE={}",
+        if w.dw_failover_force != 0 { "允许" } else { "禁止" },
+        w.dw_failover_force,
+    ));
+    kv("断链重连", &format!(
+        "{}  DW_RECONNECT={}",
+        match w.dw_reconnect {
+            0 => "不重连",
+            1 => "重连后继续守护",
+            2 => "重连后降为 OPEN",
+            _ => "未知",
+        },
+        w.dw_reconnect,
+    ));
+    kv("自动重启", &format!(
+        "{}  INST_AUTO_RESTART={}  最多 {} 次",
+        if w.inst_auto_restart != 0 { "是" } else { "否" },
+        w.inst_auto_restart,
+        if w.inst_restart_cnt == 0 { "不限".to_string() } else { w.inst_restart_cnt.to_string() },
+    ));
+    kv("IP 可达检测", &format!(
+        "{}  INST_SERVICE_IP_CHECK={}",
+        if w.inst_service_ip_check != 0 { "开启" } else { "关闭" },
+        w.inst_service_ip_check,
+    ));
+    kv("发送延迟阈值", &if w.rlog_send_threshold == 0 {
+        "不告警  RLOG_SEND_THRESHOLD=0".to_string()
+    } else {
+        format!("{} 秒  RLOG_SEND_THRESHOLD", w.rlog_send_threshold)
+    });
+    kv("应用延迟阈值", &if w.rlog_apply_threshold == 0 {
+        "不告警  RLOG_APPLY_THRESHOLD=0".to_string()
+    } else {
+        format!("{} 秒  RLOG_APPLY_THRESHOLD", w.rlog_apply_threshold)
+    });
 
     for (i, node) in cfg.nodes.iter().enumerate() {
         print_dw_node(i + 1, cfg.nodes.len(), node);

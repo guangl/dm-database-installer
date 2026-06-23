@@ -62,25 +62,50 @@ pub fn dmarch_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
 /// dmwatcher.ini：数据守护进程配置，各字段由 cluster.watcher 控制。
 pub fn dmwatcher_ini(node: &DwNode, cluster: &DwClusterConfig) -> String {
     let w = &cluster.watcher;
-    format!(
+    let dm_ini = crate::install::steps::service::dm_ini_path(&node.as_install_config());
+    let mut out = format!(
         "[GRP1]\n\
-         DW_TYPE = GLOBAL\n\
-         DW_MODE = {dw_mode}\n\
-         DW_ERROR_TIME = {dw_error_time}\n\
-         INST_RECOVER_TIME = {inst_recover_time}\n\
-         INST_OGUID = {oguid}\n\
-         INST_INI = {dm_ini}\n\
-         INST_AUTO_RESTART = {inst_auto_restart}\n\
-         INST_STARTUP_CMD = {install_path}/bin/dmserver\n\
-         RLOG_SEND_APPLY_MON = 1\n",
+         DW_TYPE          = GLOBAL\n\
+         DW_MODE          = {dw_mode}\n\
+         DW_ERROR_TIME    = {dw_error_time}\n\
+         DW_RECONNECT     = {dw_reconnect}\n\
+         DW_FAILOVER_FORCE = {dw_failover_force}\n",
         dw_mode = w.dw_mode.as_str(),
         dw_error_time = w.dw_error_time,
+        dw_reconnect = w.dw_reconnect,
+        dw_failover_force = w.dw_failover_force,
+    );
+    if w.dw_open_force_timeout > 0 {
+        out.push_str(&format!("DW_OPEN_FORCE_TIMEOUT = {}\n", w.dw_open_force_timeout));
+    }
+    out.push_str(&format!(
+        "INST_OGUID       = {oguid}\n\
+         INST_INI         = {dm_ini}\n\
+         INST_ERROR_TIME  = {inst_error_time}\n\
+         INST_RECOVER_TIME = {inst_recover_time}\n\
+         INST_AUTO_RESTART = {inst_auto_restart}\n\
+         INST_STARTUP_CMD = {install_path}/bin/dmserver\n",
+        oguid = cluster.oguid,
+        dm_ini = dm_ini,
+        inst_error_time = w.inst_error_time,
         inst_recover_time = w.inst_recover_time,
         inst_auto_restart = w.inst_auto_restart,
-        oguid = cluster.oguid,
-        dm_ini = crate::install::steps::service::dm_ini_path(&node.as_install_config()),
         install_path = node.install_path,
-    )
+    ));
+    if w.inst_restart_cnt > 0 {
+        out.push_str(&format!("INST_RESTART_CNT = {}\n", w.inst_restart_cnt));
+    }
+    if w.inst_service_ip_check != 0 {
+        out.push_str(&format!("INST_SERVICE_IP_CHECK = {}\n", w.inst_service_ip_check));
+    }
+    if w.rlog_send_threshold > 0 {
+        out.push_str(&format!("RLOG_SEND_THRESHOLD = {}\n", w.rlog_send_threshold));
+    }
+    if w.rlog_apply_threshold > 0 {
+        out.push_str(&format!("RLOG_APPLY_THRESHOLD = {}\n", w.rlog_apply_threshold));
+    }
+    out.push_str("RLOG_SEND_APPLY_MON = 1\n");
+    out
 }
 
 /// dmmonitor.ini：监视器确认监视配置，列出集群所有节点的 MAL_HOST:MAL_DW_PORT。
@@ -179,8 +204,8 @@ mod tests {
     fn test_dmwatcher_ini_contains_oguid_and_paths() {
         let cluster = make_cluster();
         let ini = dmwatcher_ini(&cluster.nodes[0], &cluster);
-        assert!(ini.contains("INST_OGUID = 453331"));
-        assert!(ini.contains("DW_MODE = MANUAL")); // 默认手动切换
+        assert!(ini.contains("INST_OGUID       = 453331"));
+        assert!(ini.contains("DW_MODE          = MANUAL")); // 默认手动切换
         assert!(ini.contains("/home/dmdba/dmdbms/bin/dmserver"));
     }
 

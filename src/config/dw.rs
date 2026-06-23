@@ -33,20 +33,57 @@ impl DwMode {
 }
 
 /// dmwatcher.ini 守护进程配置，对应 dw.toml 的 [watcher] 段。
+/// 字段含义与默认值参考达梦官方文档 §5.4 dmwatcher.ini。
 #[derive(Debug, Clone, Deserialize)]
 pub struct WatcherConfig {
-    /// 切换模式：AUTO（故障自动切换）或 MANUAL（默认，人工介入）。
+    // ── 基础 ──────────────────────────────────────────────────────────
+    /// 切换模式：MANUAL（默认，人工介入）/ AUTO（故障自动切换）。
     #[serde(default)]
     pub dw_mode: DwMode,
-    /// 故障确认时间（秒）：守护进程判定实例故障所需的连续无响应时长，默认 10 秒。
+    /// 守护进程故障确认时间（秒），默认 15，范围 3–1800。
+    /// 守护进程连续检测到实例无响应超过此时长才判定为故障。
     #[serde(default = "default_dw_error_time")]
     pub dw_error_time: u32,
-    /// 实例恢复等待时间（秒）：故障切换后等待原主库恢复的最长时长，默认 60 秒。
+    /// 数据库实例故障确认时间（秒），默认 15，范围 3–1800。
+    /// 与 dw_error_time 独立；数据库层面的无响应超时。
+    #[serde(default = "default_inst_error_time")]
+    pub inst_error_time: u32,
+    /// 备库恢复检测间隔（秒），默认 60，范围 3–86400。
+    /// 故障切换后，守护进程等待原主库重新接入的轮询间隔。
     #[serde(default = "default_inst_recover_time")]
     pub inst_recover_time: u32,
-    /// 实例崩溃后是否自动重启（1=是，0=否），默认 1。
+
+    // ── 重启策略 ──────────────────────────────────────────────────────
+    /// 实例崩溃后是否自动重启，默认 0（否）。
     #[serde(default = "default_inst_auto_restart")]
     pub inst_auto_restart: u8,
+    /// 最大连续自动重启次数，默认 0（不限制），范围 0–1024。
+    /// inst_auto_restart=1 时有效；超过次数后守护进程停止重启。
+    #[serde(default = "default_inst_restart_cnt")]
+    pub inst_restart_cnt: u32,
+
+    // ── 故障切换行为 ──────────────────────────────────────────────────
+    /// MANUAL 模式下，无监视器时主库强制 Open 的超时（秒），默认 0（不超时等待）。
+    /// 超过此时长仍未收到监视器指令则强制 Open，0 = 永久等待。
+    #[serde(default = "default_dw_open_force_timeout")]
+    pub dw_open_force_timeout: u32,
+    /// 无监视器时是否允许主库强制 Open，默认 1（允许）。
+    #[serde(default = "default_dw_failover_force")]
+    pub dw_failover_force: u8,
+    /// 断链重连策略，默认 1。0=不重连；1=重连后继续守护；2=重连后降为 OPEN 模式。
+    #[serde(default = "default_dw_reconnect")]
+    pub dw_reconnect: u8,
+
+    // ── 监控阈值 ──────────────────────────────────────────────────────
+    /// 实时归档发送延迟告警阈值（秒），默认 0（不告警）。
+    #[serde(default = "default_rlog_send_threshold")]
+    pub rlog_send_threshold: u32,
+    /// 备库日志应用延迟告警阈值（秒），默认 0（不告警）。
+    #[serde(default = "default_rlog_apply_threshold")]
+    pub rlog_apply_threshold: u32,
+    /// 是否检测主库对外服务 IP 可达性，默认 0（不检测）。
+    #[serde(default = "default_inst_service_ip_check")]
+    pub inst_service_ip_check: u8,
 }
 
 impl Default for WatcherConfig {
@@ -54,8 +91,16 @@ impl Default for WatcherConfig {
         Self {
             dw_mode: DwMode::default(),
             dw_error_time: default_dw_error_time(),
+            inst_error_time: default_inst_error_time(),
             inst_recover_time: default_inst_recover_time(),
             inst_auto_restart: default_inst_auto_restart(),
+            inst_restart_cnt: default_inst_restart_cnt(),
+            dw_open_force_timeout: default_dw_open_force_timeout(),
+            dw_failover_force: default_dw_failover_force(),
+            dw_reconnect: default_dw_reconnect(),
+            rlog_send_threshold: default_rlog_send_threshold(),
+            rlog_apply_threshold: default_rlog_apply_threshold(),
+            inst_service_ip_check: default_inst_service_ip_check(),
         }
     }
 }
@@ -257,15 +302,17 @@ fn default_oguid() -> u32 {
 fn default_mon_confirm() -> bool {
     true
 }
-fn default_dw_error_time() -> u32 {
-    10
-}
-fn default_inst_recover_time() -> u32 {
-    60
-}
-fn default_inst_auto_restart() -> u8 {
-    1
-}
+fn default_dw_error_time() -> u32 { 15 }
+fn default_inst_error_time() -> u32 { 15 }
+fn default_inst_recover_time() -> u32 { 60 }
+fn default_inst_auto_restart() -> u8 { 0 }
+fn default_inst_restart_cnt() -> u32 { 0 }
+fn default_dw_open_force_timeout() -> u32 { 0 }
+fn default_dw_failover_force() -> u8 { 1 }
+fn default_dw_reconnect() -> u8 { 1 }
+fn default_rlog_send_threshold() -> u32 { 0 }
+fn default_rlog_apply_threshold() -> u32 { 0 }
+fn default_inst_service_ip_check() -> u8 { 0 }
 
 fn default_install_path() -> String {
     "/home/dmdba/dmdbms".to_string()
