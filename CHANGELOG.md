@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **三种备库类型**：`dw.toml` 备库节点新增 `sync_mode` 字段，支持 `realtime`（默认，REALTIME，加入 dmwatcher 全局守护组、参与监视器仲裁与自动切换）/ `sync`（SYNC，同步备库，本地守护）/ `async`（ASYNC，异步备库，本地守护，需配套 `arch_timer_name`，默认引用 DM 内置定时器 `RT_TIMER`），对齐达梦[数据守护文档](https://eco.dameng.com/document/dm/zh-cn/pm/data-guard-construction.html) §7.5–7.7 三种搭建方式；`dmwatcher.ini` 的 `DW_TYPE`（GLOBAL/LOCAL）与 `dmmonitor.ini` 的 `MON_DW_IP` 列表按此字段自动收敛，sync/async 备库不出现在监视器仲裁列表中
+- `dw.toml` 新增 `[monitor]` 配置段（`mon_log_path`/`mon_log_interval`/`mon_log_file_size`/`mon_log_space_limit`），此前 `dmmonitor.ini` 的日志参数硬编码不可配置
+- `dw.toml` 的 `[arch]` 段 `arch_space_limit` 改为可选：不填时自动取归档目录所在磁盘总容量的 20%，探测失败（如 SSH 报错）时退回固定默认值 20480 MB（20GB），不再阻塞整个集群安装；显式填 0 仍表示不限
+- `dm_installer validate` 输出重做：彩色分栏展示集群配置/`dmwatcher.ini`/`dmmal.ini`/`dmarch.ini`/`dmmonitor.ini`（新增此前缺失的监视器配置展示）/各节点配置，键名、说明文本、原始 ini 配置项（`PARAM = value`）三列独立对齐，不依赖终端字体对中日韩字符的双宽度渲染
+
+### 变更
+
+- `dw.toml` 默认值调整以加宽容错窗口：`dw_error_time`/`inst_error_time`/`mal_check_interval`/`mal_conn_fail_interval`/`mal_login_timeout` 由 15–30 秒统一改为 60 秒；`mon_log_space_limit` 由不限改为 4096 MB
+- `dm_installer init dw`/`init standalone` 生成的模板新增"速览"区块，汇总通常需要修改的字段与各可选 section 的一句话说明，便于快速上手（TOML 结构不变）
+
 ## [2.0.0] - 2026-06-23
 
 ### 新增

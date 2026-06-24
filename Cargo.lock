@@ -712,6 +712,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+ "unicode-width",
  "zip",
 ]
 

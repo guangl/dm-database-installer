@@ -100,7 +100,8 @@ retry_interval_secs = 5
 
 | 键 | 默认值 | 说明 |
 |----|--------|------|
-| `oguid` | `453331` | 守护系统全局唯一标识，同一守护系统内所有实例必须一致，范围 0–2147483647 |
+| `oguid` | 当天 `YYYYMMDD`（如 `20260623`） | 守护系统全局唯一标识，同一守护系统内所有实例必须一致，范围 0–2147483647 |
+| `mon_confirm` | `true` | `true`=确认监视器（参与自动切换仲裁）；`false`=通知监视器（仅通知，不参与仲裁） |
 
 ### [[nodes]] — 节点配置
 
@@ -113,6 +114,7 @@ retry_interval_secs = 5
 | `instance_name` | — | 实例名称，同一集群内必须唯一（必填） |
 | `install_path` | `/home/dmdba/dmdbms` | DM 程序安装目录（与 standalone 默认一致） |
 | `data_path` | `/home/dmdba/dmdbms/data` | 数据文件目录（与 standalone 默认一致） |
+| `arch_path` | `{data_path}/arch` | 本节点本地归档目录 |
 | `port` | `5236` | 数据库监听端口 |
 | `mal_port` | `5237` | MAL 通信端口（不能与 port 相同） |
 | `dw_port` | `5238` | 数据守护监听端口（即 MAL_DW_PORT，dmmonitor 也用此端口） |
@@ -121,6 +123,8 @@ retry_interval_secs = 5
 | `charset` | `1` | 0=GB18030  1=UTF-8  2=EUC-KR |
 | `case_sensitive` | `true` | SQL 标识符大小写敏感 |
 | `extent_size` | `32` | 区段大小（页数）：`16` / `32` |
+| `sync_mode` | `"realtime"` | 仅 standby 节点有意义。`"realtime"`（实时备库，REALTIME，加入 dmwatcher 全局守护组、参与监视器仲裁与自动切换）/ `"sync"`（同步备库，SYNC，本地守护）/ `"async"`（异步备库，ASYNC，本地守护，需配套 `arch_timer_name`） |
+| `arch_timer_name` | `"RT_TIMER"` | 仅 `sync_mode = "async"` 时生效，引用 DM 内置定时器名 |
 
 ### [nodes.backup] — 节点备份作业配置
 
@@ -145,10 +149,60 @@ retry_interval_secs = 5
 | `identity_file` | — | SSH 私钥路径（与 password 二选一） |
 | `password` | — | SSH 密码（与 identity_file 二选一；不填则安装时提示） |
 
+### [mal] — MAL 通信层（dmmal.ini，可选）
+
+每节点的 `MAL_INST_NAME`/`MAL_HOST`/`MAL_PORT` 等由 `[[nodes]]` 自动推导，以下为全局参数，省略则使用默认值。
+
+| 键 | 默认值 | 说明 |
+|----|--------|------|
+| `mal_check_interval` | `60` | MAL 链路检测间隔（秒），0=禁用，范围 0–1800 |
+| `mal_conn_fail_interval` | `60` | 判定连接失败的时长阈值（秒），范围 2–1800 |
+| `mal_login_timeout` | `60` | 节点间登录超时（秒），范围 3–1800 |
+| `mal_buf_size` | `100` | 单连接缓冲区上限（MB），0=不限 |
+| `mal_sys_buf_size` | `0` | 系统全局 MAL 内存上限（MB），0=不限 |
+| `mal_compress_level` | `0` | 压缩级别：0=不压缩，1–9=lz，10=snappy；所有节点必须一致 |
+
+### [watcher] — 数据守护（dmwatcher.ini，可选）
+
+| 键 | 默认值 | 说明 |
+|----|--------|------|
+| `dw_mode` | `"MANUAL"` | `"MANUAL"`（需人工介入）/ `"AUTO"`（故障自动切换） |
+| `dw_error_time` | `60` | 守护进程故障确认时间（秒），范围 3–1800 |
+| `inst_error_time` | `60` | 数据库实例故障确认时间（秒），范围 3–1800 |
+| `inst_recover_time` | `60` | 备库恢复检测间隔（秒），范围 3–86400 |
+| `inst_auto_restart` | `0` | 实例崩溃后自动重启：0=否，1=是 |
+| `inst_restart_cnt` | `0` | 最大连续重启次数，0=不限制 |
+| `dw_open_force_timeout` | `0` | MANUAL 模式无监视器时强制 Open 超时（秒），0=永久等待 |
+| `dw_failover_force` | `1` | 无监视器时允许主库强制 Open：1=允许，0=禁止 |
+| `dw_reconnect` | `1` | 断链重连策略：0=不重连，1=重连继续守护，2=重连降为 OPEN |
+| `rlog_send_threshold` | `0` | 实时归档发送延迟告警阈值（秒），0=不告警 |
+| `rlog_apply_threshold` | `0` | 备库日志应用延迟告警阈值（秒），0=不告警 |
+| `inst_service_ip_check` | `0` | 检测主库对外服务 IP 可达性：0=不检测，1=检测 |
+
+### [arch] — 日志归档（dmarch.ini，可选）
+
+| 键 | 默认值 | 说明 |
+|----|--------|------|
+| `arch_wait_apply` | `1` | 同步备库是否等待日志应用后再回应主库：1=等待，0=不等待 |
+| `arch_reserve_time` | `0` | 本地归档保留时长（分钟），0=不自动清理 |
+| `arch_send_policy` | `0` | 主库发送策略：0=立即等待备库响应，1=先写本地再发送 |
+| `arch_recover_time` | `60` | 同步备库归档状态检测间隔（秒），范围 1–86400 |
+| `arch_file_size` | `1024` | 本地归档单文件大小（MB），范围 64–2048 |
+| `arch_space_limit` | 不填=自动 | 本地归档总空间上限（MB）：不填时自动取归档目录所在磁盘总容量的 20%，探测失败时退回默认值 20480（20GB）；显式填 0=不限；其他正整数=固定上限 |
+
+### [monitor] — 确认监视器（dmmonitor.ini，可选）
+
+| 键 | 默认值 | 说明 |
+|----|--------|------|
+| `mon_log_path` | `"."` | 监视器日志输出目录 |
+| `mon_log_interval` | `60` | 日志刷新间隔（秒），范围 1–600 |
+| `mon_log_file_size` | `32` | 单个日志文件大小上限（MB），范围 1–2048 |
+| `mon_log_space_limit` | `4096` | 日志总空间上限（MB），0=不限 |
+
 **完整示例：**
 
 ```toml
-# 守护系统全局唯一标识（主备节点必须相同）
+# 守护系统全局唯一标识（主备节点必须相同），省略则默认为当天 YYYYMMDD
 oguid = 453331
 
 # ── 主节点 ────────────────────────────────────────────────
@@ -185,6 +239,7 @@ identity_file = "~/.ssh/id_rsa"
 role          = "standby"
 host          = "192.168.1.11"
 instance_name = "DM02"
+# sync_mode 可省略，默认 "realtime"；也可设为 "sync" 或 "async"（async 需配套 arch_timer_name）
 install_path  = "/home/dmdba/dmdbms"
 data_path     = "/home/dmdba/dmdbms/data"
 port          = 5236
@@ -196,17 +251,24 @@ charset       = 1
 case_sensitive = true
 extent_size   = 32
 
-[nodes.backup]
-backup_path = "/home/dmdba/dmdbms/backup"
-retain_days = 15
-full_backup_interval_days = 7
-full_backup_time = "02:00:00"
-incr_backup_time = "02:00:00"
-clean_time        = "05:00:00"
+# standby 节点无需配置 [nodes.backup]，备份作业由主库同步过来
 
 [nodes.ssh]
 user          = "root"
 identity_file = "~/.ssh/id_rsa"
+
+# ── [mal]/[watcher]/[arch]/[monitor] 均可省略，全部走默认值 ──
+# [mal]
+# mal_check_interval = 60
+#
+# [watcher]
+# dw_mode = "MANUAL"
+#
+# [arch]
+# arch_space_limit = 20480   # 不填则自动取磁盘总容量的 20%
+#
+# [monitor]
+# mon_log_space_limit = 4096
 ```
 
 ---

@@ -2,23 +2,32 @@ use std::io::IsTerminal;
 
 use crate::config::{InstallConfig, resolve_arch_path};
 
-struct Colors {
-    green: &'static str,
-    yellow: &'static str,
-    reset: &'static str,
+pub struct Colors {
+    pub green: &'static str,
+    pub yellow: &'static str,
+    pub cyan: &'static str,
+    pub dim: &'static str,
+    pub bold: &'static str,
+    pub reset: &'static str,
 }
 
-fn colors() -> Colors {
+pub fn colors() -> Colors {
     if std::io::stdout().is_terminal() {
         Colors {
             green: "\x1b[32m",
             yellow: "\x1b[33m",
+            cyan: "\x1b[36m",
+            dim: "\x1b[2m",
+            bold: "\x1b[1m",
             reset: "\x1b[0m",
         }
     } else {
         Colors {
             green: "",
             yellow: "",
+            cyan: "",
+            dim: "",
+            bold: "",
             reset: "",
         }
     }

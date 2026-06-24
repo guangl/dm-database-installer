@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use futures::future::try_join_all;
 
 use crate::config::DwClusterConfig;
-use crate::config::dw::DwNode;
-use crate::install::steps::service;
+use crate::config::dw::{ARCH_SPACE_LIMIT_DISK_PERCENT, ARCH_SPACE_LIMIT_FALLBACK_MB, DwNode};
+use crate::install::steps::{preflight, service};
 use crate::ssh::{CommandRunner, shell_quote};
 
 use super::NodeRunner;
@@ -33,8 +33,10 @@ pub(super) async fn distribute_config_all(
                 .sftp_write(&mal_path, mal_ini.as_bytes())
                 .await
                 .map_err(|e| anyhow::anyhow!("写入 dmmal.ini 失败: {e}"))?;
+            let space_limit_mb =
+                resolve_arch_space_limit_mb(*runner, cluster.arch.arch_space_limit, &node.resolve_arch_path()).await;
             runner
-                .sftp_write(&arch_path, config_files::dmarch_ini(node, cluster).as_bytes())
+                .sftp_write(&arch_path, config_files::dmarch_ini(node, cluster, space_limit_mb).as_bytes())
                 .await
                 .map_err(|e| anyhow::anyhow!("写入 dmarch.ini 失败: {e}"))?;
             runner
@@ -52,6 +54,26 @@ pub(super) async fn distribute_config_all(
     });
     try_join_all(futs).await?;
     Ok(())
+}
+
+/// 解析归档空间上限（MB）：显式配置则直接使用（0 = 无限）；未配置则查询归档目录所在
+/// 磁盘总容量取其 20%，查询失败（如 SSH 报错/df 输出无法解析）时退回固定默认值，
+/// 不让磁盘探测失败阻塞整个集群安装。
+async fn resolve_arch_space_limit_mb(
+    runner: &dyn CommandRunner,
+    configured: Option<u32>,
+    arch_path: &str,
+) -> u32 {
+    let Some(limit) = configured else {
+        return match preflight::disk_total_bytes(runner, arch_path).await {
+            Ok(total_bytes) => {
+                let total_mb = total_bytes / (1024 * 1024);
+                (total_mb * ARCH_SPACE_LIMIT_DISK_PERCENT / 100) as u32
+            }
+            Err(_) => ARCH_SPACE_LIMIT_FALLBACK_MB,
+        };
+    };
+    limit
 }
 
 /// 幂等地在 dm.ini 中补充数据守护所需参数（已存在则跳过，不覆盖用户已有配置）。
@@ -115,5 +137,30 @@ mod tests {
                 exec_log
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_arch_space_limit_mb_uses_explicit_value() {
+        let runner = MockRunner::new(vec![]);
+        let limit = resolve_arch_space_limit_mb(&runner, Some(2048), "/data/arch").await;
+        assert_eq!(limit, 2048);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_arch_space_limit_mb_uses_20_percent_of_disk() {
+        // 100 GB 总容量 -> 20% = 20480 MB
+        let df_output = b"Filesystem     1B-blocks      Used  Available Use% Mounted on\n\
+/dev/sda1     107374182400 1000000 106374182400  1% /data\n"
+            .to_vec();
+        let runner = MockRunner::new(vec![("df -B1".to_string(), 0, df_output)]);
+        let limit = resolve_arch_space_limit_mb(&runner, None, "/data/arch").await;
+        assert_eq!(limit, 20480);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_arch_space_limit_mb_falls_back_when_disk_probe_fails() {
+        let runner = MockRunner::new_strict(vec![]);
+        let limit = resolve_arch_space_limit_mb(&runner, None, "/data/arch").await;
+        assert_eq!(limit, ARCH_SPACE_LIMIT_FALLBACK_MB);
     }
 }

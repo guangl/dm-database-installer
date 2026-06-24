@@ -15,9 +15,10 @@
 
 - **单机静默安装**：自动下载适配当前平台的 DM8 安装包，无需手动选版本
 - **SSH 远程安装**：在控制机上配置一次，推送安装到目标服务器
-- **主备集群部署**：一条命令完成主备节点批量部署与配置同步
+- **主备集群部署**：一条命令完成主备节点批量部署与配置同步，支持实时（REALTIME）/同步（SYNC）/异步（ASYNC）三种备库类型混合搭建
 - **断点续传**：安装中断后重跑自动从检查点恢复，不重复已完成步骤
 - **配置驱动**：TOML 配置文件，所有参数有明确默认值，最少填两行即可运行
+- **配置校验**：`dm_installer validate` 彩色分栏展示完整生效配置（含各 ini 文件最终参数值），不实际安装
 - **兼容性**：Linux 二进制采用 musl 静态链接，无 glibc 版本依赖，可在任意 Linux 发行版运行；同时提供 macOS Apple Silicon 原生二进制
 
 ## 安装
@@ -146,6 +147,8 @@ identity_file = "~/.ssh/id_rsa"
 role          = "standby"
 host          = "192.168.1.11"
 instance_name = "DM02"
+# sync_mode 可省略，默认 realtime（实时备库，加入 dmwatcher 全局守护组，参与自动切换）
+# 也可设为 sync（同步备库）或 async（异步备库，需配套 arch_timer_name），二者均为本地守护，不参与自动切换
 # standby 节点无需配置 [nodes.backup]，备份作业由主库同步过来
 
 [nodes.ssh]
@@ -154,9 +157,10 @@ identity_file = "~/.ssh/id_rsa"
 ```
 
 安装完成后：
-- `dmserver`/`dmwatcher`/`dmmonitor` 均已注册为 systemd 服务，随系统自启
-- 监视器（`dmmonitor`）默认运行在第一个 standby 节点，避免与 primary 共置
+- `dmserver`/`dmwatcher`/`dmmonitor` 均已注册为 systemd 服务，随系统自启；`dmserver` 注册时按需以 Mount 模式启动
+- 监视器（`dmmonitor`）默认运行在第一个 standby 节点，避免与 primary 共置；仲裁列表只包含 primary 与 realtime 备库，sync/async 备库不参与
 - 备份作业仅在 primary 上创建，主库会自动将作业同步到备库
+- 本地归档空间上限默认自动取磁盘总容量的 20%（探测失败时退回 20GB），可在 `dw.toml` 的 `[arch]` 段显式覆盖
 
 ## 配置参考
 

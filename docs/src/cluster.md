@@ -81,6 +81,7 @@ identity_file = "~/.ssh/id_rsa"
 role          = "standby"
 host          = "192.168.1.11"
 instance_name = "DM02"
+# sync_mode 可省略，默认 "realtime"（实时备库，参与自动切换）；也可设为 "sync"/"async"
 install_path  = "/home/dmdba/dmdbms"
 data_path     = "/home/dmdba/dmdbms/data"
 port          = 5236
@@ -92,13 +93,7 @@ charset       = 1
 case_sensitive = true
 extent_size   = 32
 
-[nodes.backup]
-backup_path = "/home/dmdba/dmdbms/backup"
-retain_days = 15
-full_backup_interval_days = 7
-full_backup_time = "02:00:00"
-incr_backup_time = "02:00:00"
-clean_time        = "05:00:00"
+# standby 节点无需配置 [nodes.backup]，备份作业由主库同步过来
 
 [nodes.ssh]
 user          = "root"
@@ -120,7 +115,10 @@ dm_installer validate
 - 每个节点至少提供 `identity_file` 或 `password` 之一
 - `page_size` 为 4/8/16/32，`charset` 为 0/1/2，`extent_size` 为 16/32
 - `instance_name` 在集群内唯一
-- 每个节点 `backup_path` 已配置且 `retain_days` 至少 15 天
+- primary 节点 `backup_path` 已配置且 `retain_days` 至少 15 天
+- 异步备库（`sync_mode = "async"`）的 `arch_timer_name` 不能为空
+
+`validate` 会彩色分栏打印出最终生效的完整配置（含 `dmwatcher.ini`/`dmmal.ini`/`dmarch.ini`/`dmmonitor.ini` 各参数及对应原始 ini 配置项），不实际执行安装，便于在部署前确认参数是否符合预期。
 
 **第五步：部署**
 
@@ -141,10 +139,10 @@ dm_installer install
 7. **分发主备守护配置**：
    - `dm.ini` 追加 `MAL_INI=1`、`ARCH_INI=1`、`DW_INACTIVE_INTERVAL`、`ENABLE_OFFLINE_TS`、`RLOG_SEND_APPLY_MON` 等参数
    - `dmmal.ini`（MAL 通信列表，各节点相同）
-   - `dmarch.ini`（本地归档 + 指向对端的实时归档 REALTIME，主备内容不同）
-   - `dmwatcher.ini`（数据守护配置）
+   - `dmarch.ini`（本地归档 + 指向对端的归档，类型按对端 `sync_mode` 决定：`realtime`→`REALTIME`，`sync`→`SYNC`，`async`→`ASYNC`+`ARCH_TIMER_NAME`；本地归档空间上限不填时自动取磁盘总容量的 20%）
+   - `dmwatcher.ini`（数据守护配置；`DW_TYPE` 按本节点 `sync_mode` 决定：primary 与 realtime 备库为 `GLOBAL`，sync/async 备库为 `LOCAL`，不参与自动切换）
 8. **以 Mount 方式启动数据库并设置角色**：primary 先以 `dmserver dm.ini mount` 启动，通过 disql 执行 `sp_set_oguid` 与 `ALTER DATABASE PRIMARY`；随后并发对 standby 执行相同流程（角色改为 `STANDBY`）
-9. **启动守护进程与监视器**：各节点启动 `dmwatcher`（自动将 Mount 状态的实例切换为 Open），并在 primary 节点启动 `dmmonitor` 确认监视器
+9. **启动守护进程与监视器**：各节点启动 `dmwatcher`（自动将 Mount 状态的实例切换为 Open），并在第一个 standby 节点启动 `dmmonitor` 确认监视器（集群无 standby 时 fallback 到 primary；监视器本身可以共置于任意节点，与该节点自身的 `sync_mode` 无关）；`dmmonitor.ini` 的仲裁列表（`MON_DW_IP`）只包含 `GLOBAL` 类型节点（primary + realtime 备库），sync/async 备库不参与
 10. **配置备份作业 / 开启 SQL 日志 / 应用参数优化**：在每个节点上创建全备/增量备份作业、开启 SVR_LOG、执行官方自动参数调整脚本（调整后以 Mount 模式重启 dmserver 生效）
 
 ### 断点续传

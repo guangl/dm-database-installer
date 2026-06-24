@@ -32,6 +32,37 @@ impl DwMode {
     }
 }
 
+/// 备库类型（dmarch.ini ARCH_TYPE），对应官方文档 §7.5/§7.6/§7.7 三种主备搭建方式。
+/// 三者是独立的归档类型，并非"实时=同步"的两两对应关系：
+/// - Realtime（默认）= 实时备库，ARCH_TYPE=REALTIME，本项目现有主备失败切换对（dmwatcher 管理）使用此类型；
+/// - Sync = 同步备库，ARCH_TYPE=SYNC，主库等待该备库确认归档已落盘/恢复完成（ARCH_RECOVER_TIME 控制检测间隔）；
+/// - Async = 异步备库，ARCH_TYPE=ASYNC，主库不等待确认，通过定时器（ARCH_TIMER_NAME）定期触发归档发送。
+/// 仅对 standby 节点有意义；primary 节点该字段不参与渲染。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StandbyMode {
+    #[default]
+    Realtime,
+    Sync,
+    Async,
+}
+
+impl StandbyMode {
+    /// dmarch.ini 中对应的 ARCH_TYPE 取值。
+    pub fn arch_type(self) -> &'static str {
+        match self {
+            StandbyMode::Realtime => "REALTIME",
+            StandbyMode::Sync => "SYNC",
+            StandbyMode::Async => "ASYNC",
+        }
+    }
+}
+
+/// 异步备库（ARCH_TYPE=ASYNC）的默认定时器名，引用 DM 内置系统定时器。
+fn default_arch_timer_name() -> String {
+    "RT_TIMER".to_string()
+}
+
 /// dmwatcher.ini 守护进程配置，对应 dw.toml 的 [watcher] 段。
 /// 字段含义与默认值参考达梦官方文档 §5.4 dmwatcher.ini。
 #[derive(Debug, Clone, Deserialize)]
@@ -123,6 +154,10 @@ pub struct DwNode {
     pub extent_size: u8,
     /// 本节点归档目录，不填则默认为 {data_path}/arch。
     pub arch_path: Option<String>,
+    /// 备库类型：Realtime（默认，REALTIME）/ Sync（SYNC）/ Async（ASYNC）。仅 standby 节点有意义。
+    pub sync_mode: StandbyMode,
+    /// 异步备库定时器名（ARCH_TIMER_NAME），仅 sync_mode=Async 时写入 dmarch.ini，默认 "RT_TIMER"。
+    pub arch_timer_name: String,
     /// 备份作业配置：仅 primary 节点需要填写，standby 不需要（备份作业会由主库同步过去）。
     pub backup: Option<BackupConfig>,
     pub ssh: SshCredentials,
@@ -156,15 +191,137 @@ impl DwNode {
     }
 }
 
+/// dmmal.ini MAL 通信层全局参数，对应 dw.toml 的 [mal] 段。
+/// 每节点的 MAL_INST_NAME / MAL_HOST / MAL_PORT 等由 [[nodes]] 自动推导，无需在此配置。
+/// 字段含义参考达梦官方文档 §5.2 dmmal.ini。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DwMalConfig {
+    /// MAL 链路检测间隔（秒），默认 30，0=禁用检测，范围 0–1800。
+    #[serde(default = "default_mal_check_interval")]
+    pub mal_check_interval: u32,
+    /// 判定 MAL 连接失败的时长阈值（秒），默认 10，范围 2–1800。
+    #[serde(default = "default_mal_conn_fail_interval")]
+    pub mal_conn_fail_interval: u32,
+    /// 节点间登录超时（秒），默认 15，范围 3–1800。
+    #[serde(default = "default_mal_login_timeout")]
+    pub mal_login_timeout: u32,
+    /// 单连接缓冲区上限（MB），默认 100，0=不限，范围 0–500000。
+    #[serde(default = "default_mal_buf_size")]
+    pub mal_buf_size: u32,
+    /// 系统全局 MAL 内存上限（MB），默认 0（不限），范围 0–500000。
+    #[serde(default = "default_mal_sys_buf_size")]
+    pub mal_sys_buf_size: u32,
+    /// 消息压缩级别，默认 0（不压缩）。0=无；1–9=lz 压缩；10=snappy。
+    /// 注意：集群所有节点必须配置相同的压缩级别，否则无法建立 MAL 链路。
+    #[serde(default = "default_mal_compress_level")]
+    pub mal_compress_level: u8,
+}
+
+impl Default for DwMalConfig {
+    fn default() -> Self {
+        Self {
+            mal_check_interval: default_mal_check_interval(),
+            mal_conn_fail_interval: default_mal_conn_fail_interval(),
+            mal_login_timeout: default_mal_login_timeout(),
+            mal_buf_size: default_mal_buf_size(),
+            mal_sys_buf_size: default_mal_sys_buf_size(),
+            mal_compress_level: default_mal_compress_level(),
+        }
+    }
+}
+
+/// dmarch.ini 归档全局及本地归档参数，对应 dw.toml 的 [arch] 段。
+/// 全局参数写在 dmarch.ini 文件顶部（节前），本地归档参数写在 [ARCHIVE_LOCAL*] 节内。
+/// 字段含义参考达梦官方文档 §5.3 dmarch.ini。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DwArchConfig {
+    // ── 全局参数（节前） ───────────────────────────────────────────────
+    /// 同步备库是否等待日志应用后再回应主库，默认 1（等待），0=不等待。
+    #[serde(default = "default_arch_wait_apply")]
+    pub arch_wait_apply: u8,
+    /// 本地归档保留时长（分钟），超过后自动清理，默认 0（不自动清理）。
+    #[serde(default = "default_arch_reserve_time")]
+    pub arch_reserve_time: u32,
+    /// 主库发送策略，默认 0。0=立即等待备库响应；1=先写本地再发送。
+    #[serde(default = "default_arch_send_policy")]
+    pub arch_send_policy: u8,
+    /// 同步备库归档状态检测间隔（秒），默认 60，范围 1–86400。
+    #[serde(default = "default_arch_recover_time")]
+    pub arch_recover_time: u32,
+
+    // ── 本地归档节参数（[ARCHIVE_LOCAL*]） ─────────────────────────────
+    /// 本地归档单文件大小（MB），默认 1024，范围 64–2048。
+    #[serde(default = "default_arch_file_size")]
+    pub arch_file_size: u32,
+    /// 本地归档空间上限（MB）：不填（None）= 自动取归档目录所在磁盘总容量的 20%，
+    /// 探测失败时退回默认值 [`ARCH_SPACE_LIMIT_FALLBACK_MB`]（20GB）；
+    /// 显式填 0 = 不限；填其他正整数 = 固定上限。
+    #[serde(default)]
+    pub arch_space_limit: Option<u32>,
+}
+
+/// 探测磁盘容量失败时的归档空间上限兜底默认值（MB），= 20GB。
+pub const ARCH_SPACE_LIMIT_FALLBACK_MB: u32 = 20 * 1024;
+/// 自动模式下取归档目录所在磁盘总容量的百分比。
+pub const ARCH_SPACE_LIMIT_DISK_PERCENT: u64 = 20;
+
+impl Default for DwArchConfig {
+    fn default() -> Self {
+        Self {
+            arch_wait_apply: default_arch_wait_apply(),
+            arch_reserve_time: default_arch_reserve_time(),
+            arch_send_policy: default_arch_send_policy(),
+            arch_recover_time: default_arch_recover_time(),
+            arch_file_size: default_arch_file_size(),
+            arch_space_limit: None,
+        }
+    }
+}
+
+/// dmmonitor.ini 监视器日志参数，对应 dw.toml 的 [monitor] 段。
+/// 字段含义参考达梦官方文档 §5.5 dmmonitor.ini。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DwMonitorConfig {
+    /// 监视器日志输出目录，默认 "."（dmmonitor 启动时的当前目录）。
+    #[serde(default = "default_mon_log_path")]
+    pub mon_log_path: String,
+    /// 日志刷新间隔（秒），默认 60，范围 1–600。
+    #[serde(default = "default_mon_log_interval")]
+    pub mon_log_interval: u32,
+    /// 单个日志文件大小上限（MB），默认 32，范围 1–2048。
+    #[serde(default = "default_mon_log_file_size")]
+    pub mon_log_file_size: u32,
+    /// 日志总空间上限（MB），默认 0（不限）。
+    #[serde(default = "default_mon_log_space_limit")]
+    pub mon_log_space_limit: u32,
+}
+
+impl Default for DwMonitorConfig {
+    fn default() -> Self {
+        Self {
+            mon_log_path: default_mon_log_path(),
+            mon_log_interval: default_mon_log_interval(),
+            mon_log_file_size: default_mon_log_file_size(),
+            mon_log_space_limit: default_mon_log_space_limit(),
+        }
+    }
+}
+
 /// 主备集群完整配置（dw.toml）。
 #[derive(Debug, Clone)]
 pub struct DwClusterConfig {
     pub oguid: u32,
+    /// dmmal.ini MAL 通信层配置（[mal] 段）。
+    pub mal: DwMalConfig,
     /// dmwatcher 守护进程配置（[watcher] 段）。
     pub watcher: WatcherConfig,
+    /// dmarch.ini 归档配置（[arch] 段）。
+    pub arch: DwArchConfig,
     /// 确认监视器模式：true（默认）= MON_DW_CONFIRM=1，需监视器确认才能自动切换；
     /// false = MON_DW_CONFIRM=0，仅通知模式，不参与仲裁。
     pub mon_confirm: bool,
+    /// dmmonitor.ini 监视器日志配置（[monitor] 段）。
+    pub monitor: DwMonitorConfig,
     pub nodes: Vec<DwNode>,
 }
 
@@ -217,6 +374,10 @@ struct DwNodeRaw {
     #[serde(default)]
     arch_path: Option<String>,
     #[serde(default)]
+    sync_mode: StandbyMode,
+    #[serde(default = "default_arch_timer_name")]
+    arch_timer_name: String,
+    #[serde(default)]
     backup: Option<BackupConfig>,
     ssh: SshCredentials,
 }
@@ -238,6 +399,8 @@ impl From<DwNodeRaw> for DwNode {
             case_sensitive: r.case_sensitive,
             extent_size: r.extent_size,
             arch_path: r.arch_path,
+            sync_mode: r.sync_mode,
+            arch_timer_name: r.arch_timer_name,
             backup: r.backup,
             ssh: r.ssh,
         }
@@ -249,9 +412,15 @@ struct DwClusterConfigRaw {
     #[serde(default = "default_oguid")]
     oguid: u32,
     #[serde(default)]
+    mal: DwMalConfig,
+    #[serde(default)]
     watcher: WatcherConfig,
+    #[serde(default)]
+    arch: DwArchConfig,
     #[serde(default = "default_mon_confirm")]
     mon_confirm: bool,
+    #[serde(default)]
+    monitor: DwMonitorConfig,
     #[serde(rename = "nodes")]
     nodes: Vec<DwNodeRaw>,
 }
@@ -260,8 +429,11 @@ impl From<DwClusterConfigRaw> for DwClusterConfig {
     fn from(r: DwClusterConfigRaw) -> Self {
         Self {
             oguid: r.oguid,
+            mal: r.mal,
             watcher: r.watcher,
+            arch: r.arch,
             mon_confirm: r.mon_confirm,
+            monitor: r.monitor,
             nodes: r.nodes.into_iter().map(DwNode::from).collect(),
         }
     }
@@ -299,11 +471,24 @@ fn default_oguid() -> u32 {
     y * 10000 + m * 100 + day
 }
 
-fn default_mon_confirm() -> bool {
-    true
-}
-fn default_dw_error_time() -> u32 { 15 }
-fn default_inst_error_time() -> u32 { 15 }
+fn default_mon_confirm() -> bool { true }
+fn default_mon_log_path() -> String { ".".to_string() }
+fn default_mon_log_interval() -> u32 { 60 }
+fn default_mon_log_file_size() -> u32 { 32 }
+fn default_mon_log_space_limit() -> u32 { 4096 }
+fn default_mal_check_interval() -> u32 { 60 }
+fn default_mal_conn_fail_interval() -> u32 { 60 }
+fn default_mal_login_timeout() -> u32 { 60 }
+fn default_mal_buf_size() -> u32 { 100 }
+fn default_mal_sys_buf_size() -> u32 { 0 }
+fn default_mal_compress_level() -> u8 { 0 }
+fn default_arch_wait_apply() -> u8 { 1 }
+fn default_arch_reserve_time() -> u32 { 0 }
+fn default_arch_send_policy() -> u8 { 0 }
+fn default_arch_recover_time() -> u32 { 60 }
+fn default_arch_file_size() -> u32 { 1024 }
+fn default_dw_error_time() -> u32 { 60 }
+fn default_inst_error_time() -> u32 { 60 }
 fn default_inst_recover_time() -> u32 { 60 }
 fn default_inst_auto_restart() -> u8 { 0 }
 fn default_inst_restart_cnt() -> u32 { 0 }
@@ -427,6 +612,15 @@ pub fn validate_dw_config(cfg: &DwClusterConfig) -> Result<()> {
             bail!(
                 "配置验证失败: instance_name 在集群内必须唯一，重复值: {}",
                 node.instance_name
+            );
+        }
+        if node.role == NodeRole::Standby
+            && node.sync_mode == StandbyMode::Async
+            && node.arch_timer_name.trim().is_empty()
+        {
+            bail!(
+                "配置验证失败: 节点 {} 为异步备库（sync_mode = async），arch_timer_name 不能为空",
+                node.host
             );
         }
     }
@@ -596,5 +790,32 @@ identity_file = "~/.ssh/id_rsa"
         let err = load_dw_specific(file.path()).unwrap_err();
         let msg = format!("{:#}", err);
         assert!(msg.contains("page_size 无效: 12"), "实际: {msg}");
+    }
+
+    #[test]
+    fn test_validate_rejects_async_standby_with_empty_timer_name() {
+        let toml = VALID_TOML.replacen(
+            "instance_name = \"DM02\"",
+            "instance_name = \"DM02\"\nsync_mode = \"async\"\narch_timer_name = \"\"",
+            1,
+        );
+        let file = write_fixture(&toml);
+        let err = load_dw_specific(file.path()).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("arch_timer_name 不能为空"), "实际: {msg}");
+    }
+
+    #[test]
+    fn test_validate_accepts_async_standby_with_timer_name() {
+        let toml = VALID_TOML.replacen(
+            "instance_name = \"DM02\"",
+            "instance_name = \"DM02\"\nsync_mode = \"async\"",
+            1,
+        );
+        let file = write_fixture(&toml);
+        let cfg = load_dw_specific(file.path()).expect("应通过校验");
+        let standby = cfg.standbys().next().expect("应有 standby");
+        assert_eq!(standby.sync_mode, StandbyMode::Async);
+        assert_eq!(standby.arch_timer_name, "RT_TIMER");
     }
 }
