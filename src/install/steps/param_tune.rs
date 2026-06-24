@@ -10,12 +10,9 @@ const PARAM_SQL_PATH: &str = "/tmp/dm_auto_para_adj.sql";
 /// 脚本注明需重启 dmserver 才能生效。
 const PARAM_SQL: &str = include_str!("sql/auto_para_adj_dm8.sql");
 
-/// 执行自动参数调整脚本并重启 dmserver 使其生效。
-pub async fn apply_and_restart(
-    runner: &dyn CommandRunner,
-    config: &InstallConfig,
-    sysdba_pwd: &str,
-) -> Result<()> {
+/// 执行官方自动参数调整脚本（不重启，调用方决定如何使其生效——单机走 systemd 重启，
+/// 集群（DW 主备）走 mount 模式进程重启，因此重启逻辑拆分到调用方）。
+pub async fn apply(runner: &dyn CommandRunner, config: &InstallConfig, sysdba_pwd: &str) -> Result<()> {
     runner
         .sftp_write(PARAM_SQL_PATH, PARAM_SQL.as_bytes())
         .await
@@ -32,10 +29,19 @@ pub async fn apply_and_restart(
     let _ = runner
         .exec(&format!("rm -f {}", shell_quote(PARAM_SQL_PATH)))
         .await;
+    Ok(())
+}
 
+/// 执行自动参数调整脚本并重启 dmserver（systemd 服务）使其生效。仅用于单机安装；
+/// 集群安装见 `install::dw` 中基于 mount 模式进程重启的等价逻辑。
+pub async fn apply_and_restart(
+    runner: &dyn CommandRunner,
+    config: &InstallConfig,
+    sysdba_pwd: &str,
+) -> Result<()> {
+    apply(runner, config, sysdba_pwd).await?;
     crate::ui::log_info("参数调整需重启数据库才能生效，正在重启 dmserver...");
     service::restart_dmserver(runner, config).await?;
-
     Ok(())
 }
 

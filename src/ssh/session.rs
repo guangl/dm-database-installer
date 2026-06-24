@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
 use russh::{ChannelMsg, client};
 use russh_sftp::client::SftpSession;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::ssh::SshCredentials;
 
@@ -180,6 +180,46 @@ impl CommandRunner for SshSession {
                 source: russh_sftp::client::error::Error::UnexpectedBehavior(io_err.to_string()),
             })?;
         Ok(())
+    }
+
+    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
+        let channel = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(|e| SshError::Connect {
+                host: "sftp".to_string(),
+                source: e,
+            })?;
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            .map_err(|e| SshError::Connect {
+                host: "sftp-subsystem".to_string(),
+                source: e,
+            })?;
+        let sftp = SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|source| SshError::SftpDownload {
+                remote_path: remote_path.to_string(),
+                source,
+            })?;
+        let mut remote_file =
+            sftp.open(remote_path)
+                .await
+                .map_err(|source| SshError::SftpDownload {
+                    remote_path: remote_path.to_string(),
+                    source,
+                })?;
+        let mut buf = Vec::new();
+        remote_file
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|io_err| SshError::SftpDownload {
+                remote_path: remote_path.to_string(),
+                source: russh_sftp::client::error::Error::UnexpectedBehavior(io_err.to_string()),
+            })?;
+        Ok(buf)
     }
 }
 

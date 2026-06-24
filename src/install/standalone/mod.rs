@@ -300,7 +300,7 @@ async fn resolve_package(
 }
 
 /// 将安装包复制到 CWD，文件名加 `.dm_cache_` 前缀，避免与用户文件冲突。
-fn cache_package(src: &std::path::Path) -> Result<std::path::PathBuf> {
+pub(crate) fn cache_package(src: &std::path::Path) -> Result<std::path::PathBuf> {
     let file_name = src
         .file_name()
         .map(|n| format!(".dm_cache_{}", n.to_string_lossy()))

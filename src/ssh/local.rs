@@ -55,4 +55,13 @@ impl CommandRunner for LocalRunner {
             }
         })
     }
+
+    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
+        tokio::fs::read(remote_path)
+            .await
+            .map_err(|e| SshError::Io {
+                path: remote_path.to_string(),
+                source: e,
+            })
+    }
 }

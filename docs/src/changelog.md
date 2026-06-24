@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **三种备库类型**：`dw.toml` 备库节点新增 `sync_mode` 字段，支持 `realtime`（默认，参与自动切换）/ `sync`（同步备库）/ `async`（异步备库，需配套 `arch_timer_name`），对应 `dmwatcher.ini` 的 `DW_TYPE`（GLOBAL/LOCAL）与 `dmmonitor.ini` 仲裁列表自动收敛
+- `dw.toml` 新增 `[monitor]` 配置段，`dmmonitor.ini` 的日志参数（路径/间隔/大小/空间上限）不再硬编码
+- `[arch]` 段 `arch_space_limit` 改为可选：不填自动取磁盘总容量的 20%，探测失败时退回默认值 20480 MB（20GB）
+- `dm_installer validate` 输出重做：彩色分栏展示完整生效配置，新增此前缺失的监视器配置展示
+
+### 变更
+
+- `dw.toml` 部分默认值调整：故障/连接相关超时统一改为 60 秒，`mon_log_space_limit` 默认改为 4096 MB
+- `dm_installer init` 生成的模板新增"速览"区块，汇总常改字段（TOML 结构不变）
+
+## [2.0.0] - 2026-06-23
+
+### 新增
+
+- **主备集群（DW）安装支持**：`dm_installer init dw` 生成配置模板，`dm_installer install` 按官方[数据守护搭建文档](https://eco.dameng.com/document/dm/zh-cn/pm/data-guard-construction.html)自动完成整套主备搭建（预检→环境准备→安装→`dminit`→备份还原同步备库数据→分发守护配置→Mount 模式启动并设置角色→注册并启动 `dmserver`/`dmwatcher`/`dmmonitor` 三个 systemd 服务→备份作业/SQL 日志/参数优化）
+- **集群断点续传**：按节点维度的检查点覆盖每个独立步骤，中断后重跑自动跳过已完成部分
+- `dw.toml` 的 `oguid` 可省略，默认当天 `YYYYMMDD`；新增 `[nodes.backup]`（仅 primary 需配置，备份作业由主库自动同步到备库）
+- `dm_installer validate` 支持校验 `dw.toml`（节点/`oguid`/端口冲突/SSH 凭证/`instance_name` 唯一性/`backup_path` 等）
+
+### 变更
+
+- 主版本号升级至 2.0.0：单机安装与主备集群安装并列为两条主路径
+- `dw.toml` 节点默认值与 `standalone.toml` 对齐，仅集群专属字段保留差异
+
 ## [1.2.3] - 2026-06-21
 
 ### 修复

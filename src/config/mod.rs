@@ -2,10 +2,20 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+pub mod dw;
 pub mod ssh;
+
+pub use dw::DwClusterConfig;
 
 /// 约定通用配置文件名，安装时从当前目录自动读取。
 pub const CONFIG_FILE: &str = "config.toml";
+
+/// 安装类型（config.toml 的 type 字段）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallType {
+    Standalone,
+    Dw,
+}
 
 /// 安装包来源（三选一）。
 #[derive(Debug, Clone)]
@@ -18,10 +28,11 @@ pub enum InstallerSource {
     Url(String),
 }
 
-/// 通用配置（config.toml）：安装包来源。
+/// 通用配置（config.toml）：安装类型 + 安装包来源。
 /// 日志配置通过 load_log_config() 单独提前读取，SSH 凭证在各特有配置文件中单独配置。
 #[derive(Debug)]
 pub struct CommonConfig {
+    pub install_type: InstallType,
     pub installer: InstallerSource,
 }
 
@@ -29,7 +40,7 @@ pub struct CommonConfig {
 #[derive(Deserialize)]
 struct CommonConfigRaw {
     #[serde(rename = "type")]
-    _install_type: String,
+    install_type: String,
     #[serde(default)]
     installer_package: Option<PathBuf>,
     #[serde(default)]
@@ -39,6 +50,11 @@ struct CommonConfigRaw {
 impl TryFrom<CommonConfigRaw> for CommonConfig {
     type Error = anyhow::Error;
     fn try_from(raw: CommonConfigRaw) -> Result<Self> {
+        let install_type = match raw.install_type.as_str() {
+            "standalone" => InstallType::Standalone,
+            "dw" => InstallType::Dw,
+            other => bail!("type 无效: \"{}\"；有效值为 standalone/dw", other),
+        };
         let installer = match (raw.installer_package, raw.installer_url) {
             (Some(_), Some(_)) => {
                 bail!("installer_package 和 installer_url 不能同时设置，请二选一")
@@ -47,17 +63,26 @@ impl TryFrom<CommonConfigRaw> for CommonConfig {
             (None, Some(url)) => InstallerSource::Url(url),
             (None, None) => InstallerSource::Auto,
         };
-        Ok(CommonConfig { installer })
+        Ok(CommonConfig {
+            install_type,
+            installer,
+        })
     }
 }
 
-/// 加载后的完整配置：通用配置 + 单机特有配置。
-pub struct LoadedConfig {
-    pub common: CommonConfig,
-    pub specific: InstallConfig,
+/// 加载后的特有配置：单机或主备集群。
+pub enum LoadedSpecific {
+    Standalone(InstallConfig),
+    Dw(DwClusterConfig),
 }
 
-/// 从当前目录的 config.toml + standalone.toml 加载并验证配置。
+/// 加载后的完整配置：通用配置 + 特有配置。
+pub struct LoadedConfig {
+    pub common: CommonConfig,
+    pub specific: LoadedSpecific,
+}
+
+/// 从当前目录的 config.toml + 特有配置文件加载并验证配置。
 pub fn load_config() -> Result<LoadedConfig> {
     load_config_from(Path::new(CONFIG_FILE))
 }
@@ -66,8 +91,12 @@ pub fn load_config() -> Result<LoadedConfig> {
 pub fn load_config_from(common_path: &Path) -> Result<LoadedConfig> {
     let common = load_common_config(common_path)?;
     let dir = common_path.parent().unwrap_or(Path::new("."));
-    let specific_path = dir.join("standalone.toml");
-    let specific = load_standalone_specific(&specific_path)?;
+    let specific = match common.install_type {
+        InstallType::Standalone => {
+            LoadedSpecific::Standalone(load_standalone_specific(&dir.join("standalone.toml"))?)
+        }
+        InstallType::Dw => LoadedSpecific::Dw(dw::load_dw_specific(&dir.join("dw.toml"))?),
+    };
     Ok(LoadedConfig { common, specific })
 }
 

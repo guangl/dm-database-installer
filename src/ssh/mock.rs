@@ -10,6 +10,8 @@ pub struct MockRunner {
     pub responses: std::sync::Mutex<Vec<(String, u32, Vec<u8>)>>,
     /// 记录 sftp_write 调用：(remote_path, bytes)
     pub sftp_writes: std::sync::Mutex<Vec<(String, Vec<u8>)>>,
+    /// 预设 sftp_read 响应：remote_path -> 内容。未配置的路径返回空字节。
+    pub sftp_reads: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
     /// 记录所有 exec 调用的命令字符串
     pub exec_calls: std::sync::Mutex<Vec<String>>,
     /// 严格模式：未匹配命令返回 exit 127 Err（默认 false）
@@ -21,9 +23,18 @@ impl MockRunner {
         Self {
             responses: std::sync::Mutex::new(responses),
             sftp_writes: std::sync::Mutex::new(Vec::new()),
+            sftp_reads: std::sync::Mutex::new(std::collections::HashMap::new()),
             exec_calls: std::sync::Mutex::new(Vec::new()),
             strict: false,
         }
+    }
+
+    /// 预设某个远端路径的 sftp_read 返回内容，供测试模拟下载。
+    pub fn set_sftp_read(&self, remote_path: &str, content: Vec<u8>) {
+        self.sftp_reads
+            .lock()
+            .unwrap()
+            .insert(remote_path.to_string(), content);
     }
 
     pub fn new_strict(responses: Vec<(String, u32, Vec<u8>)>) -> Self {
@@ -78,6 +89,16 @@ impl CommandRunner for MockRunner {
             .unwrap()
             .push((remote_path.to_string(), bytes.to_vec()));
         Ok(())
+    }
+
+    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError> {
+        Ok(self
+            .sftp_reads
+            .lock()
+            .unwrap()
+            .get(remote_path)
+            .cloned()
+            .unwrap_or_default())
     }
 }
 

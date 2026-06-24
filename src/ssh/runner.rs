@@ -27,4 +27,7 @@ pub trait CommandRunner: Send + Sync {
     async fn sftp_set_permissions(&self, _remote_path: &str, _mode: u32) -> Result<(), SshError> {
         Ok(())
     }
+    /// 通过 SFTP 读取远端文件全部内容。用于控制机中转两个远端节点间的文件传输
+    /// （如主备集群中将主库备份集下载到控制机后再上传到备库）。
+    async fn sftp_read(&self, remote_path: &str) -> Result<Vec<u8>, SshError>;
 }
