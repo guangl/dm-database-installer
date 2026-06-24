@@ -229,10 +229,10 @@ fn print_dw_summary(path: &Path, common: &CommonConfig, cfg: &DwClusterConfig) {
         print_dw_node(i + 1, cfg.nodes.len(), node);
     }
 
-    if let Some(primary) = cfg.nodes.iter().find(|n| n.role == NodeRole::Primary) {
-        if let Some(b) = &primary.backup {
-            print_backup_section(&format!("备份作业  {}（{}）", primary.instance_name, primary.host), b);
-        }
+    if let Some(primary) = cfg.nodes.iter().find(|n| n.role == NodeRole::Primary)
+        && let Some(b) = &primary.backup
+    {
+        print_backup_section(&format!("备份作业  {}（{}）", primary.instance_name, primary.host), b);
     }
 }
 

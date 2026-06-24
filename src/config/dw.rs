@@ -37,6 +37,7 @@ impl DwMode {
 /// - Realtime（默认）= 实时备库，ARCH_TYPE=REALTIME，本项目现有主备失败切换对（dmwatcher 管理）使用此类型；
 /// - Sync = 同步备库，ARCH_TYPE=SYNC，主库等待该备库确认归档已落盘/恢复完成（ARCH_RECOVER_TIME 控制检测间隔）；
 /// - Async = 异步备库，ARCH_TYPE=ASYNC，主库不等待确认，通过定时器（ARCH_TIMER_NAME）定期触发归档发送。
+///
 /// 仅对 standby 节点有意义；primary 节点该字段不参与渲染。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -449,7 +450,7 @@ fn default_oguid() -> u32 {
     let mut y = 1970u32;
     let mut remaining = days as u32;
     loop {
-        let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+        let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
         let days_in_year = if leap { 366 } else { 365 };
         if remaining < days_in_year {
             break;
@@ -457,7 +458,7 @@ fn default_oguid() -> u32 {
         remaining -= days_in_year;
         y += 1;
     }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
     let month_days: [u32; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut m = 1u32;
     for &d in &month_days {
@@ -598,14 +599,14 @@ pub fn validate_dw_config(cfg: &DwClusterConfig) -> Result<()> {
                 ),
                 _ => {}
             }
-            if let Some(b) = &node.backup {
-                if b.retain_days < 15 {
-                    bail!(
-                        "配置验证失败: 节点 {} 的 backup.retain_days 无效: {}；至少保留 15 天",
-                        node.host,
-                        b.retain_days
-                    );
-                }
+            if let Some(b) = &node.backup
+                && b.retain_days < 15
+            {
+                bail!(
+                    "配置验证失败: 节点 {} 的 backup.retain_days 无效: {}；至少保留 15 天",
+                    node.host,
+                    b.retain_days
+                );
             }
         }
         if !seen_instance_names.insert(node.instance_name.clone()) {
