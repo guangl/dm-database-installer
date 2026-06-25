@@ -185,12 +185,37 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     }
     crate::ui::step_footer();
 
+    let report_path = if common.report.enabled {
+        let today = crate::ui::today_yyyymmdd();
+        match crate::install::report::generate_for_install(
+            &runner,
+            &specific,
+            &common.report,
+            &sysdba_pwd,
+            dm_version.as_deref(),
+            &today,
+        )
+        .await
+        {
+            Ok(path) => Some(path),
+            Err(e) => {
+                crate::ui::log_warn(&format!("生成上线检查报告失败（不影响安装结果）：{e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     crate::ui::print_success(
         &specific,
         &sysdba_pwd,
         &sysauditor_pwd,
         dm_version.as_deref(),
     );
+    if let Some(path) = &report_path {
+        crate::ui::log_ok(&format!("上线检查报告已生成: {}", path.display()));
+    }
     crate::ui::print_advisories(&crate::install::advisory::standalone_advisories(
         &specific, &arch_path,
     ));

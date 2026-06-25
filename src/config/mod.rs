@@ -34,6 +34,7 @@ pub enum InstallerSource {
 pub struct CommonConfig {
     pub install_type: InstallType,
     pub installer: InstallerSource,
+    pub report: ReportConfig,
 }
 
 /// TOML 反序列化代理：接收原始字段，转换时校验互斥约束。
@@ -45,6 +46,8 @@ struct CommonConfigRaw {
     installer_package: Option<PathBuf>,
     #[serde(default)]
     installer_url: Option<String>,
+    #[serde(default)]
+    report: ReportConfig,
 }
 
 impl TryFrom<CommonConfigRaw> for CommonConfig {
@@ -66,13 +69,14 @@ impl TryFrom<CommonConfigRaw> for CommonConfig {
         Ok(CommonConfig {
             install_type,
             installer,
+            report: raw.report,
         })
     }
 }
 
 /// 加载后的特有配置：单机或主备集群。
 pub enum LoadedSpecific {
-    Standalone(InstallConfig),
+    Standalone(Box<InstallConfig>),
     Dw(DwClusterConfig),
 }
 
@@ -92,9 +96,9 @@ pub fn load_config_from(common_path: &Path) -> Result<LoadedConfig> {
     let common = load_common_config(common_path)?;
     let dir = common_path.parent().unwrap_or(Path::new("."));
     let specific = match common.install_type {
-        InstallType::Standalone => {
-            LoadedSpecific::Standalone(load_standalone_specific(&dir.join("standalone.toml"))?)
-        }
+        InstallType::Standalone => LoadedSpecific::Standalone(Box::new(load_standalone_specific(
+            &dir.join("standalone.toml"),
+        )?)),
         InstallType::Dw => LoadedSpecific::Dw(dw::load_dw_specific(&dir.join("dw.toml"))?),
     };
     Ok(LoadedConfig { common, specific })
@@ -221,6 +225,52 @@ impl Default for ArchiveConfig {
     }
 }
 
+/// 上线检查报告配置，单机专用。
+#[derive(Debug, Deserialize, Clone)]
+pub struct ReportConfig {
+    /// 是否在安装完成后自动生成上线检查报告，默认开启
+    #[serde(default = "default_report_enabled")]
+    pub enabled: bool,
+    /// 系统名称（报告抬头），默认"未命名系统"
+    #[serde(default = "default_report_system_name")]
+    pub system_name: String,
+    /// 用户单位（报告抬头），不填则留空
+    #[serde(default)]
+    pub user_org: String,
+    /// 巡检单位（报告抬头），默认"武汉达梦数据库股份有限公司"
+    #[serde(default = "default_report_inspect_org")]
+    pub inspect_org: String,
+    /// 巡检工程师姓名，不填则留空，报告中需人工补充
+    #[serde(default)]
+    pub engineer: String,
+    /// 报告输出目录，不填则默认为当前工作目录
+    #[serde(default)]
+    pub output_dir: Option<String>,
+}
+
+fn default_report_enabled() -> bool {
+    true
+}
+fn default_report_system_name() -> String {
+    "未命名系统".to_string()
+}
+fn default_report_inspect_org() -> String {
+    "武汉达梦数据库股份有限公司".to_string()
+}
+
+impl Default for ReportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_report_enabled(),
+            system_name: default_report_system_name(),
+            user_org: String::new(),
+            inspect_org: default_report_inspect_org(),
+            engineer: String::new(),
+            output_dir: None,
+        }
+    }
+}
+
 /// 解析归档目录：优先取配置值，否则用 `{data_path}/arch`。
 pub(crate) fn resolve_arch_path(arch: &ArchiveConfig, data_path: &str) -> String {
     arch.arch_path
@@ -232,7 +282,9 @@ pub(crate) fn resolve_arch_path(arch: &ArchiveConfig, data_path: &str) -> String
 fn validate_time_hhmmss(field: &str, value: &str) -> Result<()> {
     let parts: Vec<&str> = value.split(':').collect();
     let valid = parts.len() == 3
-        && parts.iter().all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_digit()))
+        && parts
+            .iter()
+            .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_digit()))
         && parts[0].parse::<u8>().is_ok_and(|h| h < 24)
         && parts[1].parse::<u8>().is_ok_and(|m| m < 60)
         && parts[2].parse::<u8>().is_ok_and(|s| s < 60);
