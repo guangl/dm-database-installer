@@ -1,10 +1,15 @@
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 use std::path::PathBuf;
 
 /// dm_installer 的顶层 CLI 入口
 #[derive(Parser)]
 #[command(name = "dm_installer", version, about = "达梦数据库安装器")]
 pub struct Cli {
+    /// 输出详细日志（可重复指定提升级别：-v debug，-vv trace）；也可用 RUST_LOG 环境变量覆盖
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -20,6 +25,15 @@ pub enum Commands {
     Init(InitArgs),
     /// 更新 dm_installer 到最新版本
     SelfUpdate(SelfUpdateArgs),
+    /// 生成 shell 补全脚本（输出到 stdout）
+    Completions(CompletionsArgs),
+}
+
+/// completions 子命令参数
+#[derive(clap::Args)]
+pub struct CompletionsArgs {
+    /// 目标 shell
+    pub shell: Shell,
 }
 
 /// install 子命令参数（配置从 config.toml 自动读取，无需 --config）
@@ -105,6 +119,27 @@ mod tests {
             panic!("expected Install")
         };
         assert_eq!(args.package, Some(PathBuf::from("/tmp/x.iso")));
+    }
+
+    #[test]
+    fn test_completions_parses_shell() {
+        let cli = Cli::try_parse_from(["dm_installer", "completions", "bash"]).unwrap();
+        let Commands::Completions(args) = cli.command else {
+            panic!("expected Completions")
+        };
+        assert_eq!(args.shell, Shell::Bash);
+    }
+
+    #[test]
+    fn test_verbose_defaults_to_zero() {
+        let cli = Cli::try_parse_from(["dm_installer", "install"]).unwrap();
+        assert_eq!(cli.verbose, 0);
+    }
+
+    #[test]
+    fn test_verbose_counts_repeated_flags() {
+        let cli = Cli::try_parse_from(["dm_installer", "-vv", "install"]).unwrap();
+        assert_eq!(cli.verbose, 2);
     }
 
     #[test]
