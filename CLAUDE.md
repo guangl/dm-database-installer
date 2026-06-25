@@ -116,13 +116,67 @@
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+**Naming & Organization**
+- `snake_case` for modules and functions (`load_config`, `validate_install_config`, `load_standalone_specific`)
+- `PascalCase` for public structs/enums (`InstallConfig`, `CommonConfig`, `DwClusterConfig`, `NodeRole`)
+- Enums serialize to kebab/lowercase via `#[serde(rename_all = "lowercase")]` (`src/config/dw.rs:11`)
+- Inline Chinese comments for domain-specific logic (platform detection, archive modes, backup policies)
+
+**Error Handling**
+- `anyhow::Result` + `Context`/`bail!` for application code (`main.rs`, `config/mod.rs`, `install/`)
+- `thiserror` for structured domain errors with `#[source]` chains (`src/ssh/error.rs`)
+- Semantic validation failures use `bail!("message")`, distinct from I/O errors (`src/config/mod.rs`)
+
+**Tests**
+- Inline `#[cfg(test)] mod tests` at the bottom of the module under test, not a separate test tree
+- `tempfile::NamedTempFile` for config-parsing fixtures
+- Test names follow `test_<function>_<scenario>`
+
+**Comments**
+- `///` doc comments only for high-value public API context — used sparingly
+- `//` inline comments for non-obvious logic (platform heuristics, archive semantics)
+- `// ──` separator lines for logical sections within large config structs
+
+**Module Organization**
+- Each feature area has a `mod.rs` entry point; submodules stay private unless re-exported
+- Single-file modules for focused concerns (e.g. `ssh/error.rs` is errors only)
+- Const strings for file paths/keys (`CONFIG_FILE`, checkpoint file names)
+
+**Async**
+- `#[tokio::main]`; async functions return `anyhow::Result<()>`
+- Trait objects (`&dyn CommandRunner`) abstract local vs. SSH execution so the same step logic runs in both standalone and cluster paths
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+**Module layout** (`src/`)
+- `main.rs` — async entry point; loads config, dispatches to `install::standalone` or `install::dw`
+- `cli.rs` — clap CLI parsing (`install`/`validate`/`init`/`self-update` subcommands)
+- `config/` — `mod.rs` (common config + `TryFrom` validation), `dw.rs` (cluster config structs), `ssh.rs` (SSH credentials)
+- `download/` — installer source resolution: `http.rs` (reqwest streaming download), `select.rs` (platform/version selection), `versions.rs` (`versions.txt` parsing)
+- `install/` — orchestration:
+  - `standalone/` — single-host `[1/10]`–`[10/10]` step sequence + JSON checkpoint for resume-on-failure
+  - `dw/` — multi-node cluster orchestration: connection pool, per-node config rendering (`config_dist.rs`, `config_files.rs`), provisioning, startup, post-setup, HA data sync, per-node checkpoint
+  - `steps/` — shared step implementations (preflight, env setup, package download/extract, silent install, dminit, archive, backup, service, param tuning, SQL audit log) used by both standalone and cluster paths
+  - `advisory.rs` — preflight warnings/user confirmations
+  - `remote_common.rs` — SSH session setup/teardown shared by standalone-remote and cluster paths
+- `ssh/` — `CommandRunner` trait abstracting local (`local.rs`, sync `std::process`) vs. remote (`session.rs`, async russh) execution; `error.rs` for structured SSH errors; `mock.rs` for tests
+- `platform.rs` — OS/arch/CPU detection for version matching
+- `ui.rs` — step headers, log levels, progress bars
+
+**Data flow**
+1. CLI parse (`main.rs`) → `config::load_config()` reads `config.toml` + a type-specific file (`standalone.toml` or `dw.toml`)
+2. Raw TOML → `TryFrom<CommonConfigRaw>` (mutual exclusivity checks) → `validate_install_config()` (semantic checks: ports, paths, time formats)
+3. Dispatch by config type to `install::standalone::run()` or `install::dw::run()`
+4. Standalone: load/create checkpoint → run steps in order, skipping any already marked done → save checkpoint after each step
+5. Cluster: connect to all nodes via russh → run the same step sequence per node (parallel via `tokio::spawn`), with cluster-aware logic for primary→standby sync → track per-node step completion in the cluster checkpoint
+
+**Key decisions**
+- Config-driven (TOML), not interactive prompts — config.toml + a type-specific file
+- `CommandRunner` trait makes step code identical for standalone and SSH-remote/cluster execution
+- Checkpoints make installs resumable after failure, both per-host and per-node-in-cluster
+- Async throughout (tokio) — required for concurrent SSH sessions and streaming downloads
 <!-- GSD:architecture-end -->
 
 <!-- GSD:skills-start source:skills/ -->

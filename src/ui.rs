@@ -1,7 +1,9 @@
-use std::io::IsTerminal;
+use console::style;
 
 use crate::config::{InstallConfig, resolve_arch_path};
 
+/// 供需要手动拼接 ANSI 转义码的场景使用（如 `validate.rs` 里要做显示宽度对齐计算）。
+/// 是否启用颜色由 `console` crate 统一判断（TTY 检测 + `NO_COLOR`/`CLICOLOR_FORCE` 环境变量）。
 pub struct Colors {
     pub green: &'static str,
     pub yellow: &'static str,
@@ -12,7 +14,7 @@ pub struct Colors {
 }
 
 pub fn colors() -> Colors {
-    if std::io::stdout().is_terminal() {
+    if console::colors_enabled() {
         Colors {
             green: "\x1b[32m",
             yellow: "\x1b[33m",
@@ -34,13 +36,11 @@ pub fn colors() -> Colors {
 }
 
 pub fn log_ok(msg: &str) {
-    let c = colors();
-    println!("{}[OK]{}   {}", c.green, c.reset, msg);
+    println!("{}   {}", style("[OK]").green(), msg);
 }
 
 pub fn log_warn(msg: &str) {
-    let c = colors();
-    println!("{}[WARN]{} {}", c.yellow, c.reset, msg);
+    println!("{} {}", style("[WARN]").yellow(), msg);
 }
 
 pub fn log_info(msg: &str) {
@@ -59,56 +59,57 @@ pub fn today_yyyymmdd() -> String {
 }
 
 pub fn step_header(title: &str) {
-    let c = colors();
     println!(
-        "\n{}── {} ──────────────────────────────────────────────{}",
-        c.yellow, title, c.reset
+        "\n{}",
+        style(format!(
+            "── {} ──────────────────────────────────────────────",
+            title
+        ))
+        .yellow()
     );
 }
 
 pub fn step_footer() {
-    let c = colors();
     println!(
-        "{}──────────────────────────────────────────────────────────────{}",
-        c.yellow, c.reset
+        "{}",
+        style("──────────────────────────────────────────────────────────────").yellow()
     );
 }
 
 pub fn check_ok(label: &str, detail: &str) {
-    let c = colors();
+    let mark = style("✓").green();
     if detail.is_empty() {
-        println!("  {}✓{}  {}", c.green, c.reset, label);
+        println!("  {}  {}", mark, label);
     } else {
-        println!("  {}✓{}  {}: {}", c.green, c.reset, label, detail);
+        println!("  {}  {}: {}", mark, label, detail);
     }
 }
 
 pub fn check_warn(label: &str, detail: &str) {
-    let c = colors();
+    let mark = style("⚠").yellow();
     if detail.is_empty() {
-        println!("  {}⚠{}  {}", c.yellow, c.reset, label);
+        println!("  {}  {}", mark, label);
     } else {
-        println!("  {}⚠{}  {}: {}", c.yellow, c.reset, label, detail);
+        println!("  {}  {}: {}", mark, label, detail);
     }
 }
 
 pub fn print_banner() {
-    let c = colors();
     println!(
-        "{}╔══════════════════════════════════════════════════════════════╗{}",
-        c.yellow, c.reset
+        "{}",
+        style("╔══════════════════════════════════════════════════════════════╗").yellow()
     );
     println!(
-        "{}║  ⚠  此工具会修改内核参数、关闭 SELinux 和防火墙。            ║{}",
-        c.yellow, c.reset
+        "{}",
+        style("║  ⚠  此工具会修改内核参数、关闭 SELinux 和防火墙。            ║").yellow()
     );
     println!(
-        "{}║  ⚠  安装完成后会自动开启本地归档（ARCHIVELOG）。            ║{}",
-        c.yellow, c.reset
+        "{}",
+        style("║  ⚠  安装完成后会自动开启本地归档（ARCHIVELOG）。            ║").yellow()
     );
     println!(
-        "{}╚══════════════════════════════════════════════════════════════╝{}",
-        c.yellow, c.reset
+        "{}",
+        style("╚══════════════════════════════════════════════════════════════╝").yellow()
     );
     println!();
 }
@@ -119,7 +120,6 @@ pub fn print_success(
     sysauditor_pwd: &str,
     dm_version: Option<&str>,
 ) {
-    let c = colors();
     let arch_path = resolve_arch_path(&config.archive, &config.data_path);
     let charset_name = match config.charset {
         0 => "GB18030",
@@ -134,7 +134,7 @@ pub fn print_success(
     };
 
     println!();
-    println!("{}✓ 达梦数据库安装完成{}", c.green, c.reset);
+    println!("{}", style("✓ 达梦数据库安装完成").green());
     println!();
     println!("  安装路径    : {}", config.install_path);
     println!("  数据路径    : {}/DAMENG", config.data_path);
@@ -181,18 +181,17 @@ pub fn print_advisories(advisories: &[String]) {
     if advisories.is_empty() {
         return;
     }
-    let c = colors();
     println!(
-        "{}╔══════════════════════════════════════════════════════════════╗{}",
-        c.yellow, c.reset
+        "{}",
+        style("╔══════════════════════════════════════════════════════════════╗").yellow()
     );
-    println!("{}║  ⚠  配置建议{}", c.yellow, c.reset);
+    println!("{}", style("║  ⚠  配置建议").yellow());
     for a in advisories {
-        println!("{}║{}    - {}", c.yellow, c.reset, a);
+        println!("{}    - {}", style("║").yellow(), a);
     }
     println!(
-        "{}╚══════════════════════════════════════════════════════════════╝{}",
-        c.yellow, c.reset
+        "{}",
+        style("╚══════════════════════════════════════════════════════════════╝").yellow()
     );
     println!();
 }

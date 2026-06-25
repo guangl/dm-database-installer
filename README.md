@@ -216,13 +216,15 @@ extent_size    = 32   # 区段大小（页数）：16 / 32
 dm_installer install                    安装（读取 config.toml 自动判断类型）
 dm_installer install --package PATH     指定本地安装包路径（跳过下载）
 dm_installer install --url URL          指定自定义下载链接
-dm_installer install --checksum SHA256  校验安装包 SHA-256
 dm_installer validate [PATH]            验证配置文件语法与语义，不执行安装
 dm_installer init standalone            生成单机配置模板
 dm_installer init dw                    生成主备（DW）集群配置模板
-dm_installer init rws                   生成读写分离（RWS）集群配置模板
-dm_installer init dsc                   生成共享存储（DSC）集群配置模板
-dm_installer status                     查询本地及远程节点运行状态
+dm_installer init rws                   生成读写分离（RWS）集群配置模板（即将支持）
+dm_installer init dsc                   生成共享存储（DSC）集群配置模板（即将支持）
+dm_installer init dpc                   生成 DPC 分布式集群配置模板（即将支持）
+dm_installer self-update                更新 dm_installer 到最新版本
+dm_installer completions <shell>        生成 shell 补全脚本（bash/zsh/fish/...），输出到 stdout
+dm_installer -v / -vv install           输出 debug / trace 级别日志（也可用 RUST_LOG 环境变量覆盖）
 dm_installer --help                     查看帮助
 ```
 
