@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
             });
             match cfg.specific {
                 config::LoadedSpecific::Standalone(specific) => {
-                    install::standalone::run(args, cfg.common, specific).await
+                    install::standalone::run(args, cfg.common, *specific).await
                 }
                 config::LoadedSpecific::Dw(cluster) => {
                     install::dw::run(args, cfg.common, &cluster).await

@@ -47,6 +47,17 @@ pub fn log_info(msg: &str) {
     println!("  ·  {}", msg);
 }
 
+/// 本机当前日期，格式 YYYYMMDD（用于报告文件名）。
+pub fn today_yyyymmdd() -> String {
+    std::process::Command::new("date")
+        .arg("+%Y%m%d")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 pub fn step_header(title: &str) {
     let c = colors();
     println!(
@@ -132,10 +143,7 @@ pub fn print_success(
     println!("╔═══════════════════════════════════════════════════╗");
     println!("║            达梦数据库初始化参数                   ║");
     println!("╠═══════════════════════════════════════════════════╣");
-    println!(
-        "║  数据库版本: {:<37}║",
-        dm_version.unwrap_or("未知")
-    );
+    println!("║  数据库版本: {:<37}║", dm_version.unwrap_or("未知"));
     println!("║  数据库名  : {:<37}║", "DAMENG");
     println!("║  实例名    : {:<37}║", config.instance_name);
     println!("║  页大小    : {:<37}║", format!("{} KB", config.page_size));
@@ -152,10 +160,7 @@ pub fn print_success(
     println!("║  首次登录后请立即修改密码                         ║");
     println!("╚═══════════════════════════════════════════════════╝");
     println!();
-    println!(
-        "  归档路径    : {}",
-        arch_path
-    );
+    println!("  归档路径    : {}", arch_path);
     println!("  归档文件大小: {} MB", config.archive.file_size);
     println!("  归档空间上限: {}", arch_space);
     println!();

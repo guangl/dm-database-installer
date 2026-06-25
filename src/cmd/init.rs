@@ -85,6 +85,16 @@ type = "standalone"
 # installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
 # 自定义下载链接
 # installer_url = "https://download.example.com/dm8.zip"
+
+# ─── 上线检查报告配置（可选）────────────────────────────────
+# 安装完成后自动生成《数据库上线检查报告.docx》到当前目录。
+[report]
+enabled = true # 是否自动生成报告
+system_name = "未命名系统"      # 报告抬头：系统名称
+# user_org = "某某单位"          # 报告抬头：用户单位
+inspect_org = "武汉达梦数据库股份有限公司" # 报告抬头：巡检单位
+# engineer = "张三"              # 巡检工程师姓名
+# output_dir = "/home/dmdba/reports" # 报告输出目录，不填则为当前工作目录
 "#;
 
 const STANDALONE_SPECIFIC: &str = r#"# 达梦数据库单机安装 — 特有配置（standalone.toml）
@@ -156,6 +166,15 @@ type = "dw"
 # installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
 # 自定义下载链接
 # installer_url = "https://download.example.com/dm8.zip"
+
+# ─── 上线检查报告配置（可选，当前仅单机安装会用到）──────────────
+[report]
+enabled = true # 是否自动生成报告
+system_name = "未命名系统"      # 报告抬头：系统名称
+# user_org = "某某单位"          # 报告抬头：用户单位
+inspect_org = "武汉达梦数据库股份有限公司" # 报告抬头：巡检单位
+# engineer = "张三"              # 巡检工程师姓名
+# output_dir = "/home/dmdba/reports" # 报告输出目录，不填则为当前工作目录
 "#;
 
 const DW_SPECIFIC: &str = r#"# 达梦数据库主备集群安装 — 节点配置（dw.toml）
@@ -381,7 +400,10 @@ mod tests {
     fn test_dw_creates_two_files() {
         let dir = TempDir::new().unwrap();
         run(&InitKind::Dw(output_args_in(&dir, false))).unwrap();
-        assert!(dir.path().join("config.toml").exists(), "应生成 config.toml");
+        assert!(
+            dir.path().join("config.toml").exists(),
+            "应生成 config.toml"
+        );
         assert!(dir.path().join("dw.toml").exists(), "应生成 dw.toml");
     }
 
@@ -390,7 +412,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         run(&InitKind::Dw(output_args_in(&dir, false))).unwrap();
         let content = std::fs::read_to_string(dir.path().join("config.toml")).unwrap();
-        assert!(content.contains("type = \"dw\""), "通用配置应含 type = \"dw\"");
+        assert!(
+            content.contains("type = \"dw\""),
+            "通用配置应含 type = \"dw\""
+        );
     }
 
     #[test]
