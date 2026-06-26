@@ -75,20 +75,31 @@ pub async fn detect_remote_platform(runner: &dyn CommandRunner) -> crate::platfo
     detect_platform_from_raw(&uname, &cpuinfo, &os_release)
 }
 
+/// 执行 `test_expr && echo {true_marker} || echo {false_marker}`，返回结果是否命中 true_marker。
+/// 三个远端存在性检测（数据目录占用/dmserver 已装/dminit 已完成）共用此 shape。
+async fn check_remote_condition(
+    runner: &dyn CommandRunner,
+    test_expr: &str,
+    true_marker: &str,
+    false_marker: &str,
+    err_ctx: &str,
+) -> Result<bool> {
+    let cmd = format!("{test_expr} && echo {true_marker} || echo {false_marker}");
+    let (output, _) = runner
+        .exec(&cmd)
+        .await
+        .map_err(|e| anyhow::anyhow!("{err_ctx}: {e}"))?;
+    Ok(String::from_utf8_lossy(&output).trim() == true_marker)
+}
+
 /// 检测远端 data_path 目录是否非空（说明有旧数据，dminit 会冲突）。
 pub async fn check_remote_data_path_occupied(
     config: &InstallConfig,
     runner: &dyn CommandRunner,
 ) -> Result<bool> {
-    let cmd = format!(
-        "[ -d {path} ] && [ -n \"$(ls -A {path} 2>/dev/null)\" ] && echo occupied || echo clean",
-        path = shell_quote(&config.data_path)
-    );
-    let (output, _) = runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("远端数据目录检测失败: {e}"))?;
-    Ok(String::from_utf8_lossy(&output).trim() == "occupied")
+    let path = shell_quote(&config.data_path);
+    let test_expr = format!("[ -d {path} ] && [ -n \"$(ls -A {path} 2>/dev/null)\" ]");
+    check_remote_condition(runner, &test_expr, "occupied", "clean", "远端数据目录检测失败").await
 }
 
 /// 检测远端 install_path/bin/dmserver 是否已存在（说明有旧安装）。
@@ -97,15 +108,8 @@ pub async fn check_remote_dmserver_exists(
     runner: &dyn CommandRunner,
 ) -> Result<bool> {
     let dmserver = format!("{}/bin/dmserver", config.install_path);
-    let cmd = format!(
-        "test -f {} && echo exists || echo absent",
-        shell_quote(&dmserver)
-    );
-    let (output, _) = runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("远端 dmserver 检测失败: {e}"))?;
-    Ok(String::from_utf8_lossy(&output).trim() == "exists")
+    let test_expr = format!("test -f {}", shell_quote(&dmserver));
+    check_remote_condition(runner, &test_expr, "exists", "absent", "远端 dmserver 检测失败").await
 }
 
 /// 检测远端 dminit 是否已完成：{data_path}/DAMENG/dm.ini 存在则认为已完成。
@@ -114,15 +118,8 @@ pub async fn check_remote_dminit_done(
     runner: &dyn CommandRunner,
 ) -> Result<bool> {
     let dm_ini = super::steps::service::dm_ini_path(config);
-    let cmd = format!(
-        "test -f {} && echo exists || echo absent",
-        shell_quote(&dm_ini)
-    );
-    let (output, _) = runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("远端幂等检测失败: {e}"))?;
-    Ok(String::from_utf8_lossy(&output).trim() == "exists")
+    let test_expr = format!("test -f {}", shell_quote(&dm_ini));
+    check_remote_condition(runner, &test_expr, "exists", "absent", "远端幂等检测失败").await
 }
 
 /// 根据包类型上传 DMInstall.bin 到远端。

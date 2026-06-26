@@ -32,23 +32,16 @@ pub async fn configure_jobs(
         .map_err(|e| anyhow::anyhow!("创建备份目录失败: {e}"))?;
 
     let sql = generate_backup_job_sql(backup_path, &config.backup);
-    runner
-        .sftp_write(JOB_SQL_PATH, sql.as_bytes())
-        .await
-        .map_err(|e| anyhow::anyhow!("写入备份作业 SQL 失败: {e}"))?;
-
-    let disql = format!("{}/bin/disql", config.install_path);
-    let conn = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
-    let cmd = super::disql_script_cmd(&disql, &conn, JOB_SQL_PATH);
-    runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("配置备份作业失败: {e}"))?;
-
-    let _ = runner
-        .exec(&format!("rm -f {}", shell_quote(JOB_SQL_PATH)))
-        .await;
-    Ok(())
+    super::execute_sql_script(
+        runner,
+        config,
+        sysdba_pwd,
+        JOB_SQL_PATH,
+        &sql,
+        "写入备份作业 SQL 失败",
+        "配置备份作业失败",
+    )
+    .await
 }
 
 /// 生成备份作业 SQL：全备(bakup_ql) + [可选]增量备份并切全备(bakup_zl) + 过期清理(bak_clear，保留 retain_days 天)。

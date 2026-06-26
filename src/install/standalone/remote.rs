@@ -83,15 +83,18 @@ pub async fn run(
     cp.save()?;
 
     // [2/10] 系统准备
-    crate::ui::step_header("[2/10] 系统准备");
-    if cp.env_setup_done {
-        crate::ui::log_info("[续] 系统环境已配置，跳过");
-    } else {
-        super::env_setup::run(&session).await?;
-        cp.env_setup_done = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[2/10] 系统准备",
+        cp.env_setup_done,
+        "[续] 系统环境已配置，跳过",
+        async {
+            super::env_setup::run(&session).await?;
+            cp.env_setup_done = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     // [3/10] 下载安装包
     crate::ui::step_header("[3/10] 下载安装包");
@@ -183,48 +186,60 @@ pub async fn run(
     crate::ui::step_footer();
 
     // [7/10] 配置归档（在线开启，dmserver 无需重启）
-    crate::ui::step_header("[7/10] 配置归档");
-    if cp.arch_configured {
-        crate::ui::log_info("[续] 归档已配置，跳过");
-    } else {
-        super::archive::enable_archive_online(&session, specific, &sysdba_pwd).await?;
-        cp.arch_configured = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[7/10] 配置归档",
+        cp.arch_configured,
+        "[续] 归档已配置，跳过",
+        async {
+            super::archive::enable_archive_online(&session, specific, &sysdba_pwd).await?;
+            cp.arch_configured = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     // [8/10] 配置备份作业
-    crate::ui::step_header("[8/10] 配置备份作业");
-    if cp.backup_configured {
-        crate::ui::log_info("[续] 备份作业已配置，跳过");
-    } else {
-        super::backup::configure_jobs(&session, specific, &sysdba_pwd).await?;
-        cp.backup_configured = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[8/10] 配置备份作业",
+        cp.backup_configured,
+        "[续] 备份作业已配置，跳过",
+        async {
+            super::backup::configure_jobs(&session, specific, &sysdba_pwd).await?;
+            cp.backup_configured = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     // [9/10] 开启 SQL 日志
-    crate::ui::step_header("[9/10] 开启 SQL 日志");
-    if cp.sql_log_enabled {
-        crate::ui::log_info("[续] SQL 日志已开启，跳过");
-    } else {
-        super::sql_log::enable(&session, specific, &sysdba_pwd).await?;
-        cp.sql_log_enabled = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[9/10] 开启 SQL 日志",
+        cp.sql_log_enabled,
+        "[续] SQL 日志已开启，跳过",
+        async {
+            super::sql_log::enable(&session, specific, &sysdba_pwd).await?;
+            cp.sql_log_enabled = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     // [10/10] 应用参数调优（执行 AutoParaAdj 脚本并重启 dmserver 使其生效）
-    crate::ui::step_header("[10/10] 应用参数调优");
-    if cp.param_tuned {
-        crate::ui::log_info("[续] 参数调优已应用，跳过");
-    } else {
-        super::param_tune::apply_and_restart(&session, specific, &sysdba_pwd).await?;
-        cp.param_tuned = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[10/10] 应用参数调优",
+        cp.param_tuned,
+        "[续] 参数调优已应用，跳过",
+        async {
+            super::param_tune::apply_and_restart(&session, specific, &sysdba_pwd).await?;
+            cp.param_tuned = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     crate::ui::print_success(
         specific,

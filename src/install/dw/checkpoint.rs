@@ -1,7 +1,9 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use crate::install::checkpoint_io::{cwd, load_json_from, remove_file_in, save_json_to};
 
 fn file_name(oguid: u32) -> String {
     format!("dm_installer_dw_checkpoint_{oguid}.json")
@@ -80,18 +82,11 @@ impl ClusterCheckpoint {
     }
 
     pub(crate) fn save_to(&self, dir: &Path) -> Result<()> {
-        let path = dir.join(file_name(self.oguid));
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, content)?;
-        Ok(())
+        save_json_to(dir, &file_name(self.oguid), self)
     }
 
     pub(crate) fn remove_from(dir: &Path, oguid: u32) -> Result<()> {
-        let path = dir.join(file_name(oguid));
-        if path.exists() {
-            std::fs::remove_file(&path)?;
-        }
-        Ok(())
+        remove_file_in(dir, &file_name(oguid))
     }
 }
 
@@ -101,24 +96,15 @@ pub fn load(oguid: u32) -> Result<Option<ClusterCheckpoint>> {
 }
 
 pub(crate) fn load_from(dir: &Path, oguid: u32) -> Result<Option<ClusterCheckpoint>> {
-    let path = dir.join(file_name(oguid));
-    if !path.exists() {
+    let cp: Option<ClusterCheckpoint> = load_json_from(dir, &file_name(oguid))?;
+    let Some(cp) = cp else {
         return Ok(None);
-    }
-    let content = std::fs::read_to_string(&path)?;
-    let cp: ClusterCheckpoint = match serde_json::from_str(&content) {
-        Ok(c) => c,
-        Err(_) => return Ok(None),
     };
     if cp.oguid != oguid {
         return Ok(None);
     }
     crate::ui::log_info("[续] 检测到集群检查点，从上次进度继续安装");
     Ok(Some(cp))
-}
-
-fn cwd() -> PathBuf {
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 #[cfg(test)]

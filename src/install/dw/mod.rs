@@ -65,38 +65,26 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, cluster: &DwClusterCo
     crate::ui::step_header("[2/10] 环境准备");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.env_setup_done);
     provision::env_setup_all(&pending).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.env_setup_done = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.env_setup_done = true)?;
     crate::ui::step_footer();
 
     crate::ui::step_header("[3/10] 上传安装包");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.uploaded);
     provision::upload_all(&pending, &package_path).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.uploaded = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.uploaded = true)?;
     crate::ui::step_footer();
 
     crate::ui::step_header("[4/10] 静默安装");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.installed);
     provision::install_all(&pending).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.installed = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.installed = true)?;
     crate::ui::log_ok("所有节点安装完成");
     crate::ui::step_footer();
 
     crate::ui::step_header("[5/10] 初始化数据库实例");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.db_inited);
     provision::init_all(&pending, &sysdba_pwd, &sysauditor_pwd).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.db_inited = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.db_inited = true)?;
     crate::ui::log_ok("所有节点 dminit 完成");
     crate::ui::step_footer();
 
@@ -107,40 +95,28 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, cluster: &DwClusterCo
         .filter(|(node, _)| node.role == NodeRole::Standby)
         .collect();
     sync::sync_standbys_from_primary(cluster, &all_pairs, &pending_standbys).await?;
-    for (node, _) in &pending_standbys {
-        cp.mark(&node.host, |n| n.synced = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending_standbys, |n| n.synced = true)?;
     crate::ui::log_ok("备库数据已与主库同步");
     crate::ui::step_footer();
 
     crate::ui::step_header("[7/10] 分发主备守护配置");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.config_distributed);
     config_dist::distribute_config_all(cluster, &pending).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.config_distributed = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.config_distributed = true)?;
     crate::ui::log_ok("dmmal.ini / dmarch.ini / dmwatcher.ini 已分发，dm.ini 已更新");
     crate::ui::step_footer();
 
     crate::ui::step_header("[8/10] 启动数据库（mount 模式）并设置 OGUID / 角色");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.mount_started);
     startup::start_databases(cluster, &pending, &sysdba_pwd).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.mount_started = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.mount_started = true)?;
     crate::ui::log_ok("primary/standby 均已 mount 启动并完成角色设置");
     crate::ui::step_footer();
 
     crate::ui::step_header("[9/10] 启动数据守护进程 dmwatcher 与监视器 dmmonitor");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.watcher_started);
     startup::start_watchers_all(&pending).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.watcher_started = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.watcher_started = true)?;
     let monitor_node = cluster.monitor_node();
     if !cp.node(&monitor_node.host).monitor_started {
         if let Some((_, monitor_runner)) = all_pairs.iter().find(|(n, _)| n.host == monitor_node.host) {
@@ -157,24 +133,15 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, cluster: &DwClusterCo
     crate::ui::step_header("[10/10] 配置备份作业 / 开启 SQL 日志 / 应用参数优化");
     let pending = pending_pairs(&all_pairs, &cp, |n| n.backup_configured);
     post_setup::backup_all(&pending, &sysdba_pwd).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.backup_configured = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.backup_configured = true)?;
 
     let pending = pending_pairs(&all_pairs, &cp, |n| n.sql_log_enabled);
     post_setup::sql_log_all(&pending, &sysdba_pwd).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.sql_log_enabled = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.sql_log_enabled = true)?;
 
     let pending = pending_pairs(&all_pairs, &cp, |n| n.param_tuned);
     post_setup::param_tune_all(&pending, &sysdba_pwd).await?;
-    for (node, _) in &pending {
-        cp.mark(&node.host, |n| n.param_tuned = true);
-    }
-    cp.save()?;
+    mark_all_and_save(&mut cp, &pending, |n| n.param_tuned = true)?;
     crate::ui::log_ok("备份作业 / SQL 日志 / 参数优化已完成");
     crate::ui::step_footer();
 
@@ -184,6 +151,19 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, cluster: &DwClusterCo
     ));
     checkpoint::ClusterCheckpoint::remove(cluster.oguid)?;
     Ok(())
+}
+
+/// 将 `pending` 中每个节点标记为已完成当前步骤并持久化 checkpoint。
+/// 各节点步骤共用的"标记 + 保存"收尾动作，避免在每个步骤里重复写 for 循环。
+fn mark_all_and_save(
+    cp: &mut checkpoint::ClusterCheckpoint,
+    pending: &[NodeRunner],
+    mark: impl Fn(&mut checkpoint::NodeCheckpoint),
+) -> Result<()> {
+    for (node, _) in pending {
+        cp.mark(&node.host, &mark);
+    }
+    cp.save()
 }
 
 /// 从全量节点列表中过滤出某个 checkpoint 标记尚未完成的节点。
