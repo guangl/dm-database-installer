@@ -37,3 +37,15 @@ fn default_ssh_max_retries() -> u32 {
 fn default_ssh_retry_interval_secs() -> u64 {
     5
 }
+
+/// 校验集群节点的 SSH 凭据：必须提供 identity_file 或 password 之一。
+/// dw/dpc 两种集群配置的节点校验共用此规则。
+pub(crate) fn validate_node_ssh_credentials(host: &str, ssh: &SshCredentials) -> anyhow::Result<()> {
+    if ssh.identity_file.is_none() && ssh.password.is_none() {
+        anyhow::bail!(
+            "配置验证失败: 节点 {} 的 ssh 配置必须提供 identity_file 或 password 之一",
+            host
+        );
+    }
+    Ok(())
+}
