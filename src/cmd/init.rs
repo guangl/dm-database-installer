@@ -3,49 +3,40 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{InitKind, InitOutputArgs};
 
+/// 一种安装类型对应的配置模板：通用 config.toml + 一份特有配置文件。
+/// standalone/dw 的 `run()` 分支结构完全相同，仅这几项取值不同，故抽成数据驱动。
+struct InitTemplate {
+    /// 用于提示文案的类型名，如"单机"/"主备集群"。
+    label: &'static str,
+    specific_file: &'static str,
+    specific_desc: &'static str,
+    next_step: &'static str,
+    common_content: &'static str,
+    specific_content: &'static str,
+}
+
+const STANDALONE_TEMPLATE: InitTemplate = InitTemplate {
+    label: "单机",
+    specific_file: "standalone.toml",
+    specific_desc: "单机特有配置（端口、路径、字符集等）",
+    next_step: "dm_installer install",
+    common_content: STANDALONE_COMMON,
+    specific_content: STANDALONE_SPECIFIC,
+};
+
+const DW_TEMPLATE: InitTemplate = InitTemplate {
+    label: "主备集群",
+    specific_file: "dw.toml",
+    specific_desc: "主备集群节点配置（角色、网络端口、SSH 凭证等）",
+    next_step: "dm_installer validate 校验，再 dm_installer install 部署",
+    common_content: DW_COMMON,
+    specific_content: DW_SPECIFIC,
+};
+
 pub fn run(kind: &InitKind) -> Result<()> {
     match kind {
-        InitKind::Standalone(args) => {
-            let dir = output_dir(args);
-            let wrote_common =
-                write_template(&dir.join("config.toml"), args.force, STANDALONE_COMMON)?;
-            let wrote_specific = write_template(
-                &dir.join("standalone.toml"),
-                args.force,
-                STANDALONE_SPECIFIC,
-            )?;
-            if wrote_common || wrote_specific {
-                println!("已生成单机配置模板:");
-                if wrote_common {
-                    println!("  config.toml      — 通用配置（type、安装包路径等）");
-                }
-                if wrote_specific {
-                    println!("  standalone.toml  — 单机特有配置（端口、路径、字符集等）");
-                }
-                println!("编辑后使用: dm_installer install");
-            } else {
-                println!("配置文件已存在，无需覆盖。使用 --force 强制重新生成。");
-            }
-            Ok(())
-        }
-        InitKind::Dw(args) => {
-            let dir = output_dir(args);
-            let wrote_common = write_template(&dir.join("config.toml"), args.force, DW_COMMON)?;
-            let wrote_specific = write_template(&dir.join("dw.toml"), args.force, DW_SPECIFIC)?;
-            if wrote_common || wrote_specific {
-                println!("已生成主备集群配置模板:");
-                if wrote_common {
-                    println!("  config.toml — 通用配置（type、安装包路径等）");
-                }
-                if wrote_specific {
-                    println!("  dw.toml     — 主备集群节点配置（角色、网络端口、SSH 凭证等）");
-                }
-                println!("编辑后使用: dm_installer validate 校验，再 dm_installer install 部署");
-            } else {
-                println!("配置文件已存在，无需覆盖。使用 --force 强制重新生成。");
-            }
-            Ok(())
-        }
+        InitKind::Standalone(args) => write_init_template(&output_dir(args), args.force, &STANDALONE_TEMPLATE),
+        InitKind::Dw(args) => write_init_template(&output_dir(args), args.force, &DW_TEMPLATE),
         InitKind::Rws | InitKind::Dsc | InitKind::Dpc => {
             let mode = match kind {
                 InitKind::Rws => "读写分离集群（rws）",
@@ -58,6 +49,24 @@ pub fn run(kind: &InitKind) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn write_init_template(dir: &Path, force: bool, tpl: &InitTemplate) -> Result<()> {
+    let wrote_common = write_template(&dir.join("config.toml"), force, tpl.common_content)?;
+    let wrote_specific = write_template(&dir.join(tpl.specific_file), force, tpl.specific_content)?;
+    if wrote_common || wrote_specific {
+        println!("已生成{}配置模板:", tpl.label);
+        if wrote_common {
+            println!("  config.toml — 通用配置（type、安装包路径等）");
+        }
+        if wrote_specific {
+            println!("  {} — {}", tpl.specific_file, tpl.specific_desc);
+        }
+        println!("编辑后使用: {}", tpl.next_step);
+    } else {
+        println!("配置文件已存在，无需覆盖。使用 --force 强制重新生成。");
+    }
+    Ok(())
 }
 
 fn output_dir(args: &InitOutputArgs) -> PathBuf {
