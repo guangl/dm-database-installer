@@ -73,8 +73,8 @@ pub enum InitKind {
     Rws,
     /// 生成 DSC 共享存储集群配置模板（即将支持）
     Dsc,
-    /// 生成 DPC 分布式集群配置模板（即将支持）
-    Dpc,
+    /// 生成 DPC 分布式集群配置模板（输出 config.toml + dpc.toml）
+    Dpc(InitOutputArgs),
 }
 
 /// self-update 子命令参数
