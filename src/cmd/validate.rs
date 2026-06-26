@@ -3,6 +3,7 @@ use std::path::Path;
 use unicode_width::UnicodeWidthStr;
 
 use crate::cli::ValidateArgs;
+use crate::config::dpc::{DpcClusterConfig, DpcNode};
 use crate::config::dw::{DwClusterConfig, DwNode, NodeRole, StandbyMode};
 use crate::config::ssh::SshTarget;
 use crate::config::{ArchiveConfig, BackupConfig, CommonConfig, InstallConfig, InstallerSource, LoadedSpecific};
@@ -17,6 +18,7 @@ pub async fn run(args: &ValidateArgs) -> Result<()> {
             print_standalone_summary(&config_path, &loaded.common, cfg)
         }
         LoadedSpecific::Dw(cluster) => print_dw_summary(&config_path, &loaded.common, cluster),
+        LoadedSpecific::Dpc(cluster) => print_dpc_summary(&config_path, &loaded.common, cluster),
     }
     let c = colors();
     println!("\n{}✓ 配置解析成功{}", c.green, c.reset);
@@ -296,6 +298,54 @@ fn print_dw_node(idx: usize, total: usize, node: &DwNode) {
         "DB={}  MAL={}  DW={}  INST_DW={}",
         node.port, node.mal_port, node.dw_port, node.inst_dw_port
     ));
+    kv("数据库", &format!(
+        "页大小={}KB  字符集={}  簇大小={}  大小写敏感={}",
+        node.page_size,
+        charset_name(node.charset),
+        node.extent_size,
+        yn(node.case_sensitive),
+    ));
+    kv("SSH", &format!("{}@{}", node.ssh.user, node.host));
+}
+
+// ── DPC 分布式集群 ──────────────────────────────────────────────────
+
+fn print_dpc_summary(path: &Path, common: &CommonConfig, cfg: &DpcClusterConfig) {
+    let c = colors();
+    println!("{}{}DPC 分布式集群{}  {} + dpc.toml", c.bold, c.yellow, c.reset, path.display());
+
+    section("集群配置");
+    kv("安装包", &installer_line(&common.installer));
+    kv("CLUSTER_ID", &cfg.cluster_id.to_string());
+    kv("MP 元数据", &format!("{}:{}", cfg.mp_host, cfg.mp_port));
+    kv("副本模式", if cfg.is_multi_replica() { "多副本（RAFT）" } else { "单副本" });
+    if cfg.is_multi_replica() {
+        for bg in &cfg.bp_groups {
+            kv("BP_GROUP", &format!("{}  RAFT 组: {}", bg.name, bg.rafts.join("、")));
+        }
+    }
+
+    for (i, node) in cfg.nodes.iter().enumerate() {
+        print_dpc_node(i + 1, cfg.nodes.len(), node);
+    }
+}
+
+fn print_dpc_node(idx: usize, total: usize, node: &DpcNode) {
+    let c = colors();
+    section(&format!(
+        "节点 [{idx}/{total}]  {green}{role}{reset}  {}  {}",
+        node.host,
+        node.instance_name,
+        green = c.green,
+        role = node.role.as_str(),
+        reset = c.reset,
+    ));
+    kv("安装路径", &node.install_path);
+    kv("数据路径", &node.data_path);
+    if let (Some(g), Some(id)) = (&node.raft_group, node.raft_self_id) {
+        kv("RAFT", &format!("组={}  SELF_ID={}{}", g, id, if id == 1 { "（主副本）" } else { "" }));
+    }
+    kv("端口", &format!("DB={}  AP={}", node.port, node.ap_port));
     kv("数据库", &format!(
         "页大小={}KB  字符集={}  簇大小={}  大小写敏感={}",
         node.page_size,
