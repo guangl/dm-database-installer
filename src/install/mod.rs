@@ -1,4 +1,5 @@
 pub mod advisory;
+pub mod dpc;
 pub mod dw;
 pub mod remote_common;
 pub mod report;

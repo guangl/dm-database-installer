@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+pub mod dpc;
 pub mod dw;
 pub mod ssh;
 
@@ -15,6 +16,7 @@ pub const CONFIG_FILE: &str = "config.toml";
 pub enum InstallType {
     Standalone,
     Dw,
+    Dpc,
 }
 
 /// 安装包来源（三选一）。
@@ -56,7 +58,8 @@ impl TryFrom<CommonConfigRaw> for CommonConfig {
         let install_type = match raw.install_type.as_str() {
             "standalone" => InstallType::Standalone,
             "dw" => InstallType::Dw,
-            other => bail!("type 无效: \"{}\"；有效值为 standalone/dw", other),
+            "dpc" => InstallType::Dpc,
+            other => bail!("type 无效: \"{}\"；有效值为 standalone/dw/dpc", other),
         };
         let installer = match (raw.installer_package, raw.installer_url) {
             (Some(_), Some(_)) => {
@@ -78,6 +81,7 @@ impl TryFrom<CommonConfigRaw> for CommonConfig {
 pub enum LoadedSpecific {
     Standalone(Box<InstallConfig>),
     Dw(DwClusterConfig),
+    Dpc(Box<dpc::DpcClusterConfig>),
 }
 
 /// 加载后的完整配置：通用配置 + 特有配置。
@@ -100,6 +104,9 @@ pub fn load_config_from(common_path: &Path) -> Result<LoadedConfig> {
             &dir.join("standalone.toml"),
         )?)),
         InstallType::Dw => LoadedSpecific::Dw(dw::load_dw_specific(&dir.join("dw.toml"))?),
+        InstallType::Dpc => {
+            LoadedSpecific::Dpc(Box::new(dpc::load_dpc_specific(&dir.join("dpc.toml"))?))
+        }
     };
     Ok(LoadedConfig { common, specific })
 }

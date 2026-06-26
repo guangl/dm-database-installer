@@ -54,6 +54,13 @@ async fn main() -> Result<()> {
                     );
                     install::dw::run(args, cfg.common, &cluster).await
                 }
+                config::LoadedSpecific::Dpc(cluster) => {
+                    tracing::debug!(
+                        nodes = cluster.nodes.len(),
+                        "dispatching to dpc cluster install"
+                    );
+                    install::dpc::run(args, cfg.common, &cluster).await
+                }
             }
         }
         cli::Commands::SelfUpdate(args) => cmd::self_update::run(args.check).await,
