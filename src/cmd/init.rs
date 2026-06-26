@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use crate::cli::{InitKind, InitOutputArgs};
 
 /// 一种安装类型对应的配置模板：通用 config.toml + 一份特有配置文件。
-/// standalone/dw 的 `run()` 分支结构完全相同，仅这几项取值不同，故抽成数据驱动。
+/// standalone/dw/dpc 的 `run()` 分支结构完全相同，仅这几项取值不同，故抽成数据驱动。
 struct InitTemplate {
-    /// 用于提示文案的类型名，如"单机"/"主备集群"。
+    /// 用于提示文案的类型名，如"单机"/"主备集群"/"DPC 分布式集群"。
     label: &'static str,
     specific_file: &'static str,
     specific_desc: &'static str,
@@ -33,19 +33,32 @@ const DW_TEMPLATE: InitTemplate = InitTemplate {
     specific_content: DW_SPECIFIC,
 };
 
+const DPC_TEMPLATE: InitTemplate = InitTemplate {
+    label: "DPC 分布式集群",
+    specific_file: "dpc.toml",
+    specific_desc: "DPC 集群节点配置（角色、端口、SSH 凭证等）",
+    next_step: "dm_installer validate 校验，再 dm_installer install 部署",
+    common_content: DPC_COMMON,
+    specific_content: DPC_SPECIFIC,
+};
+
 pub fn run(kind: &InitKind) -> Result<()> {
     match kind {
-        InitKind::Standalone(args) => write_init_template(&output_dir(args), args.force, &STANDALONE_TEMPLATE),
+        InitKind::Standalone(args) => {
+            write_init_template(&output_dir(args), args.force, &STANDALONE_TEMPLATE)
+        }
         InitKind::Dw(args) => write_init_template(&output_dir(args), args.force, &DW_TEMPLATE),
-        InitKind::Rws | InitKind::Dsc | InitKind::Dpc => {
+        InitKind::Dpc(args) => write_init_template(&output_dir(args), args.force, &DPC_TEMPLATE),
+        InitKind::Rws | InitKind::Dsc => {
             let mode = match kind {
                 InitKind::Rws => "读写分离集群（rws）",
                 InitKind::Dsc => "DSC 共享存储集群（dsc）",
-                InitKind::Dpc => "DPC 分布式集群（dpc）",
                 _ => unreachable!(),
             };
             println!("{} 配置模板即将支持，请关注后续版本。", mode);
-            println!("当前可使用: dm_installer init standalone / dm_installer init dw");
+            println!(
+                "当前可使用: dm_installer init standalone / dm_installer init dw / dm_installer init dpc"
+            );
             Ok(())
         }
     }
@@ -53,7 +66,8 @@ pub fn run(kind: &InitKind) -> Result<()> {
 
 fn write_init_template(dir: &Path, force: bool, tpl: &InitTemplate) -> Result<()> {
     let wrote_common = write_template(&dir.join("config.toml"), force, tpl.common_content)?;
-    let wrote_specific = write_template(&dir.join(tpl.specific_file), force, tpl.specific_content)?;
+    let wrote_specific =
+        write_template(&dir.join(tpl.specific_file), force, tpl.specific_content)?;
     if wrote_common || wrote_specific {
         println!("已生成{}配置模板:", tpl.label);
         if wrote_common {
@@ -321,6 +335,142 @@ identity_file = "~/.ssh/id_rsa"
 # mon_log_space_limit = 4096 # 日志总空间上限（MB），0=不限
 "#;
 
+const DPC_COMMON: &str = r#"# 达梦数据库 DPC 分布式集群安装 — 通用配置
+# 使用方式: dm_installer install
+
+type = "dpc"
+
+# ─── 安装包来源（三选一，都不填则自动检测第一个节点平台并下载）──
+# 工具会把这个文件推送到各节点后再静默安装。
+# 本地文件路径
+# installer_package = "/path/to/dm8_setup_rh7_64_ent_8.1.3.100.iso"
+# 自定义下载链接
+# installer_url = "https://download.example.com/dm8.zip"
+
+# ─── 上线检查报告配置（可选，当前仅单机安装会用到）──────────────
+[report]
+enabled = true # 是否自动生成报告
+system_name = "未命名系统"      # 报告抬头：系统名称
+# user_org = "某某单位"          # 报告抬头：用户单位
+inspect_org = "武汉达梦数据库股份有限公司" # 报告抬头：巡检单位
+# engineer = "张三"              # 巡检工程师姓名
+# output_dir = "/home/dmdba/reports" # 报告输出目录，不填则为当前工作目录
+"#;
+
+const DPC_SPECIFIC: &str = r#"# 达梦数据库 DPC 分布式集群安装 — 节点配置（dpc.toml）
+# 注意：SYSDBA / SYSAUDITOR 密码在安装时由终端提示输入，不写入此文件
+#
+# DPC 与主备集群（dw）的核心差异：节点角色为 SP（查询处理）/ BP（数据存储）/ MP（元数据），
+# 不使用 MAL/WATCHER 监视器机制，集群注册通过 MP 节点上的系统存储过程完成
+# （SP_CREATE_DPC_INSTANCE / SP_CREATE_DPC_BP_GROUP / SP_CREATE_DPC_RAFT 等，参见达梦官方
+# DPC 部署文档「6.2 配置方法」）。本工具会根据下方配置自动调用这些过程，无需手动执行 SQL。
+#
+# ─── 速览：通常只需要修改这几处 ────────────────────────────────
+#   每个 [[nodes]]：host / instance_name / [nodes.ssh] 凭证
+#   集群至少需要 1 个 MP + 1 个 BP + 1 个 SP 节点
+#
+# ─── 单副本 vs 多副本（RAFT）──────────────────────────────────
+#   单副本（默认，下方示例）：不配置 raft_group / raft_self_id / bp_groups
+#   多副本：BP/MP 节点带 raft_group + raft_self_id（组内从 1 起连续编号，1 为主副本，
+#           对应 dmarch.ini 的 RAFT_SELF_ID），并通过顶层 [[bp_groups]] 把多个 raft_group
+#           聚合注册（对应 SP_CREATE_DPC_BP_GROUP）
+
+# ── 集群标识（顶层裸键）─────────────────────────────────────────────────
+cluster_id = 20260626          # 集群标识，范围 0-2147483647；省略则默认当天 YYYYMMDD
+# mp_host  = "192.168.1.10"    # 对应 mp.ini 的 MP_HOST，不填则默认取第一个 MP 节点的 host
+mp_port    = 5237              # 对应 mp.ini 的 MP_PORT；不能与 MP 节点自身 port 相同
+
+# ── 多副本专用：BP_GROUP 聚合（仅多副本模式需要，单副本请删除/注释）─────
+# [[bp_groups]]
+# name  = "BG1"          # BP_GROUP 名称
+# rafts = ["RAFT1"]      # 该组包含的 raft_group 列表
+
+# ════════════════════════════════════════════════════════════════════════
+# 节点配置（必填，至少 1 个 MP + 1 个 BP + 1 个 SP）
+# ════════════════════════════════════════════════════════════════════════
+
+# ── MP 节点（元数据，集群注册与元数据，常驻；role 对应 dm.ini 的 DPC_MODE=MP）────
+[[nodes]]
+role           = "MP"
+host           = "192.168.1.10"
+instance_name  = "MP01"   # 对应 dm.ini 的 INSTANCE_NAME
+install_path   = "/home/dmdba/dmdbms"
+data_path      = "/home/dmdba/dmdbms/data"
+port           = 5236   # 实例端口，对应 dm.ini 的 PORT_NUM
+ap_port        = 5237   # AP（分析处理）端口，对应 dm.ini 的 AP_PORT_NUM，节点间通信使用；
+                         # 若与该节点在 MP 上实际注册的 AP_PORT_NUM 不一致，以 MP 注册值为准
+page_size      = 32     # 页大小（KB）：4 / 8 / 16 / 32
+charset        = 1      # 0=GB18030  1=UTF-8  2=EUC-KR
+case_sensitive = true
+extent_size    = 32     # 区段大小（页数）：16 / 32
+# raft_group   = "RAFT1"   # 仅多副本模式需要：所属 RAFT 组名
+# raft_self_id = 1         # 仅多副本模式需要：组内序号（对应 dmarch.ini 的 RAFT_SELF_ID，
+                           #   1 为主副本，从 1 起连续）
+
+[nodes.ssh]
+user          = "root"
+identity_file = "~/.ssh/id_rsa"
+# password = "xxx"   # 不填则使用 identity_file；两者至少配置一个
+
+# ── BP 节点（数据存储）──────────────────────────────────────────────────
+[[nodes]]
+role           = "BP"
+host           = "192.168.1.11"
+instance_name  = "BP01"
+install_path   = "/home/dmdba/dmdbms"
+data_path      = "/home/dmdba/dmdbms/data"
+port           = 5236
+ap_port        = 5237
+page_size      = 32
+charset        = 1
+case_sensitive = true
+extent_size    = 32
+# raft_group   = "RAFT1"   # 仅多副本模式需要：所属 RAFT 组名
+# raft_self_id = 1         # 仅多副本模式需要：组内序号，1 为主副本，从 1 起连续
+
+[nodes.ssh]
+user          = "root"
+identity_file = "~/.ssh/id_rsa"
+
+# 多副本模式下，同一 raft_group 的第二个 BP 副本示例：
+# [[nodes]]
+# role           = "BP"
+# host           = "192.168.1.12"
+# instance_name  = "BP02"
+# install_path   = "/home/dmdba/dmdbms"
+# data_path      = "/home/dmdba/dmdbms/data"
+# port           = 5236
+# ap_port        = 5237
+# page_size      = 32
+# charset        = 1
+# case_sensitive = true
+# extent_size    = 32
+# raft_group     = "RAFT1"
+# raft_self_id   = 2
+#
+# [nodes.ssh]
+# user          = "root"
+# identity_file = "~/.ssh/id_rsa"
+
+# ── SP 节点（查询处理）──────────────────────────────────────────────────
+[[nodes]]
+role           = "SP"
+host           = "192.168.1.13"
+instance_name  = "SP01"
+install_path   = "/home/dmdba/dmdbms"
+data_path      = "/home/dmdba/dmdbms/data"
+port           = 5236
+ap_port        = 5237
+page_size      = 32
+charset        = 1
+case_sensitive = true
+extent_size    = 32
+
+[nodes.ssh]
+user          = "root"
+identity_file = "~/.ssh/id_rsa"
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,6 +591,46 @@ mod tests {
                 assert_eq!(cluster.nodes.len(), 2);
             }
             _ => panic!("应解析为 Dw 集群配置"),
+        }
+    }
+
+    #[test]
+    fn test_dpc_creates_two_files() {
+        let dir = TempDir::new().unwrap();
+        run(&InitKind::Dpc(output_args_in(&dir, false))).unwrap();
+        assert!(
+            dir.path().join("config.toml").exists(),
+            "应生成 config.toml"
+        );
+        assert!(dir.path().join("dpc.toml").exists(), "应生成 dpc.toml");
+    }
+
+    #[test]
+    fn test_dpc_common_has_type_field() {
+        let dir = TempDir::new().unwrap();
+        run(&InitKind::Dpc(output_args_in(&dir, false))).unwrap();
+        let content = std::fs::read_to_string(dir.path().join("config.toml")).unwrap();
+        assert!(
+            content.contains("type = \"dpc\""),
+            "通用配置应含 type = \"dpc\""
+        );
+    }
+
+    #[test]
+    fn test_dpc_templates_are_valid_toml_and_pass_validation() {
+        toml::from_str::<toml::Value>(DPC_COMMON).expect("通用模板应为合法 TOML");
+        toml::from_str::<toml::Value>(DPC_SPECIFIC).expect("dpc 特有模板应为合法 TOML");
+
+        let dir = TempDir::new().unwrap();
+        run(&InitKind::Dpc(output_args_in(&dir, false))).unwrap();
+        let loaded =
+            crate::config::load_config_from(&dir.path().join("config.toml")).expect("应加载成功");
+        match loaded.specific {
+            crate::config::LoadedSpecific::Dpc(cluster) => {
+                assert_eq!(cluster.nodes.len(), 3);
+                assert!(!cluster.is_multi_replica());
+            }
+            _ => panic!("应解析为 Dpc 集群配置"),
         }
     }
 }
