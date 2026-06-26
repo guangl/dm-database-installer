@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::config::InstallConfig;
-use crate::ssh::{CommandRunner, shell_quote};
+use crate::ssh::CommandRunner;
 
 const SQL_LOG_SQL_PATH: &str = "/tmp/dm_enable_sql_log.sql";
 
@@ -14,23 +14,16 @@ pub async fn enable(
     sysdba_pwd: &str,
 ) -> Result<()> {
     let sql = "call SP_SET_PARA_VALUE(1,'SVR_LOG',1);\nexit;\n";
-    runner
-        .sftp_write(SQL_LOG_SQL_PATH, sql.as_bytes())
-        .await
-        .map_err(|e| anyhow::anyhow!("写入开启 SQL 日志脚本失败: {e}"))?;
-
-    let disql = format!("{}/bin/disql", config.install_path);
-    let conn = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
-    let cmd = super::disql_script_cmd(&disql, &conn, SQL_LOG_SQL_PATH);
-    runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("开启 SQL 日志失败: {e}"))?;
-
-    let _ = runner
-        .exec(&format!("rm -f {}", shell_quote(SQL_LOG_SQL_PATH)))
-        .await;
-    Ok(())
+    super::execute_sql_script(
+        runner,
+        config,
+        sysdba_pwd,
+        SQL_LOG_SQL_PATH,
+        sql,
+        "写入开启 SQL 日志脚本失败",
+        "开启 SQL 日志失败",
+    )
+    .await
 }
 
 #[cfg(test)]

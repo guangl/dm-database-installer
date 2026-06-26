@@ -25,23 +25,16 @@ pub async fn enable_archive_online(
 
     let space_limit = resolve_space_limit_mb(runner, &config.archive, &arch_path).await?;
     let sql = generate_enable_archive_sql(&arch_path, &config.archive, space_limit);
-    runner
-        .sftp_write(ARCH_SQL_PATH, sql.as_bytes())
-        .await
-        .map_err(|e| anyhow::anyhow!("写入归档开启 SQL 失败: {e}"))?;
-
-    let disql = format!("{}/bin/disql", config.install_path);
-    let conn = format!("SYSDBA/{}@localhost:{}", sysdba_pwd, config.port);
-    let cmd = super::disql_script_cmd(&disql, &conn, ARCH_SQL_PATH);
-    runner
-        .exec(&cmd)
-        .await
-        .map_err(|e| anyhow::anyhow!("在线开启归档失败: {e}"))?;
-
-    let _ = runner
-        .exec(&format!("rm -f {}", shell_quote(ARCH_SQL_PATH)))
-        .await;
-    Ok(())
+    super::execute_sql_script(
+        runner,
+        config,
+        sysdba_pwd,
+        ARCH_SQL_PATH,
+        &sql,
+        "写入归档开启 SQL 失败",
+        "在线开启归档失败",
+    )
+    .await
 }
 
 /// 解析归档空间上限（MB）：显式配置则直接使用（0 = 无限）；

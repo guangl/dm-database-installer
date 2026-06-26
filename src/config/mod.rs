@@ -436,32 +436,79 @@ impl From<InstallConfigFile> for InstallConfig {
     }
 }
 
-fn default_install_path() -> String {
+/// 以下 default_* 为 install_path/data_path/port/page_size/charset/case_sensitive/extent_size
+/// 的通用默认值，standalone/dw/dpc 三种安装类型共用同一组取值，集中定义于此处避免三处重复。
+pub(crate) fn default_install_path() -> String {
     "/home/dmdba/dmdbms".to_string()
 }
-fn default_data_path() -> String {
+pub(crate) fn default_data_path() -> String {
     "/home/dmdba/dmdbms/data".to_string()
 }
 fn default_instance_name() -> String {
     "DMSERVER".to_string()
 }
-fn default_port() -> u16 {
+pub(crate) fn default_port() -> u16 {
     5236
 }
 /// AP（应用）端口仅用于安装前端口占用预检查，不可配置，固定为达梦默认值。
 pub(crate) const AP_PORT_PRECHECK: u16 = 4236;
 
-fn default_page_size() -> u8 {
+pub(crate) fn default_page_size() -> u8 {
     32
 }
-fn default_charset() -> u8 {
+pub(crate) fn default_charset() -> u8 {
     1
 }
-fn default_case_sensitive() -> bool {
+pub(crate) fn default_case_sensitive() -> bool {
     true
 }
-fn default_extent_size() -> u8 {
+pub(crate) fn default_extent_size() -> u8 {
     32
+}
+
+/// 从当前 Unix 时间戳推算 YYYYMMDD，用作集群标识（dw 的 oguid / dpc 的 cluster_id）的默认值。
+pub(crate) fn default_yyyymmdd_from_now() -> u32 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = now / 86400;
+    let mut y = 1970u32;
+    let mut remaining = days as u32;
+    loop {
+        let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
+        let days_in_year = if leap { 366 } else { 365 };
+        if remaining < days_in_year {
+            break;
+        }
+        remaining -= days_in_year;
+        y += 1;
+    }
+    let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
+    let month_days: [u32; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut m = 1u32;
+    for &d in &month_days {
+        if remaining < d {
+            break;
+        }
+        remaining -= d;
+        m += 1;
+    }
+    let day = remaining + 1;
+    y * 10000 + m * 100 + day
 }
 
 impl Default for InstallConfig {

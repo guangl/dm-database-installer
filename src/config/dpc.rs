@@ -12,8 +12,12 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::ssh::SshCredentials;
-use super::validate_db_params;
+use super::ssh::{SshCredentials, validate_node_ssh_credentials};
+use super::{
+    default_case_sensitive, default_charset, default_data_path, default_extent_size,
+    default_install_path, default_page_size, default_port, default_yyyymmdd_from_now,
+    validate_db_params,
+};
 
 /// DPC 节点角色，序列化为大写以对齐 dpc_mode 取值 SP/BP/MP。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -242,66 +246,18 @@ impl From<DpcClusterConfigRaw> for DpcClusterConfig {
     }
 }
 
-/// 从 Unix 时间戳推算 YYYYMMDD 作为默认 cluster_id（与 dw.rs default_oguid 算法一致）。
+/// 从 Unix 时间戳推算 YYYYMMDD 作为默认 cluster_id（与 dw.rs default_oguid 共用同一算法）。
 fn default_cluster_id() -> u32 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let days = now / 86400;
-    let mut y = 1970u32;
-    let mut remaining = days as u32;
-    loop {
-        let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
-        let days_in_year = if leap { 366 } else { 365 };
-        if remaining < days_in_year {
-            break;
-        }
-        remaining -= days_in_year;
-        y += 1;
-    }
-    let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
-    let month_days: [u32; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut m = 1u32;
-    for &d in &month_days {
-        if remaining < d {
-            break;
-        }
-        remaining -= d;
-        m += 1;
-    }
-    let day = remaining + 1;
-    y * 10000 + m * 100 + day
+    default_yyyymmdd_from_now()
 }
 
-fn default_install_path() -> String {
-    "/home/dmdba/dmdbms".to_string()
-}
-fn default_data_path() -> String {
-    "/home/dmdba/dmdbms/data".to_string()
-}
 // 沿用达梦默认实例端口 5236；AP 端口取 5237（与 5236 相邻、不与之冲突），
 // 与 DW 模块对端口选择的约定保持一致（5236=主端口，5237=辅端口）。
-fn default_port() -> u16 {
-    5236
-}
 fn default_ap_port() -> u16 {
     5237
 }
 fn default_mp_port() -> u16 {
     5236
-}
-fn default_page_size() -> u8 {
-    32
-}
-fn default_charset() -> u8 {
-    1
-}
-fn default_case_sensitive() -> bool {
-    true
-}
-fn default_extent_size() -> u8 {
-    32
 }
 
 /// 从 dpc.toml 加载并验证 DPC 集群配置。
@@ -353,12 +309,7 @@ pub fn validate_dpc_config(cfg: &DpcClusterConfig) -> Result<()> {
             node.charset,
             node.extent_size,
         )?;
-        if node.ssh.identity_file.is_none() && node.ssh.password.is_none() {
-            bail!(
-                "配置验证失败: 节点 {} 的 ssh 配置必须提供 identity_file 或 password 之一",
-                node.host
-            );
-        }
+        validate_node_ssh_credentials(&node.host, &node.ssh)?;
         if !seen_instance_names.insert(node.instance_name.clone()) {
             bail!(
                 "配置验证失败: instance_name 在集群内必须唯一，重复值: {}",

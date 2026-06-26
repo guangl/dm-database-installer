@@ -57,15 +57,18 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     cp.save()?;
 
     // [2/10] 系统准备
-    crate::ui::step_header("[2/10] 系统准备");
-    if cp.env_setup_done {
-        crate::ui::log_info("[续] 系统环境已配置，跳过");
-    } else {
-        env_setup::run(&runner).await?;
-        cp.env_setup_done = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[2/10] 系统准备",
+        cp.env_setup_done,
+        "[续] 系统环境已配置，跳过",
+        async {
+            env_setup::run(&runner).await?;
+            cp.env_setup_done = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     // [3/10] 下载安装包
     crate::ui::step_header("[3/10] 下载安装包");
@@ -152,38 +155,48 @@ pub async fn run(args: &InstallArgs, common: CommonConfig, specific: InstallConf
     crate::ui::step_footer();
 
     // [8/10] 配置备份作业
-    crate::ui::step_header("[8/10] 配置备份作业");
-    if cp.backup_configured {
-        crate::ui::log_info("[续] 备份作业已配置，跳过");
-    } else {
-        backup::configure_jobs(&runner, &specific, &sysdba_pwd).await?;
-        cp.backup_configured = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[8/10] 配置备份作业",
+        cp.backup_configured,
+        "[续] 备份作业已配置，跳过",
+        async {
+            backup::configure_jobs(&runner, &specific, &sysdba_pwd).await?;
+            cp.backup_configured = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     // [9/10] 开启 SQL 日志
-    crate::ui::step_header("[9/10] 开启 SQL 日志");
-    if cp.sql_log_enabled {
-        crate::ui::log_info("[续] SQL 日志已开启，跳过");
-    } else {
-        sql_log::enable(&runner, &specific, &sysdba_pwd).await?;
-        cp.sql_log_enabled = true;
-        cp.save()?;
-    }
-    crate::ui::step_footer();
+    crate::install::run_step(
+        "[9/10] 开启 SQL 日志",
+        cp.sql_log_enabled,
+        "[续] SQL 日志已开启，跳过",
+        async {
+            sql_log::enable(&runner, &specific, &sysdba_pwd).await?;
+            cp.sql_log_enabled = true;
+            cp.save()?;
+            Ok(())
+        },
+    )
+    .await?;
 
     // [10/10] 应用参数调优（执行 AutoParaAdj 脚本并重启 dmserver 使其生效）
-    crate::ui::step_header("[10/10] 应用参数调优");
-    if cp.param_tuned {
-        crate::ui::log_info("[续] 参数调优已应用，跳过");
-    } else {
-        param_tune::apply_and_restart(&runner, &specific, &sysdba_pwd).await?;
-        cp.param_tuned = true;
-        cp.save()?;
-        service::wait_ready(&runner, &specific, &sysdba_pwd).await?;
-    }
-    crate::ui::step_footer();
+    let param_tune_skip = cp.param_tuned;
+    crate::install::run_step(
+        "[10/10] 应用参数调优",
+        param_tune_skip,
+        "[续] 参数调优已应用，跳过",
+        async {
+            param_tune::apply_and_restart(&runner, &specific, &sysdba_pwd).await?;
+            cp.param_tuned = true;
+            cp.save()?;
+            service::wait_ready(&runner, &specific, &sysdba_pwd).await?;
+            Ok(())
+        },
+    )
+    .await?;
 
     let report_path = if common.report.enabled {
         let today = crate::ui::today_yyyymmdd();

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use crate::install::checkpoint_io::{cwd, load_json_from, remove_file_in, save_json_to};
 
 const FILE_NAME: &str = "dm_installer_checkpoint.json";
 
@@ -58,18 +60,11 @@ impl Checkpoint {
     }
 
     pub(crate) fn save_to(&self, dir: &Path) -> Result<()> {
-        let path = dir.join(FILE_NAME);
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, content)?;
-        Ok(())
+        save_json_to(dir, FILE_NAME, self)
     }
 
     pub(crate) fn remove_from(dir: &Path) -> Result<()> {
-        let path = dir.join(FILE_NAME);
-        if path.exists() {
-            std::fs::remove_file(&path)?;
-        }
-        Ok(())
+        remove_file_in(dir, FILE_NAME)
     }
 }
 
@@ -79,24 +74,15 @@ pub fn load(install_path: &str) -> Result<Option<Checkpoint>> {
 }
 
 pub(crate) fn load_from(dir: &Path, install_path: &str) -> Result<Option<Checkpoint>> {
-    let path = dir.join(FILE_NAME);
-    if !path.exists() {
+    let cp: Option<Checkpoint> = load_json_from(dir, FILE_NAME)?;
+    let Some(cp) = cp else {
         return Ok(None);
-    }
-    let content = std::fs::read_to_string(&path)?;
-    let cp: Checkpoint = match serde_json::from_str(&content) {
-        Ok(c) => c,
-        Err(_) => return Ok(None),
     };
     if cp.install_path != install_path {
         return Ok(None);
     }
     println!("[续] 检测到检查点，从上次进度继续安装");
     Ok(Some(cp))
-}
-
-fn cwd() -> PathBuf {
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 #[cfg(test)]
