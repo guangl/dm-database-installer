@@ -205,10 +205,13 @@ extent_size    = 32   # 区段大小（页数）：16 / 32
 
 | 集群类型 | 命令 | 状态 |
 |---------|------|------|
-| 主备（DW）| `dm_installer init dw` | ✅ 支持 |
+| 主备（DW）| `dm_installer init dw` | 🚧 暂不支持（未测试）|
 | 读写分离（RWS）| — | 🚧 开发中 |
 | 共享存储（DSC）| — | 🚧 开发中 |
-| 数据保护集群（DPC）| — | 🚧 开发中 |
+| 数据保护集群（DPC）| — | 🚧 暂不支持（未测试）|
+
+> 说明：DW / DPC 的安装编排代码已实现，但尚未经过实际环境验证，暂不支持用于部署。
+> `init dw` / `init dpc` 目前仅用于生成配置模板。
 
 ## 子命令
 
@@ -218,10 +221,10 @@ dm_installer install --package PATH     指定本地安装包路径（跳过下�
 dm_installer install --url URL          指定自定义下载链接
 dm_installer validate [PATH]            验证配置文件语法与语义，不执行安装
 dm_installer init standalone            生成单机配置模板
-dm_installer init dw                    生成主备（DW）集群配置模板
+dm_installer init dw                    生成主备（DW）集群配置模板（安装暂不支持，未测试）
 dm_installer init rws                   生成读写分离（RWS）集群配置模板（即将支持）
 dm_installer init dsc                   生成共享存储（DSC）集群配置模板（即将支持）
-dm_installer init dpc                   生成 DPC 分布式集群配置模板（即将支持）
+dm_installer init dpc                   生成 DPC 分布式集群配置模板（安装暂不支持，未测试）
 dm_installer self-update                更新 dm_installer 到最新版本
 dm_installer completions <shell>        生成 shell 补全脚本（bash/zsh/fish/...），输出到 stdout
 dm_installer -v / -vv install           输出 debug / trace 级别日志（也可用 RUST_LOG 环境变量覆盖）
@@ -246,7 +249,7 @@ cargo run -- --help # 本地运行
 
 ## 项目状态
 
-此仓库的最初需求（Phase 1 单机静默安装脚本）已基本完成。其余功能（SSH 远程安装、主备/读写分离/DSC 集群部署等）视情况更新，不排除不再继续开发的可能。
+此仓库的最初需求（Phase 1 单机静默安装脚本）已基本完成。集群部署（主备 DW / DPC 等）的编排代码虽已存在，但**尚未经过实际环境测试，暂不支持**；读写分离（RWS）、共享存储（DSC）仍在开发中。这些功能视情况更新，不排除不再继续开发的可能。
 
 ## License
 

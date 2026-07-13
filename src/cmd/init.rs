@@ -47,8 +47,16 @@ pub fn run(kind: &InitKind) -> Result<()> {
         InitKind::Standalone(args) => {
             write_init_template(&output_dir(args), args.force, &STANDALONE_TEMPLATE)
         }
-        InitKind::Dw(args) => write_init_template(&output_dir(args), args.force, &DW_TEMPLATE),
-        InitKind::Dpc(args) => write_init_template(&output_dir(args), args.force, &DPC_TEMPLATE),
+        InitKind::Dw(args) => {
+            let r = write_init_template(&output_dir(args), args.force, &DW_TEMPLATE);
+            print_cluster_untested_warning();
+            r
+        }
+        InitKind::Dpc(args) => {
+            let r = write_init_template(&output_dir(args), args.force, &DPC_TEMPLATE);
+            print_cluster_untested_warning();
+            r
+        }
         InitKind::Rws | InitKind::Dsc => {
             let mode = match kind {
                 InitKind::Rws => "读写分离集群（rws）",
@@ -81,6 +89,11 @@ fn write_init_template(dir: &Path, force: bool, tpl: &InitTemplate) -> Result<()
         println!("配置文件已存在，无需覆盖。使用 --force 强制重新生成。");
     }
     Ok(())
+}
+
+/// 集群（DW/DPC）安装编排尚未经过实际环境测试，生成模板后提醒用户暂不支持部署。
+fn print_cluster_untested_warning() {
+    println!("注意：集群安装（dm_installer install）尚未经过测试，暂不支持用于实际部署。");
 }
 
 fn output_dir(args: &InitOutputArgs) -> PathBuf {
