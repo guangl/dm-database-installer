@@ -16,12 +16,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 更新下载链接
-        run: bash scripts/update-versions.sh versions.json
+        run: bash scripts/update-versions.sh versions.txt
 
       - name: 检查是否有变更
         id: diff
         run: |
-          if git diff --quiet versions.json; then
+          git add versions.txt
+          if git diff --cached --quiet -- versions.txt; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -32,6 +33,5 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add versions.json
           git commit -m "chore: update download versions $(date -u +%Y-%m-%d)"
           git push

@@ -11,8 +11,26 @@ log()  { printf "[%s] -- %s\n"  "$(date -u +%H:%M:%S)" "$*" >&2; }
 ok()   { printf "[%s] OK %s\n"  "$(date -u +%H:%M:%S)" "$*" >&2; }
 fail() { printf "[%s] ERR %s\n" "$(date -u +%H:%M:%S)" "$*" >&2; exit 1; }
 
-# 从单行 JSON 提取第一个匹配 key 的字符串值
-json_val() { grep -o "\"$1\":\"[^\"]*\"" | head -1 | sed "s/\"$1\":\"//;s/\"$//"; }
+# 从单行 JSON 提取指定 key 的字符串值；缺失字段返回空串，交由调用处判断。
+json_val() { sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | sed -n '1p'; }
+
+# 单次响应独立保存，防止重试时将失败响应拼进成功的 JSON。
+request_api() {
+    local url="$1" attempt response status
+    for attempt in 1 2 3; do
+        if response=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 "$url"); then
+            printf '%s' "$response"
+            return 0
+        else
+            status=$?
+        fi
+        log "请求失败（第 ${attempt}/3 次，curl 退出码 ${status}）：${url}"
+        if [ "$attempt" -lt 3 ]; then
+            sleep "$((attempt * 2))"
+        fi
+    done
+    return "$status"
+}
 
 # 平台列表：cpuId osId arch cpu_key os_key 中文标注
 # cpu_key / os_key 供 install.sh 运行时检测匹配
@@ -37,8 +55,8 @@ PLATFORMS=(
 
 # ── 1. 获取当前 DM8 版本号 ────────────────────────────────────────────────────────
 log "请求 eco.dameng.com 平台列表..."
-page_resp=$(curl -sf --max-time 15 "$API_BASE/cpu/os/table/page/data") \
-    || fail "无法访问 eco.dameng.com，检查网络连接"
+page_resp=$(request_api "$API_BASE/cpu/os/table/page/data") \
+    || fail "达梦平台列表请求重试后仍失败，具体原因见上方 curl 日志"
 
 db_version=$(printf '%s' "$page_resp" | json_val "dbVersion") \
     || fail "响应中未找到 dbVersion 字段"
@@ -49,6 +67,8 @@ ok "DM8 dbVersion = ${db_version}"
 log "逐平台请求下载链接..."
 found=0
 failed=0
+tmp_file=$(mktemp "${OUT_FILE}.tmp.XXXXXX")
+trap 'rm -f -- "$tmp_file"' EXIT
 
 {
     printf "# DM8 安装包下载地址（由 scripts/update-versions.sh 自动生成）\n"
@@ -66,9 +86,8 @@ failed=0
 
         log "  ${arch}  ${cpu_key}/${os_key}  (${label})"
 
-        resp=$(curl -sf --max-time 10 \
-            "$API_BASE/cpu/os/table/download/$db_version/$cpu_id/$os_id") || {
-            log "    => SKIP: API 无响应"
+        resp=$(request_api "$API_BASE/cpu/os/table/download/$db_version/$cpu_id/$os_id") || {
+            log "    => SKIP: API 请求重试后仍失败"
             failed=$((failed + 1))
             continue
         }
@@ -86,6 +105,11 @@ failed=0
         printf "%s\t%s\t%s\t%s\t-\n" "$arch" "$cpu_key" "$os_key" "$full_url"
         found=$((found + 1))
     done
-} >"${OUT_FILE}"
+} >"${tmp_file}"
+
+# 任一平台失败时保留旧文件，避免自动提交缺少平台的版本列表。
+[ "$found" -gt 0 ] && [ "$failed" -eq 0 ] \
+    || fail "版本列表不完整（${found} 个成功，${failed} 个失败），保留原文件 ${OUT_FILE}"
+mv -- "$tmp_file" "$OUT_FILE"
 
 ok "已写入 ${OUT_FILE}（${found} 个平台${failed:+，${failed} 个跳过}）"
