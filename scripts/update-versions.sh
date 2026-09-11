@@ -11,8 +11,12 @@ log()  { printf "[%s] -- %s\n"  "$(date -u +%H:%M:%S)" "$*" >&2; }
 ok()   { printf "[%s] OK %s\n"  "$(date -u +%H:%M:%S)" "$*" >&2; }
 fail() { printf "[%s] ERR %s\n" "$(date -u +%H:%M:%S)" "$*" >&2; exit 1; }
 
-# 从单行 JSON 提取指定 key 的字符串值；缺失字段返回空串，交由调用处判断。
-json_val() { sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | sed -n '1p'; }
+# 从单行 JSON 提取第一个匹配 key 的字符串值；缺失字段返回空串，交由调用处判断。
+# 接口响应可能包含多个 dbVersion，首项才是当前 DM8 版本。
+json_val() {
+    grep -Eo "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
+        | sed -n '1{s/^[^:]*:[[:space:]]*\"//;s/\"$//;p;}'
+}
 
 # 单次响应独立保存，防止重试时将失败响应拼进成功的 JSON。
 request_api() {
