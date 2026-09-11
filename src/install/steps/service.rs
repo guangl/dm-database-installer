@@ -196,7 +196,7 @@ async fn register_dmserver(
 ) -> Result<()> {
     let name = service_name(config);
     let dm_ini = dm_ini_path(config);
-    let service_bin = format!("{}/bin/{}", config.install_path, &name);
+    let service_bin = format!("{}/bin/{}", config.install_path, name);
 
     if is_active(runner, &name).await {
         crate::ui::log_info(&format!("[续] 数据库服务 {} 已在运行，跳过注册", name));
@@ -208,7 +208,7 @@ async fn register_dmserver(
          || test -f /etc/init.d/{s} \
          || test -f {bin} \
          && echo registered || echo unregistered",
-        s = &name,
+        s = name,
         bin = shell_quote(&service_bin),
     );
     let (check_out, _) = runner.exec(&check_cmd).await.unwrap_or_default();
@@ -227,7 +227,7 @@ async fn register_dmserver(
         crate::ui::log_info(&format!("[续] 数据库服务 {} 已注册，跳过注册步骤", name));
     }
 
-    crate::ui::log_info(&format!("启动 dmserver 服务 {}...", &name));
+    crate::ui::log_info(&format!("启动 dmserver 服务 {}...", name));
     let start_cmd = format!(
         "su - dmdba -c {} 2>&1 || systemctl start {} 2>&1",
         shell_quote(&format!("{} start", service_bin)),
