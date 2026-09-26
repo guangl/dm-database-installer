@@ -1,5 +1,5 @@
 # DM8 安装包下载地址（由 scripts/update-versions.sh 自动生成）
-# updated: 2026-09-25T05:51:25Z
+# updated: 2026-09-26T05:52:10Z
 # 格式: arch<TAB>cpu<TAB>os<TAB>url<TAB>sha256
 # sha256 为 '-' 表示暂无校验和，填入 64 位十六进制字符串后自动启用下载校验
 x86_64	x86	rhel7	https://download.dameng.com/eco/adapter/DM8/202607/dm8_20260710_x86_rh7_64.zip	-
