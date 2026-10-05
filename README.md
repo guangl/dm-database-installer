@@ -53,6 +53,41 @@ DM_INSTALL_PATH=/opt/dmdbms DM_PORT=5237 bash -c \
 
 > 仅支持 Linux（x86_64 / aarch64）。需要 root 权限或具有 sudo 权限的普通用户。安装完成后会输出随机生成的 SYSDBA / SYSAUDITOR 密码，请妥善保存。
 
+### 作为 dameng-cli 插件使用
+
+发布包含插件资产的版本后，可安装并通过 `dm installer` 使用：
+
+```sh
+dm install https://github.com/guangl/dm-database-installer.git
+dm installer init standalone
+dm installer validate
+dm installer install
+dm update installer
+```
+
+插件需要 dameng-cli >= 0.4.0。所有子命令及参数与 `dm_installer` 一致；
+`config.toml`、单机/集群配置、下载包和部署检查点继续位于调用时的工作目录，
+因此请在各部署项目目录运行命令。宿主配置目录不作为部署配置的默认来源。
+插件入口不允许 `self-update`（包括 `--check`），请使用 `dm update` 检查更新、
+`dm update installer` 升级，保持宿主记录的版本与校验和一致。
+
+本地构建和安装无需等待发布：
+
+```sh
+cargo build --release --locked --bin dm-installer
+mkdir -p target/plugin-installer
+cp dm-plugin.toml target/release/dm-installer target/plugin-installer/
+dm install ./target/plugin-installer --check
+dm install ./target/plugin-installer
+dm installer --help
+```
+
+插件通过 SDK 校验 v1 运行协议，支持 stdin/stdout/stderr 和退出码透传；
+退出码 0 表示成功，1 表示运行或协议错误，2 表示参数错误。
+运行环境允许继承 `RUST_LOG`、`DM_ALLOW_UNTESTED_CLUSTER` 和 `HOME`
+（用于 SSH 用户目录查找）。插件不申请额外权限；部署所需权限与独立模式相同。
+独立入口 `dm_installer` 和原有安装方式继续支持。
+
 ### 方式二：安装 dm_installer 管理工具（DBA / 生产环境推荐）
 
 适合需要自定义参数、SSH 远程部署、主备集群等精细化场景。

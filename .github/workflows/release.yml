@@ -162,6 +162,22 @@ jobs:
           # Actually do builds and make zips and whatnot
           dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
+      - name: Package dameng-cli plugin assets
+        shell: bash
+        run: |
+          for target in ${{ join(matrix.targets, ' ') }}; do
+            archive="target/distrib/dm-database-installer-${target}.tar.xz"
+            if [ ! -f "$archive" ]; then
+              archive="target/distrib/dm-database-installer-${target}.tar.gz"
+            fi
+            python3 scripts/package_plugin.py "$archive" "$target" target/plugin-assets
+          done
+      - name: Upload dameng-cli plugin assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: artifacts-plugin-${{ join(matrix.targets, '_') }}
+          path: target/plugin-assets/*
+          if-no-files-found: error
       - id: cargo-dist
         name: Post-build
         # We force bash here just because github makes it really hard to get values up

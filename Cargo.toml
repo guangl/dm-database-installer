@@ -2,6 +2,7 @@
 name = "dm-database-installer"
 version = "2.0.0"
 edition = "2024"
+default-run = "dm_installer"
 description = "达梦数据库安装器 (dm-database-installer) — 单机/集群静默部署工具"
 license = "Apache-2.0"
 repository = "https://github.com/guangl/dm-database-installer"
@@ -10,7 +11,13 @@ repository = "https://github.com/guangl/dm-database-installer"
 name = "dm_installer"
 path = "src/main.rs"
 
+[[bin]]
+name = "dm-installer"
+path = "src/plugin_main.rs"
+doc = false
+
 [dependencies]
+dm-plugin-sdk = { git = "https://github.com/guangl/dm-plugin-sdk.git", rev = "109b1bcd5c8347192a94751c01b2259438942722" }
 clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = "4.6.5"
 tokio = { version = "1.52.3", features = ["full"] }

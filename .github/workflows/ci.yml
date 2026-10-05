@@ -55,5 +55,8 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Test plugin asset packaging
+        run: python3 scripts/test_package_plugin.py
+
       - name: cargo test
         run: cargo test
