@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use super::error::SshError;
 
 /// SSH 命令执行与文件上传能力抽象，支持真实 SSH 和测试 mock 注入。
+// async_trait 为 boxed Future 自动生成 must_use，避免重复属性触发新版 Clippy。
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait CommandRunner: Send + Sync {
     /// 执行远端命令，返回 (stdout_bytes, exit_code)。

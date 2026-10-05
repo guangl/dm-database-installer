@@ -92,7 +92,9 @@ fn find_asset<'a>(release: &'a GithubRelease, target: &str) -> Result<&'a Github
     release
         .assets
         .iter()
-        .find(|a| a.name.contains(target))
+        .find(|a| {
+            a.name.contains(target) && (a.name.ends_with(".tar.gz") || a.name.ends_with(".tar.xz"))
+        })
         .ok_or_else(|| anyhow::anyhow!("找不到当前平台 ({target}) 的发布资产"))
 }
 
@@ -177,4 +179,32 @@ fn replace_binary(exe_path: &std::path::Path, binary: &[u8]) -> Result<()> {
     std::fs::rename(&temp_path, exe_path).context("替换可执行文件失败")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_asset_ignores_plugin_and_checksum_assets() {
+        let target = "aarch64-apple-darwin";
+        let release = GithubRelease {
+            tag_name: "v2.0.0".into(),
+            assets: [
+                "dm-installer-aarch64-macos",
+                "dm-database-installer-aarch64-apple-darwin.tar.xz.sha256",
+                "dm-database-installer-aarch64-apple-darwin.tar.xz",
+            ]
+            .into_iter()
+            .map(|name| GithubAsset {
+                name: name.into(),
+                browser_download_url: format!("https://example.com/{name}"),
+            })
+            .collect(),
+        };
+        assert_eq!(
+            find_asset(&release, target).unwrap().name,
+            "dm-database-installer-aarch64-apple-darwin.tar.xz"
+        );
+    }
 }

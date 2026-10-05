@@ -1,0 +1,8 @@
+name = "installer"
+version = "2.0.0"
+description = "达梦数据库单机与集群部署工具"
+api_version = 1
+min_host_version = "0.4.0"
+license = "Apache-2.0"
+homepage = "https://github.com/guangl/dm-database-installer"
+environment = ["RUST_LOG", "DM_ALLOW_UNTESTED_CLUSTER", "HOME"]
