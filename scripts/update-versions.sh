@@ -2,8 +2,8 @@
 # 通过 eco.dameng.com API 获取 DM8 各 CPU/OS 平台下载链接，写入 versions.txt
 set -euo pipefail
 
-API_BASE="https://eco.dameng.com/eco-download-server"
-CDN_BASE="https://download.dameng.com"
+API_BASE="${API_BASE:-https://eco.dameng.com/eco-download-server}"
+CDN_BASE="${CDN_BASE:-https://download.dameng.com}"
 OUT_FILE="${1:-$(cd "$(dirname "$0")/.." && pwd)/versions.txt}"
 
 # 日志输出到 stderr，不影响 stdout 重定向到文件
@@ -57,14 +57,37 @@ PLATFORMS=(
     "98  14  sw_64       sw3231   kylin10      申威3231 麒麟10"
 )
 
+# 上游短暂不可用时继续使用仓库中已验证的完整列表，避免定时任务产生假失败。
+has_complete_existing_list() {
+    [ -f "$OUT_FILE" ] && awk -v expected="${#PLATFORMS[@]}" '
+        !/^#/ && NF {
+            count++
+            if (NF < 5 || $4 !~ /^https:\/\//) invalid = 1
+        }
+        END { exit !(count == expected && !invalid) }
+    ' "$OUT_FILE"
+}
+
+preserve_existing_or_fail() {
+    local reason="$1"
+    if has_complete_existing_list; then
+        log "WARN ${reason}；保留已有完整列表 ${OUT_FILE}"
+        if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+            printf '::warning::%s；已保留已有完整版本列表\n' "$reason" >&2
+        fi
+        exit 0
+    fi
+    fail "${reason}，且 ${OUT_FILE} 中没有可回退的完整版本列表"
+}
+
 # ── 1. 获取当前 DM8 版本号 ────────────────────────────────────────────────────────
 log "请求 eco.dameng.com 平台列表..."
 page_resp=$(request_api "$API_BASE/cpu/os/table/page/data") \
-    || fail "达梦平台列表请求重试后仍失败，具体原因见上方 curl 日志"
+    || preserve_existing_or_fail "达梦平台列表请求重试后仍失败"
 
 db_version=$(printf '%s' "$page_resp" | json_val "dbVersion") \
-    || fail "响应中未找到 dbVersion 字段"
-[ -n "$db_version" ] || fail "dbVersion 为空"
+    || preserve_existing_or_fail "平台列表响应中未找到 dbVersion 字段"
+[ -n "$db_version" ] || preserve_existing_or_fail "平台列表响应中的 dbVersion 为空"
 ok "DM8 dbVersion = ${db_version}"
 
 # ── 2. 逐平台请求下载链接，写入 versions.txt ────────────────────────────────────
@@ -113,7 +136,15 @@ trap 'rm -f -- "$tmp_file"' EXIT
 
 # 任一平台失败时保留旧文件，避免自动提交缺少平台的版本列表。
 [ "$found" -gt 0 ] && [ "$failed" -eq 0 ] \
-    || fail "版本列表不完整（${found} 个成功，${failed} 个失败），保留原文件 ${OUT_FILE}"
+    || preserve_existing_or_fail "上游版本列表不完整（${found} 个成功，${failed} 个失败）"
+
+# 下载链接未变化时保留原更新时间，避免定时任务每天产生仅时间戳不同的提交。
+if [ -f "$OUT_FILE" ] \
+    && cmp -s <(grep -v '^# updated:' "$OUT_FILE") <(grep -v '^# updated:' "$tmp_file"); then
+    ok "下载链接没有变化，保留现有文件 ${OUT_FILE}"
+    exit 0
+fi
+
 mv -- "$tmp_file" "$OUT_FILE"
 
 ok "已写入 ${OUT_FILE}（${found} 个平台${failed:+，${failed} 个跳过}）"
